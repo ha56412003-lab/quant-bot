@@ -13,7 +13,7 @@ from . import config
 
 log = logging.getLogger("clawby")
 
-_MIN_GAP = 0.25          # admin plan: 360/min; stay well under
+_MIN_GAP = 3.2           # free plan: 20 req/min → 1 call per 3.2s with headroom
 _last_call = 0.0
 _gap_lock = asyncio.Lock()
 

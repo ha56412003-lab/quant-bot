@@ -1,0 +1,26 @@
+# Credentials — never commit this file
+.env
+.env.local
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Data
+quantbot.db
+backtest/data/
+backtest/reports/
+data/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend-v2/node_modules/
+frontend-v2/dist/
+
+# 运行时产物
+logs/
+*.bak_*
+*.log.old

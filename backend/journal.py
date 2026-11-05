@@ -5,7 +5,6 @@ signal reason, hold time. Files: journal/trades-YYYY-MM-DD.jsonl (UTC days).
 import json
 import logging
 import time
-from pathlib import Path
 
 from . import config
 

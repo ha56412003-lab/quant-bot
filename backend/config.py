@@ -22,7 +22,12 @@ _env_lock = threading.Lock()
 def _load_env():
     if not ENV_PATH.exists():
         return
-    for line in ENV_PATH.read_text().splitlines():
+    # 必须显式 utf-8：.env 里有中文注释，Windows 默认 GBK 会 UnicodeDecodeError 直接崩启动
+    try:
+        raw = ENV_PATH.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        raw = ENV_PATH.read_text(encoding="utf-8", errors="replace")
+    for line in raw.splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -79,6 +84,10 @@ def _migrate(cfg):
     (cfg, changed)."""
     changed = False
     g = cfg.setdefault("global", {})
+    if "daily_target" not in g:
+        g["daily_target"] = {
+            "enabled": False, "target_usd": 200, "sustain_sec": 300,
+            "auto_close_sec": 1800, "pause_new": True, "notify": True}
     if "universe" not in g or not g["universe"]:
         g["universe"] = list(DEFAULT_UNIVERSE)
         changed = True
@@ -105,7 +114,26 @@ def load_strategies():
     uni = cfg.get("global", {}).get("universe")
     if uni:
         UNIVERSE = list(uni)
+    # 候选池优先：pool.load() 已把每天筛出的 100 只读到内存，有则用它替换 universe
+    # （延迟导入，避免 config ← binance ← config 循环）
+    try:
+        from . import pool as _pool
+        cand = _pool.symbols()
+        if cand:
+            UNIVERSE = list(cand)
+    except Exception:  # noqa: BLE001
+        pass
     return cfg
+
+
+def pools() -> dict:
+    """三层池配置（strategies.yaml 的 pools 段），缺段时返回空字典。"""
+    try:
+        with _lock:
+            cfg = yaml.safe_load(STRATEGIES_PATH.read_text(encoding="utf-8")) or {}
+        return cfg.get("pools") or {}
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 def _write(cfg):
@@ -205,7 +233,13 @@ def set_global_risk(updates):
     cfg = load_strategies()
     g = cfg.setdefault("global", {})
     for k in ("max_gross_leverage", "daily_loss_halt_pct", "risk_per_trade_pct",
-              "max_concurrent_coins", "max_position_pct_per_coin", "event_quiet_minutes"):
+              "max_concurrent_coins", "max_position_pct_per_coin", "event_quiet_minutes",
+              "max_same_side"):
+        pass
+    for k in ("enabled", "target_usd", "sustain_sec", "auto_close_sec", "pause_new", "notify"):
+        if "daily_target" in updates and isinstance(updates["daily_target"], dict) and k in updates["daily_target"]:
+            g.setdefault("daily_target", {})[k] = updates["daily_target"][k]
+    for k in ():
         if k in updates and updates[k] is not None:
             g[k] = updates[k]
     save_strategies(cfg)
@@ -281,7 +315,7 @@ def save_credentials(updates):
             to_set[envk] = str(updates[k]).strip()
 
     with _env_lock:
-        lines = ENV_PATH.read_text().splitlines() if ENV_PATH.exists() else []
+        lines = ENV_PATH.read_text(encoding="utf-8").splitlines() if ENV_PATH.exists() else []
         seen = set()
         out = []
         for line in lines:
@@ -296,7 +330,7 @@ def save_credentials(updates):
         for key, val in to_set.items():
             if key not in seen:
                 out.append(f"{key}={val}")
-        ENV_PATH.write_text("\n".join(out) + "\n")
+        ENV_PATH.write_text("\n".join(out) + "\n", encoding="utf-8")
         ENV_PATH.chmod(0o600)
 
     for envk, val in to_set.items():

@@ -70,6 +70,8 @@ def init():
             "ALTER TABLE positions ADD COLUMN reason TEXT NOT NULL DEFAULT ''",
             # paper/live segregation: history predating the column is paper
             "ALTER TABLE positions ADD COLUMN mode TEXT NOT NULL DEFAULT 'paper'",
+            "ALTER TABLE positions ADD COLUMN leverage REAL",
+            "ALTER TABLE positions ADD COLUMN extra_margin REAL NOT NULL DEFAULT 0",
             "ALTER TABLE equity_curve ADD COLUMN mode TEXT NOT NULL DEFAULT 'paper'",
         ):
             try:
@@ -91,6 +93,26 @@ def init():
                     SELECT ts, equity, balance, unrealized, mode FROM equity_curve_old;
                 DROP TABLE equity_curve_old;
             """)
+
+
+    # 影子模式（因子打分，不干预实盘）
+    _conn.executescript("""
+        CREATE TABLE IF NOT EXISTS shadow_signals(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts INTEGER NOT NULL,
+            strategy TEXT, symbol TEXT, side TEXT,
+            strength REAL, fresh INTEGER,
+            px REAL, stop REAL, tp REAL,
+            funding REAL, taker REAL, lsr REAL, cvd REAL,
+            r1 INTEGER DEFAULT 0, r1_why TEXT,
+            r2 INTEGER DEFAULT 0, r2_why TEXT,
+            r3 INTEGER DEFAULT 0,
+            acted INTEGER DEFAULT 0,
+            outcome TEXT, outcome_r REAL, settled_ts INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_shadow_ts ON shadow_signals(ts);
+        CREATE INDEX IF NOT EXISTS idx_shadow_open ON shadow_signals(outcome);
+    """)
 
 
 def current_mode():
@@ -176,13 +198,13 @@ def open_position(**kw):
         cur = _conn.execute(
             "INSERT INTO positions(strategy,symbol,side,qty,entry_price,stop_price,"
             "take_profit,trail_atr,opened_at,max_hold_sec,time_exit_at,extreme,status,"
-            "entry_factors,reason,mode) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?,?)",
+            "entry_factors,reason,mode,leverage,extra_margin) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?,?,?,?)",
             (kw["strategy"], kw["symbol"], kw["side"], kw["qty"], kw["entry_price"],
              kw.get("stop_price"), kw.get("take_profit"), kw.get("trail_atr"),
              int(time.time()), kw["max_hold_sec"], kw.get("time_exit_at"),
              kw["entry_price"], kw.get("entry_factors"), kw.get("reason", ""),
-             mode))
+             mode, kw.get("leverage"), kw.get("extra_margin", 0.0)))
     return cur.lastrowid
 
 
@@ -190,6 +212,24 @@ def get_position(pid):
     with _lock:
         row = _conn.execute("SELECT * FROM positions WHERE id=?", (pid,)).fetchone()
     return dict(row) if row else None
+
+
+def set_position_field(pid, field, value):
+    """更新单个仓位的一个字段（白名单校验）。"""
+    allowed = {"leverage", "extra_margin"}
+    if field not in allowed:
+        raise ValueError(f"field {field} not allowed")
+    with _lock, _conn:
+        _conn.execute(f"UPDATE positions SET {field}=? WHERE id=?", (value, pid))
+
+
+def add_extra_margin(pid, amount):
+    """追加保证金（累加），返回新值。"""
+    with _lock, _conn:
+        _conn.execute("UPDATE positions SET extra_margin=COALESCE(extra_margin,0)+? WHERE id=?",
+                      (amount, pid))
+        row = _conn.execute("SELECT extra_margin FROM positions WHERE id=?", (pid,)).fetchone()
+    return float(row[0] or 0) if row else 0.0
 
 
 def open_positions(strategy=None, symbol=None, mode="auto"):
@@ -268,6 +308,19 @@ def record_equity(equity, balance, unrealized, mode=None):
             (ts, equity, balance, unrealized, mode))
 
 
+def day_start_equity(mode=None):
+    """当日 00:00 之后第一个净值点；没有则返回 0。"""
+    import datetime as _dt
+    today = int(_dt.datetime.now().replace(hour=0, minute=0, second=0,
+                                           microsecond=0).timestamp())
+    m = mode or current_mode()
+    with _lock:
+        row = _conn.execute(
+            "SELECT equity FROM equity_curve WHERE mode=? AND ts>=? ORDER BY ts LIMIT 1",
+            (m, today)).fetchone()
+    return float(row[0]) if row else 0.0
+
+
 def equity_series(limit=2880, mode="auto"):
     if mode == "auto":
         mode = current_mode()
@@ -305,8 +358,78 @@ def recent_logs(limit=100):
     return [dict(r) for r in rows]
 
 
-def prune():
-    cutoff = int(time.time()) - 14 * 86400
+def prune(factor_days: int = 14, log_days: int = 30) -> dict:
+    """删过期数据，返回各表删除行数。
+
+    factor_history 增长最快（每个因子每次采集一行），保留 14 天足够做近期对比。
+    logs 是运维日志，保留 30 天。
+    signals / shadow_signals / equity_curve / trades 一律不动 —— 那是交易与分析资产。
+    """
+    now = int(time.time())
+    fc, lc = now - factor_days * 86400, now - log_days * 86400
     with _lock, _conn:
-        _conn.execute("DELETE FROM factor_history WHERE ts<?", (cutoff,))
-        _conn.execute("DELETE FROM logs WHERE ts<?", (cutoff,))
+        nf = _conn.execute("DELETE FROM factor_history WHERE ts<?", (fc,)).rowcount
+        nl = _conn.execute("DELETE FROM logs WHERE ts<?", (lc,)).rowcount
+    return {"factor_history": nf, "logs": nl}
+
+# ── 影子模式 ─────────────────────────────────────────────────
+
+def shadow_insert(**kw):
+    cols = ("ts,strategy,symbol,side,strength,fresh,px,stop,tp,funding,"
+            "taker,lsr,cvd,r1,r1_why,r2,r2_why,r3,acted")
+    keys = ("ts","strategy","symbol","side","strength","fresh","px","stop","tp","funding",
+            "taker","lsr","cvd","r1","r1_why","r2","r2_why","r3","acted")
+    with _lock, _conn:
+        cur = _conn.execute(
+            "INSERT INTO shadow_signals(" + cols + ") VALUES(" + ",".join("?"*len(keys)) + ")",
+            tuple(kw.get(k) for k in keys))
+        return cur.lastrowid
+
+
+def shadow_pending():
+    """未结算的影子信号（30 分钟内、超过 2 分钟避免刚开就判）。"""
+    with _lock:
+        rows = _conn.execute(
+            "SELECT * FROM shadow_signals WHERE outcome IS NULL AND ts < ? "
+            "ORDER BY id DESC LIMIT 400", (int(time.time()) - 120,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def shadow_settle(sid, outcome, r_mult, ts=None):
+    with _lock, _conn:
+        _conn.execute(
+            "UPDATE shadow_signals SET outcome=?, outcome_r=?, settled_ts=? WHERE id=?",
+            (outcome, float(r_mult), int(ts or time.time()), int(sid)))
+
+
+def shadow_recent(limit=100):
+    with _lock:
+        rows = _conn.execute(
+            "SELECT * FROM shadow_signals ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def shadow_stats():
+    """各规则下的胜率与平均 R。"""
+    with _lock:
+        rows = _conn.execute(
+            "SELECT r1,r2,r3,acted,outcome,outcome_r FROM shadow_signals "
+            "WHERE outcome IS NOT NULL").fetchall()
+    def agg(items):
+        n = len(items)
+        if not n:
+            return dict(n=0, win=0.0, avg_r=0.0)
+        wins = sum(1 for x in items if (x["outcome_r"] or 0) > 0)
+        return dict(n=n, win=round(wins/n*100, 1),
+                    avg_r=round(sum(x["outcome_r"] or 0 for x in items)/n, 3))
+    rows = [dict(r) for r in rows]
+    return {
+        "all": agg(rows),
+        "r1_pass": agg([r for r in rows if not r["r1"]]),
+        "r1_block": agg([r for r in rows if r["r1"]]),
+        "r2_pass": agg([r for r in rows if not r["r2"]]),
+        "r2_block": agg([r for r in rows if r["r2"]]),
+        "r3_half": agg([r for r in rows if r["r3"]]),
+        "acted": agg([r for r in rows if r["acted"]]),
+        "skipped": agg([r for r in rows if not r["acted"]]),
+    }

@@ -7,7 +7,7 @@ the <=24h intraday constraint via max_hold_sec.
 import logging
 import statistics
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from . import binance, db, factors
 
@@ -26,6 +26,8 @@ class Signal:
     max_hold_sec: int = 86400
     time_exit_at: int = 0
     size_mult: float = 1.0
+    fresh: int = 999          # 距信号触发（如 CE 翻转）已过几根 K 线，越小越新鲜
+    strength: float = 0.0     # 信号强度（如 |close-ZLSMA| / ATR），越大趋势越强
 
 
 def _z(series, value=None, window=None):
@@ -415,6 +417,366 @@ class S14VwapRevert(Base):
 
 
 
+# ── S15 Chandelier Exit [everget] + ZLSMA [veryfid] ─────────────────────────
+# 纯 K 线计算，不依赖 Clawby 因子 -> 零额度消耗。
+# 公式严格对齐作者原版：CE 用 useClose 极值 + 棘轮(只朝有利方向移动) + dir 状态机。
+
+
+def _linreg(vals, length, offset=0):
+    """Pine ta.linreg 语义：最近 length 个值做最小二乘，取 offset 位置。"""
+    n = len(vals)
+    out: list = [None] * n
+    if length < 2 or n < length:
+        return out
+    sx = length * (length - 1) / 2.0
+    sxx = (length - 1) * length * (2 * length - 1) / 6.0
+    denom = length * sxx - sx * sx
+    if denom == 0:
+        return out
+    for i in range(length - 1, n):
+        w = vals[i - length + 1:i + 1]
+        if any(v is None for v in w):
+            continue
+        sy = sxy = 0.0
+        for j, v in enumerate(w):
+            sy += v
+            sxy += j * v
+        slope = (length * sxy - sx * sy) / denom
+        inter = (sy - slope * sx) / length
+        out[i] = slope * (length - 1 - offset) + inter
+    return out
+
+
+def _rma(vals, length):
+    """Pine ta.rma（Wilder 平滑）。"""
+    n = len(vals)
+    out: list = [None] * n
+    acc = None
+    for i in range(n):
+        v = vals[i]
+        if v is None:
+            continue
+        if acc is None:
+            if i >= length - 1:
+                w = vals[i - length + 1:i + 1]
+                if any(x is None for x in w):
+                    continue
+                acc = sum(w) / length
+                out[i] = acc
+        else:
+            acc = (acc * (length - 1) + v) / length
+            out[i] = acc
+    return out
+
+
+def _ce_zlsma(ks, ce_len=22, ce_mult=3.0, z_len=32, use_close=True):
+    """返回 {zlsma, atr, dir, close, open} 序列。"""
+    close = [float(k["close"]) for k in ks]
+    openp = [float(k["open"]) for k in ks]
+    high = [float(k["high"]) for k in ks]
+    low = [float(k["low"]) for k in ks]
+    n = len(close)
+
+    l1 = _linreg(close, z_len, 0)
+    l2 = _linreg(l1, z_len, 0)
+    zlsma = [None if (a is None or b is None) else a + (a - b) for a, b in zip(l1, l2)]
+
+    tr = [None] * n
+    for i in range(1, n):
+        tr[i] = max(high[i] - low[i], abs(high[i] - close[i - 1]), abs(low[i] - close[i - 1]))
+    atr = _rma(tr, ce_len)
+
+    long_stop: list = [None] * n
+    short_stop: list = [None] * n
+    dirs: list = [1] * n
+    for i in range(n):
+        if atr[i] is None or i < ce_len:
+            continue
+        if use_close:
+            hh = max(close[i - ce_len + 1:i + 1])
+            ll = min(close[i - ce_len + 1:i + 1])
+        else:
+            hh = max(high[i - ce_len + 1:i + 1])
+            ll = min(low[i - ce_len + 1:i + 1])
+        adj = ce_mult * atr[i]
+        ls_raw, ss_raw = hh - adj, ll + adj
+        ls_prev = long_stop[i - 1] if long_stop[i - 1] is not None else ls_raw
+        ss_prev = short_stop[i - 1] if short_stop[i - 1] is not None else ss_raw
+        # 棘轮：多头止损只上移，空头止损只下移
+        long_stop[i] = max(ls_raw, ls_prev) if close[i - 1] > ls_prev else ls_raw
+        short_stop[i] = min(ss_raw, ss_prev) if close[i - 1] < ss_prev else ss_raw
+        if close[i] > ss_prev:
+            dirs[i] = 1
+        elif close[i] < ls_prev:
+            dirs[i] = -1
+        else:
+            dirs[i] = dirs[i - 1]
+    return dict(zlsma=zlsma, atr=atr, dir=dirs, close=close, open=openp,
+                long_stop=long_stop, short_stop=short_stop)
+
+
+_LAST_BAR = {}   # (sid, symbol) -> 已评估过的K线时间戳，防止高频扫描重复出信号
+
+
+class S15CeZlsma(Base):
+    sid = "S15_CE_ZLSMA"
+    FACTORS = []                 # 不需要任何 Clawby 因子，不消耗额度
+    DEFAULT_INTERVAL = 1800      # 1h K线，每 30 分钟检查一次
+    META = {
+        "name": "CE+ZLSMA 趋势跟随", "type": "趋势跟随 / 中线", "direction": "双向",
+        "logic": "Chandelier Exit 用 ATR 画一条只朝有利方向移动的止损线来判定大方向；"
+                 "ZLSMA 是零延迟线性回归均线，用来等回调结束的那根关键K线。"
+                 "大方向对 + 关键K线出现 = 顺势进场，用 ATR 倍数止损、固定 R 倍数止盈。",
+        "entry": "做多 = CE 处于多头状态 且 上一根为收盘站上 ZLSMA 的阳线；做空镜像。",
+        "exit": "止损 = 入场价 - ATR×倍数；止盈 = 止损距离 × R 倍数；另有最长持仓时间兜底。",
+        "factors": "1h K线（自算 ZLSMA32 / ATR22 / Chandelier 棘轮）",
+        "risk": "震荡市会被反复止损；1h 以下周期手续费占比过高，回测显示 5m/15m 均为负期望。",
+        "name_en": "CE + ZLSMA Trend Follow",
+        "logic_en": "Chandelier Exit draws a one-way ratcheting ATR stop that defines the regime; "
+                    "ZLSMA (zero-lag linreg average) times the pullback-end key bar. "
+                    "Right regime + key bar = trend entry, ATR-multiple stop and fixed-R target.",
+        "entry_en": "Long = CE in long state AND last closed bar is a bullish bar closing above ZLSMA; short mirrored.",
+        "exit_en": "SL = entry - ATR x mult; TP = stop distance x R; max-hold as backstop.",
+        "factors_en": "1h klines (self-computed ZLSMA32 / ATR22 / ratcheting Chandelier)",
+        "risk_en": "Choppy markets stop you out repeatedly; below 1h the fee drag makes expectancy negative.",
+    }
+
+    def _p(self, key, default):
+        try:
+            return type(default)(self.p.get(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    async def evaluate(self, ctx) -> list:
+        ce_len = int(self._p("ce_len", 22))
+        ce_mult = float(self._p("ce_mult", 3.0))
+        z_len = int(self._p("zlsma_len", 32))
+        stop_mult = float(self._p("stop_atr_mult", 3.0))
+        rr = float(self._p("rr_ratio", 2.0))
+        use_close = bool(self._p("use_close", True))
+        kline_iv = str(self.p.get("kline_interval", "1h"))
+
+        need = max(ce_len, z_len * 2) + 80
+        out = []
+
+        for sym in self.syms(ctx):
+            try:
+                if ctx.has_position(sym, self.sid):
+                    continue
+                ks = await ctx.klines(sym, kline_iv, need)
+                if not ks or len(ks) < need:
+                    continue
+
+                ind = _ce_zlsma(ks, ce_len, ce_mult, z_len, use_close)
+                i = len(ks) - 2          # 最后一根已收完的 K 线
+                if i < 1:
+                    continue
+                # 同一根已收完的K线只评估一次，避免 2 分钟扫描把同一信号记多遍
+                bar_key = (self.sid, sym)
+                bar_ts = ks[i].get("ts", i)
+                if _LAST_BAR.get(bar_key) == bar_ts:
+                    continue
+                _LAST_BAR[bar_key] = bar_ts
+
+                z, atr, dirs = ind["zlsma"][i], ind["atr"][i], ind["dir"][i]
+                dirs_arr = ind["dir"]
+                if z is None or atr is None or atr <= 0:
+                    continue
+                z = float(z)
+                atr = float(atr)
+                dirs = int(dirs or 1)
+
+                c, o = ind["close"][i], ind["open"][i]
+                key_long = c > z and c > o
+                key_short = c < z and c < o
+                px = ctx.price(sym) or c
+                if px <= 0:
+                    continue
+                # 信号新鲜度：距上一次 CE 方向翻转已过几根 K 线（0 = 本根刚翻）
+                j = i
+                while j > 0 and int(dirs_arr[j] or 1) == int(dirs_arr[j - 1] or 1):
+                    j -= 1
+                fresh = i - j
+                # 信号强度：收盘价偏离 ZLSMA 的幅度（以 ATR 为单位），越大趋势越强
+                strength = abs(c - z) / atr if atr > 0 else 0.0
+
+                if dirs == 1 and key_long:
+                    stop = px - atr * stop_mult
+                    if stop <= 0:
+                        continue
+                    out.append(Signal(
+                        strategy=self.sid, symbol=sym, side="long",
+                        reason=f"CE多头+阳线站上ZLSMA(RSI无关) ATR={atr:.4g}",
+                        stop_price=round(stop, 8),
+                        take_profit=round(px + (px - stop) * rr, 8),
+                        max_hold_sec=self.max_hold,
+                        fresh=fresh, strength=strength,
+                    ))
+                elif dirs == -1 and key_short:
+                    stop = px + atr * stop_mult
+                    out.append(Signal(
+                        strategy=self.sid, symbol=sym, side="short",
+                        reason=f"CE空头+阴线跌破ZLSMA ATR={atr:.4g}",
+                        stop_price=round(stop, 8),
+                        take_profit=round(max(px - (stop - px) * rr, 1e-8), 8),
+                        max_hold_sec=self.max_hold,
+                        fresh=fresh, strength=strength,
+                    ))
+            except Exception as exc:  # noqa: BLE001
+                log.warning("S15 %s 计算失败: %s", sym, exc)
+        return out
+
+
+
+
+# ── S16 UT Bot + STC + Hull Suite ───────────────────────────────────────────
+# 三指标共振：UT Bot 给方向信号、STC 确认超卖/超买反转、Hull 船体均线做趋势过滤。
+# 出场：收盘价穿回 Hull 均线即离场（回测证明优于固定 R 止盈：+25.95% vs -8.19%）。
+
+_HULL_CACHE = {}   # (symbol, bar_ts) -> (hull_value, close_value)
+
+
+class S16UtStcHull(Base):
+    sid = "S16_UT_STC_HULL"
+    FACTORS = []                 # 纯 K 线，零 Clawby 额度
+    DEFAULT_INTERVAL = 900       # 15m K 线
+    META = {
+        "name": "UT+STC+船体均线", "type": "三指标共振 / 中线", "direction": "双向",
+        "logic": "UT Bot(ATR追踪止损)给出方向翻转信号，STC 确认动能从超卖/超买区反转，"
+                 "Hull 船体均线（低延迟）确认趋势方向；三者同向且出现关键K线时进场，"
+                 "一直持有到收盘价重新穿过 Hull 均线。",
+        "entry": "做多 = UT 买入信号 + STC<25 且上升 + 收盘在 Hull 之上 + 阳线；做空镜像。",
+        "exit": "止损 = 关键K线低点/高点；止盈 = 收盘价反向穿越 Hull 船体均线。",
+        "factors": "15m K线（自算 UT/STC/HMA）",
+        "risk": "5 分钟周期回测为强负期望（手续费吞噬）；震荡市三条件互相冲突，信号稀少。",
+        "name_en": "UT + STC + Hull Suite",
+        "logic_en": "UT Bot flips direction, STC confirms momentum leaving oversold/overbought, "
+                    "Hull MA confirms trend; enter on a key bar when all three agree, hold until "
+                    "close crosses back through the Hull MA.",
+        "entry_en": "Long = UT buy + STC<25 rising + close>Hull + bullish bar; short mirrored.",
+        "exit_en": "SL at the key bar extreme; exit when close crosses back through Hull MA.",
+        "factors_en": "15m klines (self-computed UT / STC / HMA)",
+        "risk_en": "Strongly negative on 5m (fee drag); choppy markets make the three conditions conflict.",
+    }
+
+    def _q(self, key, default):
+        try:
+            return type(default)(self.p.get(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    def _need(self, hull_len):
+        return max(260, hull_len * 3)
+
+    def _calc(self, ks, hull_len, stc_fast, stc_slow):
+        from .indicators_extra import stc, hull_hma
+        close = [float(k["close"]) for k in ks]
+        return stc(close, stc_fast, stc_slow, 10), hull_hma(close, hull_len), close
+
+    async def evaluate(self, ctx) -> list:
+        from .indicators_extra import ut_bot
+        kv = self._q("ut_key_value", 2.0)
+        atrp = self._q("ut_atr_period", 6)
+        stc_fast = int(self._q("stc_fast", 27))
+        stc_slow = int(self._q("stc_slow", 80))
+        hull_len = int(self._q("hull_len", 55))
+        stc_lo = float(self._q("stc_lo", 25.0))
+        stc_hi = float(self._q("stc_hi", 75.0))
+        kline_iv = str(self.p.get("kline_interval", "15m"))
+        need = self._need(hull_len)
+
+        out = []
+        for sym in self.syms(ctx):
+            try:
+                if ctx.has_position(sym, self.sid):
+                    continue
+                ks = await ctx.klines(sym, kline_iv, need)
+                if not ks or len(ks) < need:
+                    continue
+
+                close = [float(k["close"]) for k in ks]
+                high = [float(k["high"]) for k in ks]
+                low = [float(k["low"]) for k in ks]
+                openp = [float(k["open"]) for k in ks]
+
+                buy, sell, _ = ut_bot(close, high, low, kv, atrp)
+                st, hu, _ = self._calc(ks, hull_len, stc_fast, stc_slow)
+
+                i = len(ks) - 2      # 最后一根已收完
+                if i < 2 or st[i] is None or st[i-1] is None or hu[i] is None:
+                    continue
+
+                # 同一根K线只评估一次
+                bar_key = (self.sid, sym)
+                bar_ts = ks[i].get("ts", i)
+                if _LAST_BAR.get(bar_key) == bar_ts:
+                    continue
+                _LAST_BAR[bar_key] = bar_ts
+
+                c, o = close[i], openp[i]
+                stc_up = st[i] < stc_lo and st[i] > st[i-1]
+                stc_dn = st[i] > stc_hi and st[i] < st[i-1]
+                px = ctx.price(sym) or c
+                if px <= 0:
+                    continue
+
+                if buy[i] and stc_up and c > hu[i] and c > o:
+                    stop = low[i]
+                    if stop <= 0 or stop >= px:
+                        continue
+                    out.append(Signal(
+                        strategy=self.sid, symbol=sym, side="long",
+                        reason=f"UT买+STC{st[i]:.0f}回升+站上Hull STC={st[i]:.1f}",
+                        stop_price=round(stop, 8), take_profit=0.0,
+                        max_hold_sec=self.max_hold,
+                    ))
+                elif sell[i] and stc_dn and c < hu[i] and c < o:
+                    stop = high[i]
+                    if stop <= px:
+                        continue
+                    out.append(Signal(
+                        strategy=self.sid, symbol=sym, side="short",
+                        reason=f"UT卖+STC{st[i]:.0f}回落+跌破Hull",
+                        stop_price=round(stop, 8), take_profit=0.0,
+                        max_hold_sec=self.max_hold,
+                    ))
+            except Exception as exc:  # noqa: BLE001
+                log.warning("S16 %s 计算失败: %s", sym, exc)
+        return out
+
+    async def check_exit(self, ctx, pos):
+        """收盘价穿回 Hull 均线即离场（回测最优出场）。"""
+        try:
+            hull_len = int(self.p.get("hull_len", 55))
+            stc_fast = int(self.p.get("stc_fast", 27))
+            stc_slow = int(self.p.get("stc_slow", 80))
+            kline_iv = str(self.p.get("kline_interval", "15m"))
+            sym = pos["symbol"]
+            ks = await ctx.klines(sym, kline_iv, self._need(hull_len))
+            if not ks or len(ks) < 60:
+                return None
+            i = len(ks) - 2
+            bar_ts = ks[i].get("ts", i)
+            ck = (sym, bar_ts, hull_len)
+            hit = _HULL_CACHE.get(ck)
+            if hit is None:
+                _, hu, close = self._calc(ks, hull_len, stc_fast, stc_slow)
+                if hu[i] is None:
+                    return None
+                hit = (hu[i], close[i])
+                if len(_HULL_CACHE) > 500:
+                    _HULL_CACHE.clear()
+                _HULL_CACHE[ck] = hit
+            hull_v, close_v = hit
+            if pos["side"] == "long" and close_v < hull_v:
+                return "收盘跌破船体均线"
+            if pos["side"] == "short" and close_v > hull_v:
+                return "收盘站上船体均线"
+        except Exception as exc:  # noqa: BLE001
+            log.warning("S16 check_exit %s 失败: %s", pos.get("symbol"), exc)
+        return None
+
+
 REGISTRY = {cls.sid: cls for cls in [
-    S02LiqRebound, S06CvdFade, S11CrashScalp, S14VwapRevert,
+    S02LiqRebound, S06CvdFade, S11CrashScalp, S14VwapRevert, S15CeZlsma, S16UtStcHull,
 ]}

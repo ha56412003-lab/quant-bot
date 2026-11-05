@@ -11,7 +11,7 @@ import asyncio
 import logging
 import time
 
-from . import config, db, executor, factors, risk
+from . import config, db, executor, factors, risk, quality, shadow, daily_target
 from .strategies import REGISTRY, Ctx
 
 log = logging.getLogger("engine")
@@ -134,6 +134,14 @@ async def scan_loop():
                 equity_cache = eq
                 db.record_equity(eq, bal, upnl)
                 risk.check_daily_halt(eq, cfg_global)
+                # 日目标（落袋）状态机
+                try:
+                    _dse = db.day_start_equity()
+                    _dtc = daily_target.cfg(cfg_global)
+                    if _dse > 0:
+                        await daily_target.tick(eq, _dse, executor.close_all, _dtc)
+                except Exception as _exc:  # noqa: BLE001
+                    log.debug("daily_target tick failed: %s", _exc)
                 last_book = time.time()
 
             strategies = _strategies(cfg)
@@ -149,8 +157,24 @@ async def scan_loop():
                     log.exception("strategy %s evaluate failed", sid)
                     db.log("error", f"{sid} 评估异常: {exc}")
                     continue
+                # 择优入场：强度高且新鲜（翻转后根数少）的信号优先，
+                # 避免"列表顺序先到先得"把额度浪费在弱信号上。
+                signals.sort(key=lambda s: -(
+                    getattr(s, "strength", 0.0)
+                    / (1.0 + 0.3 * max(0, getattr(s, "fresh", 999)))))
                 for sig in signals:
+                    qok, qwhy = quality.is_tradable(sig.symbol)
+                    if not qok:
+                        db.log_signal(sig.strategy, sig.symbol, sig.side, sig.reason,
+                                      False, f"杂讯过滤:{qwhy}")
+                        continue
                     allowed, why, mult = risk.allow_entry(sig, scfg, equity_cache, cfg_global)
+                    # 影子模式：不管开没开仓，都记录三套因子规则的判定 + 虚拟跟踪
+                    try:
+                        _px = factors.mark_price_of(sig.symbol) or sig.stop_price
+                        shadow.record(sig, _px, sig.stop_price, sig.take_profit, acted=allowed)
+                    except Exception as _exc:  # noqa: BLE001
+                        log.debug("shadow record failed: %s", _exc)
                     if not allowed:
                         db.log_signal(sig.strategy, sig.symbol, sig.side, sig.reason, False, why)
                         continue
@@ -162,6 +186,10 @@ async def scan_loop():
                     pid = await executor.open_position(sig, qty, price, leverage)
                     db.log_signal(sig.strategy, sig.symbol, sig.side, sig.reason,
                                   bool(pid), "" if pid else "执行失败/资金不足")
+            try:
+                shadow.settle(factors.mark_price_of)
+            except Exception as _exc:  # noqa: BLE001
+                log.debug("shadow settle failed: %s", _exc)
             db.set_meta("last_tick_ts", int(time.time()))
             db.set_meta("last_error", "")
         except Exception as exc:  # noqa: BLE001

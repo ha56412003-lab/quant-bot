@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #ec4fae;          /* 页面底色，模拟大屏粉底 */
+    padding: 18px;
+    font-family: "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+  }
+  .card {
+    width: 1315px;
+    height: 718px;
+    background: #0b0c12;
+    border: 1px solid rgba(236, 79, 174, .55);
+    border-radius: 5px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  /* 四角 L 标 */
+  .cnr { position: absolute; width: 16px; height: 16px; border: 1.5px solid rgba(255,255,255,.88); }
+  .cnr-tl { left: 0; top: 0; border-right: 0; border-bottom: 0; }
+  .cnr-tr { right: 0; top: 0; border-left: 0; border-bottom: 0; }
+  .cnr-bl { left: 0; bottom: 0; border-right: 0; border-top: 0; }
+  .cnr-br { right: 0; bottom: 0; border-left: 0; border-top: 0; }
+
+  /* 顶部跑马灯 */
+  .ticker {
+    flex: none; height: 20px; display: flex; align-items: center;
+    padding: 0 12px; overflow: hidden;
+    border-bottom: 1px solid rgba(69,230,245,.22);
+    background: linear-gradient(90deg, rgba(0,0,0,.55), rgba(6,20,24,.75), rgba(0,0,0,.55));
+  }
+  .ticker span {
+    font-size: 10px; font-weight: 700; letter-spacing: .12em; color: #4cf0b0;
+    white-space: nowrap; text-shadow: 0 0 6px rgba(76,240,176,.75);
+  }
+
+  /* 标题栏 */
+  .head {
+    flex: none; height: 34px; display: flex; align-items: center; gap: 12px;
+    padding: 0 12px; border-bottom: 1px solid #1b1e2a;
+  }
+  .head b { color: #45e6f5; font-size: 12px; letter-spacing: .08em; }
+  .head .sub { font-size: 11px; color: #73788e; }
+  .head .btn {
+    margin-left: auto; font-size: 10.5px; font-weight: 700; letter-spacing: .06em;
+    color: #ff4d5e; border: 1px solid #ff4d5e; border-radius: 3px; padding: 3px 9px;
+  }
+
+  /* 表格区：10 行高度 */
+  .tbl { flex: none; }
+  .tr { display: grid; grid-template-columns: 92px 52px 132px 120px 56px 96px 96px 96px 96px 92px 116px 90px 68px;
+        align-items: center; height: 36px; padding: 0 12px; border-bottom: 1px solid #151824; }
+  .tr.th { height: 30px; color: #45e6f5; font-size: 10.5px; letter-spacing: .04em; background: #0d1018; }
+  .tr td, .tr > span { font-size: 11.5px; color: #c8cddd; }
+  .tr .dim { color: #6b7183; }
+  .tr .up { color: #ff4d5e; font-weight: 700; }
+  .tr .down { color: #35e08a; font-weight: 700; }
+  .fill10 { color: transparent; }
+
+  /* ══════════ 下半部分：数据区（无框体，直接压空白） ══════════ */
+  .stats {
+    flex: 1;
+    min-height: 0;
+    padding: 20px 26px 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    position: relative;
+  }
+  /* 极淡的横向扫描线，增加"大屏"质感（不是框体） */
+  .stats::before {
+    content: ""; position: absolute; inset: 0;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,.018) 0 1px, transparent 1px 4px);
+    pointer-events: none;
+  }
+
+  /* 三大项：净值占左侧大块（突出），右侧上下两项 */
+  .big3 {
+    display: grid;
+    grid-template-columns: 1.55fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    column-gap: 34px;
+    row-gap: 6px;
+    position: relative;
+  }
+  .big { position: relative; padding-left: 16px; }
+  .big::before {
+    content: ""; position: absolute; left: 0; top: 2px; bottom: 2px;
+    width: 2px; background: currentColor; opacity: .55;
+  }
+  .big .lb {
+    font-size: 11px; font-weight: 700; letter-spacing: .24em;
+    color: #7f8598;
+  }
+  .big .val {
+    font-weight: 900; font-variant-numeric: tabular-nums;
+    line-height: 1; margin-top: 4px; letter-spacing: -1px;
+  }
+  .big .sub { font-size: 10.5px; letter-spacing: .14em; color: #6b7183; margin-top: 5px; }
+
+  /* 净值：左列跨两行，最大 */
+  .equity { grid-row: 1 / span 2; display: flex; flex-direction: column; justify-content: center; }
+  .equity .val { font-size: 62px; }
+  .equity .sub { font-size: 11px; }
+
+  /* 右侧两项 */
+  .pnl, .real { display: flex; flex-direction: column; justify-content: center; }
+  .pnl .val, .real .val { font-size: 30px; }
+
+  .c-cyan { color: #45e6f5; }
+  .c-red  { color: #ff4d5e; }
+  .c-green{ color: #35e08a; }
+
+  /* 五项小数据 */
+  .small5 {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 24px;
+    padding-top: 14px; position: relative;
+  }
+  .small5::before {        /* 一条极淡的分隔线 */
+    content: ""; position: absolute; left: 0; right: 0; top: 0; height: 1px;
+    background: linear-gradient(90deg, rgba(236,79,174,.28), rgba(236,79,174,.06) 70%, transparent);
+  }
+  .sm .lb { font-size: 9.5px; font-weight: 700; letter-spacing: .16em; color: #6b7183; }
+  .sm .val {
+    font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums;
+    margin-top: 1px;
+  }
+  .sm .val small { font-size: 11px; font-weight: 600; color: #7f8598; margin-left: 2px; }
+  /* 资金使用率那条细进度（也不是框体，是一根线） */
+  .line { height: 2px; background: rgba(255,255,255,.08); margin-top: 6px; position: relative; }
+  .line i { position: absolute; left: 0; top: 0; bottom: 0; background: #45e6f5; }
+</style>
+</head>
+<body>
+<div class="card">
+  <i class="cnr cnr-tl"></i><i class="cnr cnr-tr"></i>
+  <i class="cnr cnr-bl"></i><i class="cnr cnr-br"></i>
+
+  <div class="ticker"><span>AVAX 空 -24.83 · OP 空 -17.19 · SOL 多 +20.43 · BCH 多 -3.89 · DOT 多 +22.65 · 1000SHIB 空 -2.12 · S15_CE_ZLSMA 运行中 · 扫描间隔 2m · 15m K线 · 引擎心跳正常</span></div>
+
+  <div class="head">
+    <b>持仓操作区</b><span class="sub">6 单</span>
+    <span class="btn">一键全平</span>
+  </div>
+
+  <!-- 表格：留足 10 行高度 -->
+  <div class="tbl">
+    <div class="tr th">
+      <span>币种</span><span>方向</span><span>杠杆</span><span>爆仓价</span><span>策略</span>
+      <span>开仓价</span><span>现价</span><span>数量</span><span>持仓金额</span><span>保证金</span>
+      <span>追加保证金</span><span>浮盈</span><span>操作</span>
+    </div>
+    <div class="tr"><span>AVAX</span><span class="down">空</span><span class="dim">3x 5x 10x 20x</span><span>11.3541</span><span>S15</span><span>8.5476</span><span>8.6555</span><span>230.18</span><span>1992 U</span><span>664 U</span><span class="dim">金额</span><span class="down">-24.83</span><span class="down">平仓</span></div>
+    <div class="tr"><span>OP</span><span class="down">空</span><span class="dim">3x 5x 10x 20x</span><span>0.1464</span><span>S15</span><span>0.1102</span><span>0.1115</span><span>13,448</span><span>1499 U</span><span>500 U</span><span class="dim">金额</span><span class="down">-17.19</span><span class="down">平仓</span></div>
+    <div class="tr"><span>SOL</span><span class="up">多</span><span class="dim">3x 5x 10x 20x</span><span>61.6674</span><span>S15</span><span>91.8125</span><span>92.8450</span><span>19.791</span><span>1837 U</span><span>612 U</span><span class="dim">金额</span><span class="up">+20.43</span><span class="down">平仓</span></div>
+    <div class="tr"><span>BCH</span><span class="up">多</span><span class="dim">3x 5x 10x 20x</span><span>184.1490</span><span>S15</span><span>274.1672</span><span>273.5450</span><span>6.246</span><span>1709 U</span><span>570 U</span><span class="dim">金额</span><span class="down">-3.89</span><span class="down">平仓</span></div>
+    <div class="tr"><span>DOT</span><span class="up">多</span><span class="dim">3x 5x 10x 20x</span><span>0.6334</span><span>S15</span><span>0.9430</span><span>0.9570</span><span>1616.19</span><span>1547 U</span><span>516 U</span><span class="dim">金额</span><span class="up">+22.65</span><span class="down">平仓</span></div>
+    <div class="tr"><span>1000SHIB</span><span class="down">空</span><span class="dim">3x 5x 10x 20x</span><span>0.006172</span><span>S15</span><span>0.004646</span><span>0.004651</span><span>481,771</span><span>2240 U</span><span>747 U</span><span class="dim">金额</span><span class="down">-2.12</span><span class="down">平仓</span></div>
+    <div class="tr"><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span></div>
+    <div class="tr"><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span></div>
+    <div class="tr"><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span></div>
+    <div class="tr"><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span><span class="dim">—</span></div>
+  </div>
+
+  <!-- 下半：8 项数据统一排版，无框体 -->
+  <div class="stats">
+    <div class="big3">
+      <div class="big equity c-cyan">
+        <div class="lb">账 户 净 值</div>
+        <div class="val">$10,013.54</div>
+        <div class="sub">EQUITY · PAPER 模拟盘</div>
+      </div>
+      <div class="big pnl c-red">
+        <div class="lb">浮 动 盈 亏</div>
+        <div class="val">-6.57</div>
+        <div class="sub">UNREALIZED PNL</div>
+      </div>
+      <div class="big real c-green">
+        <div class="lb">今 日 已 实 现</div>
+        <div class="val">+152.30</div>
+        <div class="sub">REALIZED TODAY</div>
+      </div>
+    </div>
+
+    <div class="small5">
+      <div class="sm">
+        <div class="lb">资金使用率</div>
+        <div class="val c-cyan">36.1<small>%</small></div>
+        <div class="line"><i style="width:36%"></i></div>
+      </div>
+      <div class="sm">
+        <div class="lb">可用保证金</div>
+        <div class="val" style="color:#c8cddd">$6,481<small>U</small></div>
+      </div>
+      <div class="sm">
+        <div class="lb">持仓数 · 多空比</div>
+        <div class="val" style="color:#c8cddd">6 <small style="color:#ff4d5e">· 多3</small> <small style="color:#35e08a">空3</small></div>
+      </div>
+      <div class="sm">
+        <div class="lb">最近爆仓距离</div>
+        <div class="val" style="color:#45e6f5">30.9<small>%</small></div>
+      </div>
+      <div class="sm">
+        <div class="lb">平均持仓</div>
+        <div class="val" style="color:#c8cddd">10.5<small>h</small></div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

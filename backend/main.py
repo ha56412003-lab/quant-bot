@@ -5,29 +5,66 @@ import logging
 import signal
 import time
 
-faulthandler.register(signal.SIGUSR1)   # kill -USR1 <pid> dumps all stacks
+if hasattr(signal, "SIGUSR1"):           # SIGUSR1 is Unix-only — Windows has no such signal
+    faulthandler.register(signal.SIGUSR1)   # kill -USR1 <pid> dumps all stacks
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import Body, FastAPI, HTTPException
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import binance, config, db, engine, executor, factors, risk, ws
+from . import binance, config, daily_target, db, engine, executor, factors, pool, quality, risk, shadow, ws
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+log = logging.getLogger(__name__)
+
+# V2 已转正为正式版：静态根目录指向 frontend-v2/dist
+DIST = Path(__file__).resolve().parent.parent / "frontend-v2" / "dist"
+
+
+async def _prune_loop():
+    """每天清理一次过期数据（factor_history 14 天 / logs 30 天）。"""
+    while True:
+        await asyncio.sleep(24 * 3600)
+        try:
+            r = db.prune()
+            if r.get("factor_history") or r.get("logs"):
+                log.info("定时清理: %s", r)
+                db.log("info", f"数据清理: 因子历史 -{r.get('factor_history', 0)} 行, "
+                               f"日志 -{r.get('logs', 0)} 行")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("数据清理失败: %s", exc)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init()
+    _prune_once = db.prune()   # 启动先清一次过期数据
+    if _prune_once.get("factor_history") or _prune_once.get("logs"):
+        log.info("启动清理: %s", _prune_once)
+    # 第 1 层：候选池 —— 先从磁盘加载（每天凌晨定时重建）
+    pool.load()
+    _pool_cfg = config.pools().get("candidate", {})
+    pool.CANDIDATE_SIZE = int(_pool_cfg.get("size", pool.CANDIDATE_SIZE))
+    pool.REFRESH_HOUR = int(_pool_cfg.get("refresh_hour", pool.REFRESH_HOUR))
+    pool.MIN_AMP_PCT = float(_pool_cfg.get("min_amp_pct", pool.MIN_AMP_PCT))
+    pool.MAX_AMP_PCT = float(_pool_cfg.get("max_amp_pct", pool.MAX_AMP_PCT))
+    pool.VOL_DAYS = int(_pool_cfg.get("vol_days", pool.VOL_DAYS - 1)) + 1
+    # 让 config.UNIVERSE 立刻反映候选池（load_strategies 里也有同样逻辑）
+    config.load_strategies()
+    _wl = lambda: (config.pools().get("candidate", {}) or {}).get("whitelist") or []
     tasks = [asyncio.create_task(ws.ws_loop()),
              asyncio.create_task(engine.scan_loop()),
-             asyncio.create_task(engine.position_loop())]
+             asyncio.create_task(engine.position_loop()),
+             asyncio.create_task(pool.loop(_wl)),
+             asyncio.create_task(_prune_loop()),
+             asyncio.create_task(quality.loop(
+                 lambda: config.UNIVERSE,
+                 lambda: config.pools().get("monitor", {})))]
     yield
     for t in tasks:
         t.cancel()
@@ -56,44 +93,134 @@ async def api_status():
         "last_error": db.get_meta("last_error", ""),
         "now": int(time.time()),
         "now_ms": int(time.time() * 1000),
+        "daily_target": daily_target.summary(
+            eq, db.day_start_equity(), daily_target.cfg(cfg["global"])),
     }
 
 
 @app.get("/api/positions")
 async def api_positions():
+    cfg = config.load_strategies()
+    glev = int((cfg.get("global") or {}).get("max_gross_leverage", 3) or 3)
+    mmr = 0.005          # 维持保证金率近似值（币安 USDT 永续小额档 ~0.4-0.5%）
     out = []
     for p in db.open_positions():
         price = factors.mark_price_of(p["symbol"]) or p["entry_price"]
         sign = 1 if p["side"] == "long" else -1
         upnl = (price - p["entry_price"]) * p["qty"] * sign
+        scfg = (cfg.get("strategies") or {}).get(p["strategy"], {}) or {}
+        # 优先用该仓位自己的杠杆（可在持仓表手动改），否则回退到策略/全局配置
+        lev = int(p.get("leverage") or ((scfg.get("risk") or {}).get("leverage")) or glev)
+        lev = max(1, lev)
+        extra = float(p.get("extra_margin") or 0.0)
+        qty_abs = abs(p["qty"]) or 1e-12
+        # 爆仓价（含维持保证金率 + 追加的保证金会推远爆仓价）
+        entry = p["entry_price"]
+        if p["side"] == "long":
+            liq = entry * (1 - 1.0 / lev + mmr) - extra / qty_abs
+            liq_dist = (price - liq) / price * 100 if price else 0.0
+        else:
+            liq = entry * (1 + 1.0 / lev - mmr) + extra / qty_abs
+            liq_dist = (liq - price) / price * 100 if price else 0.0
+        stop = p.get("stop_price") or 0.0
+        stop_dist = (abs(price - stop) / price * 100) if (price and stop) else 0.0
         out.append({**p, "mark_price": price, "unrealized_pnl": upnl,
                     "notional": abs(p["qty"] * price),
+                    "leverage": lev, "liq_price": liq, "liq_dist_pct": liq_dist,
+                    "stop_dist_pct": stop_dist,
+                    # 占用保证金按【当前价】计算，与币安口径一致（仓位价值随价格浮动）
+                    "margin": abs(p["qty"] * price) / lev + extra,
+                    "margin_at_entry": abs(p["qty"] * entry) / lev + extra,
+                    "extra_margin": extra,
                     "age_sec": int(time.time()) - p["opened_at"]})
     return {"positions": out}
 
 
 @app.post("/api/positions/{pid}/close")
-async def api_close_position(pid: int):
+async def api_close_position(pid: int, body: dict = Body(default=None)):
     pos = db.get_position(pid)
     if not pos or pos["status"] != "open":
         raise HTTPException(404, "position not open")
     price = factors.mark_price_of(pos["symbol"])
     if not price:
         raise HTTPException(503, "no live price available")
-    ok = await executor.close_position(pos, price, "手动市价平仓")
-    return {"ok": ok}
+    fraction = float((body or {}).get("fraction", 1.0) or 1.0)
+    fraction = max(0.01, min(1.0, fraction))
+    label = "手动全平" if fraction >= 0.999 else f"手动平仓 {fraction*100:.0f}%"
+    ok = await executor.close_position(pos, price, label, fraction)
+    return {"ok": ok, "fraction": fraction, "symbol": pos["symbol"]}
+
+
+@app.post("/api/daily-target/reset")
+async def api_dt_reset():
+    """手动重置日目标状态（当日重新计算，恢复开仓）。"""
+    daily_target.reset()
+    return {"ok": True}
 
 
 @app.post("/api/positions/close-all")
 async def api_close_all():
-    closed, failed = 0, 0
-    for pos in db.open_positions():
-        price = factors.mark_price_of(pos["symbol"])
-        if price and await executor.close_position(pos, price, "手动一键全平"):
-            closed += 1
-        else:
-            failed += 1
+    closed, failed = await executor.close_all("手动一键全平")
+    if closed:
+        daily_target.mark_done("手动一键全平")
     return {"ok": failed == 0, "closed": closed, "failed": failed}
+
+
+@app.post("/api/positions/{pid}/leverage")
+async def api_set_position_leverage(pid: int, payload: dict):
+    """手动调整单个仓位的杠杆：只改保证金占用与爆仓价，不改仓位数量。"""
+    pos = db.get_position(pid)
+    if not pos or pos["status"] != "open":
+        raise HTTPException(404, "position not open")
+    try:
+        lev = int(payload.get("leverage") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "leverage must be an integer")
+    if lev < 1 or lev > 125:
+        raise HTTPException(400, "leverage must be 1-125")
+    old = pos.get("leverage")
+    db.set_position_field(pid, "leverage", float(lev))
+    db.log("info", f"手动调整杠杆 {pos['symbol']} {old or '-'}x → {lev}x")
+    return {"ok": True, "leverage": lev, "previous": old}
+
+
+@app.post("/api/positions/{pid}/margin")
+async def api_add_position_margin(pid: int, payload: dict):
+    """追加保证金：从可用保证金划入该仓位，推远爆仓价。"""
+    pos = db.get_position(pid)
+    if not pos or pos["status"] != "open":
+        raise HTTPException(404, "position not open")
+    try:
+        amt = float(payload.get("amount") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "amount must be a number")
+    if amt <= 0:
+        raise HTTPException(400, "amount must be positive")
+    # 校验可用保证金
+    eq, _bal, _upnl = await executor.equity()
+    used = 0.0
+    for q in db.open_positions():
+        px = factors.mark_price_of(q["symbol"]) or q["entry_price"]
+        scfg = (config.load_strategies().get("strategies") or {}).get(q["strategy"], {}) or {}
+        gl = int((config.load_strategies().get("global") or {}).get("max_gross_leverage", 3) or 3)
+        lv = max(1, int(q.get("leverage") or ((scfg.get("risk") or {}).get("leverage")) or gl))
+        used += abs(q["qty"] * px) / lv + float(q.get("extra_margin") or 0)
+    free = eq - used
+    if amt > free + 1e-9:
+        raise HTTPException(400, f"可用保证金不足（可用 {free:.2f} U）")
+    new_extra = db.add_extra_margin(pid, amt)
+    db.log("info", f"追加保证金 {pos['symbol']} +{amt:.2f}U（累计 {new_extra:.2f}U）")
+    return {"ok": True, "extra_margin": new_extra, "free_margin": free - amt}
+
+
+@app.get("/api/shadow")
+async def api_shadow():
+    """影子模式：规则统计 + 最近记录。"""
+    return {"stats": db.shadow_stats(),
+            "recent": db.shadow_recent(60),
+            "thresholds": {"funding_hot_long": shadow.FUNDING_HOT_LONG,
+                           "funding_hot_short": shadow.FUNDING_HOT_SHORT,
+                           "taker_confirm": shadow.TAKER_CONFIRM}}
 
 
 @app.get("/api/trades")
@@ -245,6 +372,103 @@ async def api_risk_global(payload: dict):
 @app.get("/api/universe")
 async def api_universe_get():
     return {"universe": config.UNIVERSE, "known": config.KNOWN_SYMBOLS}
+
+
+@app.get("/api/pool")
+async def api_pool():
+    """监控池全景（三层）：候选池 100 → 监控池 30 → 持仓。"""
+    snap = quality.snapshot()
+    data = snap["data"]
+    monitor = set(snap.get("monitor") or [])
+    held = {p["symbol"]: p for p in db.open_positions()}
+    last_sig = {}
+    for r in db.recent_signals(limit=400):
+        last_sig.setdefault(r["symbol"], r)
+    rows = []
+    scan = list(config.UNIVERSE)
+    for s in held:                      # 持仓币必须在列表里，哪怕已掉出候选池
+        if s not in scan:
+            scan.append(s)
+    for sym in scan:
+        q = data.get(sym) or {}
+        p = held.get(sym)
+        sig = last_sig.get(sym)
+        rows.append({
+            "symbol": sym,
+            "price": factors.mark_price_of(sym),
+            "qv": q.get("qv"), "atr_pct": q.get("atr_pct"), "spike": q.get("spike"),
+            "ok": q.get("ok"), "why": q.get("why", ""),
+            "in_monitor": sym in monitor,
+            "in_candidate": sym in config.UNIVERSE,
+            "held": bool(p),
+            "side": p["side"] if p else None,
+            "upnl": p.get("unrealized_pnl") if p else None,
+            "last_sig_side": sig["side"] if sig else None,
+            "last_sig_ts": sig["ts"] if sig else None,
+            "last_sig_acted": bool(sig["acted"]) if sig else None,
+            "last_sig_skip": sig.get("skip_reason") if sig else None,
+        })
+    rows.sort(key=lambda r: -(r["qv"] or 0))
+    pool_snap = pool.snapshot()
+    return {"ts": snap["ts"], "min_quote_vol": snap["min_quote_vol"],
+            "max_spike": snap["max_spike"], "min_atr_pct": snap.get("min_atr_pct"),
+            "refresh_sec": snap.get("refresh_sec"), "rows": rows,
+            "pass_n": sum(1 for r in rows if r["ok"]),
+            # 三层池规模
+            "candidate_n": len(config.UNIVERSE),
+            "candidate_size": pool_snap.get("size"),
+            "candidate_meta": pool_snap.get("meta") or {},
+            "monitor_n": snap.get("monitor_n"),
+            "monitor_size": snap.get("monitor_size"),
+            "monitor": list(monitor),
+            "position_n": len(held),
+            "position_max": (config.pools().get("position", {}) or {}).get("max_concurrent", 6)}
+
+
+@app.get("/api/pool/candidates")
+async def api_candidates():
+    """候选池详情：每天筛出的 100 只 + 构建元数据。"""
+    snap = pool.snapshot()
+    meta = snap.get("meta") or {}
+    amps = meta.get("amps") or {}
+    return {
+        "symbols": snap["symbols"],
+        "size": snap["size"],
+        "built_ts": snap["built_ts"],
+        "built_at": meta.get("built_at"),
+        "elapsed_sec": meta.get("elapsed_sec"),
+        "total_tradable": meta.get("total_tradable"),
+        "scanned": meta.get("scanned"),
+        "whitelist": meta.get("whitelist_used") or [],
+        "whitelist_missing": meta.get("whitelist_missing") or [],
+        "rejected_n": meta.get("rejected_n"),
+        "rejected_sample": meta.get("rejected_sample") or [],
+        "min_amp_pct": meta.get("min_amp_pct"),
+        "max_amp_pct": meta.get("max_amp_pct"),
+        "refresh_hour": snap.get("refresh_hour"),
+        "amps": amps,
+    }
+
+
+@app.post("/api/pool/candidates/rebuild")
+async def api_candidates_rebuild():
+    """手动触发候选池重建（每天凌晨也会自动跑一次）。"""
+    wl = (config.pools().get("candidate", {}) or {}).get("whitelist") or []
+    st = await pool.build(wl)
+    config.load_strategies()
+    db.log("info", f"候选池手动重建：{len(st['symbols'])} 只")
+    return {"ok": True, "size": len(st["symbols"]), "meta": st.get("meta") or {}}
+
+
+@app.post("/api/pool/whitelist")
+async def api_whitelist_set(payload: dict):
+    """设置自选合约白名单（优先级最高，无条件进候选池）。"""
+    wl = [str(s).strip().upper() for s in (payload.get("symbols") or []) if str(s).strip()]
+    cfg = config.load_strategies()
+    cfg.setdefault("pools", {}).setdefault("candidate", {})["whitelist"] = wl
+    config.save_strategies(cfg)
+    db.log("info", f"白名单更新为：{','.join(wl) or '(空)'}")
+    return {"ok": True, "whitelist": wl}
 
 
 @app.post("/api/universe")
@@ -439,6 +663,13 @@ async def api_journal_export(strategy: str = "", symbol: str = "", day: str = ""
 @app.get("/health")
 async def health():
     return {"ok": True, "last_tick_ts": db.get_meta("last_tick_ts", "0")}
+
+
+# V2 转正后 /v2 变成正式根路径；旧链接 302 到根，避免书签失效
+@app.get("/v2", include_in_schema=False)
+@app.get("/v2/{path:path}", include_in_schema=False)
+async def legacy_v2(path: str = ""):
+    return RedirectResponse(url="/", status_code=302)
 
 
 if DIST.exists():

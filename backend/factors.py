@@ -24,12 +24,22 @@ def _coin(symbol):
 # -- fetchers (each returns the value to store, or None to skip) -------------
 
 async def f_mark_all(_):
-    """All-symbol mark price / index / funding — position pricing + basis."""
+    """All-symbol mark price / index / funding — position pricing + basis.
+
+    缓存范围 = 候选池(UNIVERSE) ∪ 当前持仓币。
+    为什么必须带上持仓币：候选池每天重建，持仓中的币可能掉出候选池（成交额排名下滑）。
+    如果这里只缓存 UNIVERSE，掉出去的持仓币就拿不到 mark 价，
+    manage_positions 里 `if not price: continue` 会直接跳过 → 止损/止盈全部失效。
+    """
     rows = await binance.mark_price()
+    try:
+        held = {p["symbol"] for p in db.open_positions()}
+    except Exception:  # noqa: BLE001
+        held = set()
     out = {}
     for r in rows if isinstance(rows, list) else [rows]:
         sym = r.get("symbol", "")
-        if sym in config.UNIVERSE:
+        if sym in config.UNIVERSE or sym in held:
             mark, idx = float(r.get("markPrice") or 0), float(r.get("indexPrice") or 0)
             out[sym] = {"mark": mark, "index": idx,
                         "basis_pct": (mark - idx) / idx * 100 if idx else 0,

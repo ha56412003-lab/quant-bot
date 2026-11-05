@@ -62,7 +62,7 @@ def save(kind, symbol, rows, extra_meta=None):
     p.parent.mkdir(parents=True, exist_ok=True)
     meta = {"t0": T0, "t1": T1, "downloaded_at": int(time.time())}
     meta.update(extra_meta or {})
-    p.write_text(json.dumps({"meta": meta, "rows": rows}, ensure_ascii=False))
+    p.write_text(json.dumps({"meta": meta, "rows": rows}, ensure_ascii=False), encoding="utf-8")
 
 
 def load(kind, symbol=""):
@@ -70,7 +70,7 @@ def load(kind, symbol=""):
     if not p.exists():
         return None
     try:
-        return json.loads(p.read_text())["rows"]
+        return json.loads(p.read_text(encoding="utf-8"))["rows"]
     except (json.JSONDecodeError, KeyError):
         return None
 
@@ -82,7 +82,7 @@ def is_cached(kind, symbol="", expected_t0=None):
     if expected_t0 is None:
         return True
     try:
-        return json.loads(p.read_text())["meta"].get("t0") == expected_t0
+        return json.loads(p.read_text(encoding="utf-8"))["meta"].get("t0") == expected_t0
     except (json.JSONDecodeError, KeyError):
         return False
 

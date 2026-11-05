@@ -217,7 +217,7 @@ def search(sid, symbols=None, workers=6):
     }
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     (RAW_DIR / f"{sid}.json").write_text(
-        json.dumps(out, ensure_ascii=False, indent=1))
+        json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
     log.info("%s done: picked=%s IS=%s OOS=%s", sid, picked["params"],
              picked["metrics"]["net_usd"], oos_m["net_usd"])
     return out

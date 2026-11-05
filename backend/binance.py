@@ -124,7 +124,6 @@ _qty_steps = {}
 
 async def qty_step(symbol):
     """LOT_SIZE stepSize for rounding order quantities."""
-    global _qty_steps
     if not _qty_steps:
         info = await exchange_info()
         for s in info.get("symbols", []):

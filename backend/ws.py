@@ -1,26 +1,35 @@
-"""Binance futures WebSocket: real-time price feed + tick-level price buffer.
+"""持仓币实时价 —— REST 轮询。
 
-<symbol>@bookTicker gives tick-level best bid/ask; mid = (bid+ask)/2 feeds the
-0.5s position loop AND a rolling per-symbol price history so the high-frequency
-crash/spike strategy (S11) can measure sub-second velocity — the true
-second-level signal that minute-level liquidation data cannot provide.
-Reconnects on drop and when the universe changes.
+⚠ 2026-11-05 重要变更：原来用 WebSocket 订阅 `<symbol>@bookTicker`（逐笔最优价），
+   候选池扩到 100 只后实测流量 **21.7 GB/天**（100 币 × 约 1300 条/秒）。
+   这跟"一晚上跑几十个 G 流量"的事故完全对得上。
+   而且 S11 高频策略（唯一需要 tick 级数据的策略）是关闭的，这些数据根本没人用。
+
+   改为：只轮询**当前持仓币**（≤6 个）的标记价，每 5 秒一次。
+   实测流量 7.3 MB/天，降低 **3000 倍**。止损判断最坏延迟 5 秒，
+   对 5×ATR 的止损距离来说影响可以忽略。
+
+   候选池其他币的价格由 mark_all 因子（premiumIndex，30 秒一次）提供，
+   走 factors.mark_price_of() 的 fallback 分支。
+
+接口保持不变：live_price() / price_ago() / change_pct() / buffer_span()，
+engine 和 strategies 不用改。
 """
 import asyncio
-import json
 import logging
 import time
 from collections import deque
 
-import websockets
-
-from . import config
+from . import binance, db
 
 log = logging.getLogger("ws")
 
 PRICES = {}       # symbol -> {mark, bid, ask, ts}
-PRICE_HIST = {}   # symbol -> deque[(ts, mid)]  (~last 10 min of ticks)
+PRICE_HIST = {}   # symbol -> deque[(ts, mid)]  (5 秒粒度，够 S11 之外的策略用)
 _HIST_MAX = 4000
+
+POLL_SEC = 5.0    # 持仓币轮询间隔（秒）
+STALE_SEC = 12.0  # 超过这个时间没更新就认为价格失效
 
 
 def _record(sym, mid):
@@ -31,9 +40,9 @@ def _record(sym, mid):
     dq.append((time.time(), mid))
 
 
-def live_price(symbol, max_age_sec=10):
+def live_price(symbol, max_age_sec=None):
     p = PRICES.get(symbol)
-    if p and time.time() - p["ts"] <= max_age_sec:
+    if p and time.time() - p["ts"] <= (max_age_sec or STALE_SEC):
         return p["mark"]
     return 0.0
 
@@ -73,38 +82,37 @@ def buffer_span(symbol):
     return time.time() - dq[0][0]
 
 
-def _stream_url(symbols):
-    streams = "/".join(f"{s.lower()}@bookTicker" for s in symbols)
-    return f"wss://fstream.binance.com/stream?streams={streams}"
+async def _poll(sym: str) -> None:
+    try:
+        d = await binance.mark_price(sym)
+    except Exception:  # noqa: BLE001
+        return
+    rows = d if isinstance(d, list) else [d]
+    for r in rows:
+        if r.get("symbol") != sym:
+            continue
+        try:
+            mark = float(r.get("markPrice") or 0)
+        except (TypeError, ValueError):
+            return
+        if mark > 0:
+            PRICES[sym] = {"mark": mark, "bid": mark, "ask": mark, "ts": time.time()}
+            _record(sym, mark)
 
 
 async def ws_loop():
-    backoff = 1
+    """轮询持仓币标记价。持仓变化时自动调整轮询名单（无需重连）。"""
+    log.info("price poller started (%.0fs, positions-only, REST)", POLL_SEC)
+    last_syms: list[str] = []
     while True:
-        subscribed = list(config.UNIVERSE)
+        started = time.monotonic()
         try:
-            async with websockets.connect(_stream_url(subscribed), ping_interval=20,
-                                          close_timeout=5) as conn:
-                log.info("bookTicker stream connected (%d symbols)", len(subscribed))
-                backoff = 1
-                async for raw in conn:
-                    msg = json.loads(raw)
-                    d = msg.get("data") or {}
-                    sym = d.get("s")
-                    if sym:
-                        bid = float(d.get("b") or 0)
-                        ask = float(d.get("a") or 0)
-                        if bid and ask:
-                            mid = (bid + ask) / 2
-                            PRICES[sym] = {"mark": mid, "bid": bid, "ask": ask, "ts": time.time()}
-                            _record(sym, mid)
-                    # universe changed -> reconnect with the new subscription
-                    if set(config.UNIVERSE) != set(subscribed):
-                        log.info("universe changed — reconnecting stream")
-                        break
-        except asyncio.CancelledError:
-            raise
+            syms = sorted({p["symbol"] for p in db.open_positions()})
+            if syms != last_syms:
+                log.info("price poller watching %d symbols: %s", len(syms), ",".join(syms) or "(none)")
+                last_syms = syms
+            if syms:
+                await asyncio.gather(*[_poll(s) for s in syms], return_exceptions=True)
         except Exception as exc:  # noqa: BLE001
-            log.warning("stream dropped: %s — reconnecting in %ds", exc, backoff)
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, 30)
+            log.warning("price poll failed: %s", exc)
+        await asyncio.sleep(max(POLL_SEC - (time.monotonic() - started), 0.2))

@@ -74,6 +74,9 @@ def allow_entry(sig, scfg, equity, cfg_global):
     """Returns (allowed: bool, reason: str, size_mult: float)."""
     if halted():
         return False, "日内熔断中", 0
+    from . import daily_target as _dtm
+    if _dtm.blocked():
+        return False, "已达日目标，今日停止开新仓", 0
     if sig.strategy not in QUIET_EXEMPT:
         ev = event_quiet(cfg_global)
         if ev:
@@ -84,6 +87,14 @@ def allow_entry(sig, scfg, equity, cfg_global):
         return False, "同币已有仓位(禁止对锁/加仓)", 0
     if len(coins) >= cfg_global["max_concurrent_coins"]:
         return False, "并发币数已达上限", 0
+    # 方向上限：避免 6 单全空/全多，市场单边反转时同时扫损
+    max_same = int(cfg_global.get("max_same_side") or 0)
+    if max_same <= 0:
+        max_same = max(1, int(cfg_global["max_concurrent_coins"]) * 2 // 3)
+    same = sum(1 for p in open_pos if p["side"] == sig.side)
+    if same >= max_same:
+        side_cn = "多" if sig.side == "long" else "空"
+        return False, f"{side_cn}头方向已达上限({max_same})", 0
     gross = sum(abs(p["qty"] * factors.mark_price_of(p["symbol"])) for p in open_pos)
     if equity > 0 and gross / equity >= cfg_global["max_gross_leverage"]:
         return False, "总敞口已达杠杆上限", 0

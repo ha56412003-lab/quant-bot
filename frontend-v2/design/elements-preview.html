@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>参考站元素复刻预览</title>
+<style>
+  :root{
+    --frame:#ec4fae; --bg:#07080d; --panel:#0b0c12; --line:#1b1e2a;
+    --ink:#eef0f7; --mute:#73788e; --joint:#ff3f8e; --sticky:#ffd84a;
+    --mono:"JetBrains Mono","Noto Sans SC","PingFang SC",ui-monospace,Menlo,monospace;
+  }
+  body{
+    margin:0; padding:32px; background:var(--bg); color:var(--ink);
+    font-family:var(--mono);
+    background-image:radial-gradient(rgba(255,255,255,.045) 1px, transparent 1px);
+    background-size:20px 20px;
+  }
+  h2{font-size:13px; letter-spacing:.18em; color:var(--mute); font-weight:800; margin:0 0 14px}
+  .row{display:flex; gap:40px; flex-wrap:wrap; align-items:flex-start; margin-bottom:44px}
+  .box{
+    background:var(--panel); border:1px solid var(--line); padding:22px 26px;
+    position:relative;
+  }
+  .box::before,.box::after{
+    content:''; position:absolute; width:14px; height:14px;
+    border:1.5px solid rgba(255,255,255,.8);
+  }
+  .box::before{left:-1px; top:-1px; border-right:0; border-bottom:0}
+  .box::after{right:-1px; bottom:-1px; border-left:0; border-top:0}
+  .cap{font-size:10px; color:var(--mute); letter-spacing:.1em; margin-top:10px}
+  .scale3{transform:scale(3); transform-origin:top left}
+  .scale3wrap{width:720px; height:380px; overflow:hidden}
+  .scale2w{width:220px; height:190px; overflow:hidden}
+  .scale2{transform:scale(2); transform-origin:top left}
+</style>
+</head>
+<body>
+
+<h2>① 总调度台 · CHIEF</h2>
+<div class="row">
+  <div class="box">
+    <div id="desk1"></div>
+    <div class="cap">原始尺寸 238 × 120</div>
+  </div>
+  <div class="box">
+    <div id="desk3"></div>
+    <div class="cap">放大 3 倍（看细节）</div>
+  </div>
+</div>
+
+<h2>② 进料雷达 · INTAKE RADAR</h2>
+<div class="row">
+  <div class="box">
+    <div id="rad1"></div>
+    <div class="cap">原始尺寸 104 × 90</div>
+  </div>
+  <div class="box">
+    <div id="rad2"></div>
+    <div class="cap">放大 2 倍</div>
+  </div>
+</div>
+
+<script>
+const MONO='"JetBrains Mono","Noto Sans SC","PingFang SC",ui-monospace,Menlo,monospace';
+const TAU=Math.PI*2;
+const C={screen:'#05070c',desk:'#2a2e3b',deskFront:'#181b25',joint:'#ff3f8e',sticky:'#ffd84a'};
+
+function rr(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}
+
+function drawBody(c,a,x,y,r,opt){
+  opt=opt||{};
+  c.save();c.translate(x,y);
+  c.beginPath();c.arc(0,0,r,0,TAU);
+  c.fillStyle=a.col;c.fill();
+  c.lineWidth=1;c.strokeStyle='rgba(0,0,0,.35)';c.stroke();
+  if(a.shape==='robot'){
+    c.strokeStyle='#1a1c25';c.lineWidth=3;
+    c.beginPath();c.arc(0,-1,r+2.5,Math.PI*1.08,Math.PI*1.92);c.stroke();
+    c.fillStyle='#1a1c25';
+    rr(c,-r-5,-5,6,11,2);c.fill();
+    rr(c,r-1,-5,6,11,2);c.fill();
+    c.fillStyle=C.joint;
+    c.beginPath();c.arc(-r-2,0,1.6,0,TAU);c.fill();
+    c.beginPath();c.arc(r+2,0,1.6,0,TAU);c.fill();
+  }
+  const ex=r*.38,ey=-r*.12,er=r*.3,bl=(opt.blink?0.15:1),lx=(opt.look||0)*er*.45;
+  c.fillStyle='#111318';
+  c.beginPath();c.ellipse(-ex+lx*.6,ey,er*.55,er*.95*bl,0,0,TAU);c.fill();
+  c.beginPath();c.ellipse(ex+lx*.6,ey,er*.55,er*.95*bl,0,0,TAU);c.fill();
+  c.restore();
+}
+
+function drawMark(c,x,y,s,col){
+  const k=s/32;
+  c.save();c.translate(x-16*k,y-16*k);c.scale(k,k);
+  c.strokeStyle=col;c.lineWidth=2;c.lineCap='round';c.lineJoin='round';
+  const L=[[13,13,8,7,5,2],[12,15,5,12,1,13],[12,17,5,19,1,23],[13,19,9,25,6,30]];
+  c.beginPath();
+  for(const [a,b,p,q,u,v] of L){c.moveTo(a,b);c.lineTo(p,q);c.lineTo(u,v);c.moveTo(32-a,b);c.lineTo(32-p,q);c.lineTo(32-u,v);}
+  c.stroke();
+  c.fillStyle=col;c.beginPath();c.ellipse(16,16,4.6,6,0,0,TAU);c.fill();
+  c.restore();
+}
+
+/* ── 总调度台 ── */
+function drawDesk(host,scale){
+  const OX=1078,OY=172,W=238,H=120;
+  const cv=document.createElement('canvas');
+  cv.width=W*2*scale;cv.height=H*2*scale;
+  cv.style.width=(W*scale)+'px';cv.style.height=(H*scale)+'px';
+  host.appendChild(cv);
+  const c=cv.getContext('2d');
+
+  let blinkT = 3, t0 = performance.now();
+
+  function frame(now){
+    const t = (now - t0) / 1000;
+    c.setTransform(2*scale,0,0,2*scale,0,0);
+    c.clearRect(0,0,W,H);
+    c.save();c.translate(-OX,-OY);
+
+    // 眨眼（每 2~5 秒一次，闭合 0.12 秒）
+    blinkT -= 1/60;
+    let blink = false;
+    if (blinkT < 0) { blink = true; if (blinkT < -0.12) blinkT = 2 + Math.random()*3; }
+    // 呼吸浮动
+    const bob = Math.sin(t * 2) * .8;
+
+    // CHIEF
+    const cx=1196, cy=204 + bob, cr=13;
+    c.fillStyle='rgba(0,0,0,.45)';
+    c.beginPath();c.ellipse(cx,204+cr+5,cr*.95,3,0,0,TAU);c.fill();
+    c.fillStyle='#f3f4f8';
+    c.beginPath();c.arc(cx-cr-4,cy+3,2.6,0,TAU);c.fill();
+    c.beginPath();c.arc(cx+cr+4,cy+3,2.6,0,TAU);c.fill();
+    drawBody(c,{col:'#f3f4f8',shape:'robot'},cx,cy,cr,{look:0, blink});
+    c.fillStyle='#f3f4f8';c.font=`800 8px ${MONO}`;c.textAlign='center';
+    c.fillText('CHIEF',cx,204-cr-6);c.textAlign='left';
+
+    // 屏幕
+    rr(c,1104,196,46,28,2);c.fillStyle='#1b1f2b';c.fill();
+    c.strokeStyle='#2c3142';c.stroke();
+    c.fillStyle=C.screen;c.fillRect(1107,199,40,22);
+    // 屏幕微光扫描
+    const scan = 199 + ((t * 14) % 22);
+    c.fillStyle='rgba(69,230,245,.22)';c.fillRect(1107, scan, 40, 1.5);
+
+    // 桌面
+    c.beginPath();
+    c.moveTo(1092,226);c.lineTo(1300,226);c.lineTo(1308,240);c.lineTo(1084,240);
+    c.closePath();c.fillStyle=C.desk;c.fill();
+    c.fillStyle=C.deskFront;c.fillRect(1084,240,224,24);
+    c.strokeStyle='#272b3a';c.strokeRect(1084.5,240.5,223,23);
+
+    drawMark(c,1196,252,16,'#d9dce6');
+
+    c.fillStyle='#2f3443';rr(c,1238,216,20,9,2);c.fill();
+    c.fillStyle='#4a5064';c.fillRect(1241,213,14,3);
+    c.fillStyle='#d9dce6';c.fillRect(1268,214,22,11);
+    c.fillStyle='#9ca2b3';for(let k=0;k<3;k++)c.fillRect(1271,216+k*3,16,1);
+
+    c.fillStyle=C.sticky;c.font=`700 7.5px ${MONO}`;c.textAlign='center';
+    c.fillText('HEAD OF THE FLOOR · 总调度台',1196,276);c.textAlign='left';
+    c.restore();
+
+    requestAnimationFrame(frame);
+  }
+  frame(performance.now());
+}
+
+/* ── 雷达 ── */
+function drawRadar(host,scale){
+  const OX=1098,OY=462,W=104,H=90;
+  const cv=document.createElement('canvas');
+  cv.width=W*2*scale;cv.height=H*2*scale;
+  cv.style.width=(W*scale)+'px';cv.style.height=(H*scale)+'px';
+  host.appendChild(cv);
+  const c=cv.getContext('2d');
+
+  function frame(t){
+    c.setTransform(2*scale,0,0,2*scale,0,0);
+    c.clearRect(0,0,W,H);
+    c.save();c.translate(-OX,-OY);
+    c.fillStyle='#20232e';
+    c.beginPath();c.moveTo(1116,516);c.lineTo(1184,516);c.lineTo(1190,524);c.lineTo(1110,524);
+    c.closePath();c.fill();
+    c.fillStyle='#15171f';c.fillRect(1110,524,80,28);
+    c.strokeStyle='#2a2e3b';c.strokeRect(1110.5,524.5,79,27);
+    c.strokeStyle='#6b7184';c.lineWidth=3;
+    c.beginPath();c.moveTo(1150,516);c.lineTo(1150,494);c.stroke();
+    c.save();c.translate(1150,482);c.rotate(-.55);
+    c.fillStyle='#cfd3dc';c.beginPath();c.ellipse(0,0,28,19,0,0,TAU);c.fill();
+    c.strokeStyle='#8b91a3';c.lineWidth=1;
+    for(let k=1;k<4;k++){c.beginPath();c.ellipse(0,0,28*k/4,19*k/4,0,0,TAU);c.stroke();}
+    c.beginPath();c.moveTo(-28,0);c.lineTo(28,0);c.moveTo(0,-19);c.lineTo(0,19);c.stroke();
+    c.strokeStyle='#4a5064';c.lineWidth=2;
+    c.beginPath();c.moveTo(0,0);c.lineTo(10,-24);c.stroke();
+    c.fillStyle='#2a2e3b';c.beginPath();c.arc(10,-24,3,0,TAU);c.fill();
+    c.restore();
+    // 信号弧
+    const ph=(t/1000)%2.4;
+    for(let k=0;k<3;k++){
+      const p=(ph+k*.8)%2.4, a=Math.max(0,1-p/1.6);
+      if(a<=.01)continue;
+      c.strokeStyle=`rgba(63,214,122,${a*.9})`;c.lineWidth=1.6;
+      c.beginPath();c.arc(1158,462,9+p*11,-.85,-.15);c.stroke();
+    }
+    c.fillStyle='#0c0d12';c.fillRect(1116,532,68,12);
+    c.strokeStyle='#3a3f50';c.strokeRect(1116.5,532.5,67,11);
+    c.fillStyle='#e9ebf3';c.font=`800 7px ${MONO}`;c.textAlign='center';
+    c.fillText('INTAKE RADAR',1150,541);c.textAlign='left';
+    c.restore();
+    requestAnimationFrame(frame);
+  }
+  frame(0);              // 先同步画一帧，rAF 可能被节流
+}
+
+drawDesk(document.getElementById('desk1'),1);
+drawDesk(document.getElementById('desk3'),3);
+drawRadar(document.getElementById('rad1'),1);
+drawRadar(document.getElementById('rad2'),2);
+</script>
+</body>
+</html>

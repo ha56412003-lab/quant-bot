@@ -234,7 +234,7 @@ def write_all():
     for sid in ORDER:
         p = RAW_DIR / f"{sid}.json"
         if p.exists():
-            results[sid] = json.loads(p.read_text())
+            results[sid] = json.loads(p.read_text(encoding="utf-8"))
     day = datetime.date.today().isoformat()
     outdir = REPORT_DIR / day
     outdir.mkdir(parents=True, exist_ok=True)

@@ -128,10 +128,6 @@ async def okx_test():
 
 # ── Bitget ───────────────────────────────────────────────────────────────────
 
-def bitget_symbol(symbol):
-    return symbol  # same ticker convention incl. 1000x contracts
-
-
 def _bitget_sign(secret, ts, method, path_with_query, body=""):
     msg = f"{ts}{method}{path_with_query}{body}"
     return base64.b64encode(

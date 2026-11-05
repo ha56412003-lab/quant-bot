@@ -1,0 +1,128 @@
+/* ============================================================
+   SPIDER 战术大屏风格 · 全局样式
+   近黑底 + 洋红细线框 + 青色数据 + 点阵网格 + 克制发光
+   ============================================================ */
+
+:root {
+  --ink: #05070a;
+  --panel: #0e131a;
+  --panel-2: #141b24;
+  --pink: #c1207e;
+  --pink-soft: #e04a9e;
+  --cyan: #1fa8c4;
+  --cyan-soft: #7fe3f7;
+  --green: #3fa86a;
+  --red: #d4595e;
+  --amber: #d0a03a;
+  --text: #f2f6fa;
+  --muted: #8a96a8;
+  --line-pink: rgba(224, 74, 158, 0.50);
+  --line-cyan: rgba(31, 168, 196, 0.18);
+}
+
+/* 底色：近黑 + 细点阵网格 */
+body {
+  background-color: var(--ink) !important;
+  background-image: radial-gradient(circle at 1px 1px, rgba(120, 150, 170, 0.18) 1px, transparent 0);
+  background-size: 22px 22px;
+  background-attachment: fixed;
+}
+
+.ant-layout-sider { background: rgba(8, 11, 15, 0.94) !important; }
+.ant-layout-header { background: rgba(10, 14, 19, 0.94) !important; }
+.ant-layout-content { background: transparent !important; }
+.ant-layout { background: transparent !important; }
+
+/* 数字等宽 */
+.ant-table-tbody, .ant-table-thead, .ant-statistic-content,
+.ant-descriptions-item-content, .ant-typography {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* 卡片：洋红细描边 + 微发光 */
+.ant-card {
+  border: 1px solid var(--line-pink) !important;
+  box-shadow: 0 0 12px rgba(224, 74, 158, 0.18), inset 0 0 30px rgba(31, 168, 196, 0.04) !important;
+  background: rgba(14, 19, 26, 0.92) !important;
+}
+.ant-card-head { border-bottom: 1px solid var(--line-pink) !important; }
+.ant-card-head-title { color: var(--cyan-soft) !important; font-size: 13px !important; letter-spacing: 0.4px; }
+
+/* 表格：青色表头 + 呼吸感 */
+.ant-table { background: transparent !important; }
+.ant-table-tbody > tr > td {
+  padding: 9px 10px !important;
+  font-size: 12.5px;
+  border-bottom: 1px solid rgba(193, 32, 126, 0.08) !important;
+}
+.ant-table-thead > tr > th {
+  padding: 10px 10px !important;
+  font-weight: 700 !important;
+  font-size: 12px !important;
+  letter-spacing: 0.5px;
+  color: #9beeff !important;
+  background: rgba(12, 18, 25, 0.98) !important;
+  border-bottom: 1px solid rgba(31, 168, 196, 0.25) !important;
+}
+.ant-table-tbody > tr:hover > td { background: rgba(31, 168, 196, 0.07) !important; }
+
+/* 滚动条：青色 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: #080b10; border-radius: 5px; }
+::-webkit-scrollbar-thumb {
+  background: rgba(31, 168, 196, 0.35);
+  border-radius: 5px;
+  border: 2px solid #080b10;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(31, 168, 196, 0.6); }
+.ant-table-body::-webkit-scrollbar, .ant-table-content::-webkit-scrollbar { width: 10px; height: 10px; }
+.ant-table-body::-webkit-scrollbar-thumb, .ant-table-content::-webkit-scrollbar-thumb {
+  background: rgba(31, 168, 196, 0.35); border-radius: 5px;
+}
+.ant-table-body::-webkit-scrollbar-track, .ant-table-content::-webkit-scrollbar-track { background: #080b10; }
+
+/* 统计卡 */
+.ant-statistic-title { font-size: 11.5px !important; color: var(--muted) !important; letter-spacing: 0.3px; }
+.ant-statistic-content { font-family: 'Cascadia Mono', Consolas, monospace; letter-spacing: 0.2px; }
+
+/* 菜单选中：洋红左条 */
+.ant-menu-dark .ant-menu-item-selected {
+  background: rgba(193, 32, 126, 0.16) !important;
+  box-shadow: inset 2px 0 0 var(--pink);
+  color: #fff !important;
+}
+
+/* 标签/按钮：小圆角描边 */
+.ant-tag { border-radius: 2px; font-size: 11px; letter-spacing: 0.2px; }
+.ant-btn { border-radius: 2px; }
+.ant-btn-primary { box-shadow: 0 0 10px rgba(193, 32, 126, 0.3); }
+
+/* 卡片内边距 */
+.ant-card-small > .ant-card-head { padding: 0 14px; min-height: 40px; }
+.ant-card-small > .ant-card-body { padding: 12px 14px; }
+
+.ant-table-tbody .ant-tag { margin-inline-end: 0; }
+.ant-layout-header { border-bottom: 1px solid rgba(31, 168, 196, 0.18) !important; }
+
+/* ——— 战术屏角标（四角的取景框） ——— */
+.ant-card { position: relative; }
+.ant-card::before,
+.ant-card::after {
+  content: '';
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  pointer-events: none;
+  z-index: 1;
+}
+.ant-card::before {
+  top: -1px; left: -1px;
+  border-top: 2px solid var(--pink-soft);
+  border-left: 2px solid var(--pink-soft);
+}
+.ant-card::after {
+  bottom: -1px; right: -1px;
+  border-bottom: 2px solid var(--pink-soft);
+  border-right: 2px solid var(--pink-soft);
+}

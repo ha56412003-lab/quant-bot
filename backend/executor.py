@@ -106,14 +106,18 @@ async def open_position(sig, qty, price, leverage=None):
         max_hold_sec=sig.max_hold_sec,
         time_exit_at=sig.time_exit_at or None,
         entry_factors=json.dumps(factors.snapshot_for(sig.symbol), ensure_ascii=False),
-        reason=sig.reason)
+        reason=sig.reason, leverage=float(leverage or 0) or None)
     db.log_trade(sig.strategy, sig.symbol, sig.side, qty, fill, fee, "open", pid, None, mode())
     db.log("info", f"开仓 [{sig.strategy}] {sig.symbol} {sig.side} qty={qty:.6g} @ {fill:.6g} — {sig.reason}")
     return pid
 
 
-async def close_position(pos, price, reason):
-    qty, side = pos["qty"], pos["side"]
+async def close_position(pos, price, reason, fraction=1.0):
+    """平仓。fraction=1.0 → 全平；0<fraction<1 → 部分平仓，剩余仓位继续持有。"""
+    full_qty = float(pos["qty"])
+    frac = max(0.01, min(1.0, float(fraction or 1.0)))
+    partial = frac < 0.999
+    qty, side = (full_qty * frac if partial else full_qty), pos["side"]
     if mode() == "live":
         venue = exchange()
         order_side = "SELL" if side == "long" else "BUY"
@@ -139,11 +143,38 @@ async def close_position(pos, price, reason):
     pnl = (fill - pos["entry_price"]) * qty * sign - fee
     if mode() != "live":
         _adjust_paper_balance(pnl)
-    db.close_position(pos["id"], fill, pnl, reason)
-    db.log_trade(pos["strategy"], pos["symbol"],
-                 "sell" if side == "long" else "buy", qty, fill, fee,
-                 "close", pos["id"], pnl, mode())
-    journal.record_close(pos, fill, pnl, fee, reason,
-                         factors.snapshot_for(pos["symbol"]), mode())
-    db.log("info", f"平仓 [{pos['strategy']}] {pos['symbol']} {side} pnl={pnl:+.2f} — {reason}")
+    if partial:
+        # 部分平仓：只减仓，剩余数量与追加保证金按比例保留，仓位保持 open
+        # 注意：positions 表没有 margin 列（保证金是算出来的：qty*entry/leverage），只有 extra_margin
+        remain = full_qty - qty
+        old_extra = float(pos.get("extra_margin") or 0)
+        db.update_position(pos["id"], qty=remain, extra_margin=old_extra * (1 - frac))
+        db.log_trade(pos["strategy"], pos["symbol"],
+                     "sell" if side == "long" else "buy", qty, fill, fee,
+                     "partial_close", pos["id"], pnl, mode())
+        journal.record_close({**pos, "qty": qty}, fill, pnl, fee,
+                             f"{reason}（{frac*100:.0f}%）",
+                             factors.snapshot_for(pos["symbol"]), mode())
+        db.log("info", f"部分平仓 [{pos['strategy']}] {pos['symbol']} {frac*100:.0f}% "
+                       f"pnl={pnl:+.2f} 剩余={remain:.6g} — {reason}")
+    else:
+        db.close_position(pos["id"], fill, pnl, reason)
+        db.log_trade(pos["strategy"], pos["symbol"],
+                     "sell" if side == "long" else "buy", qty, fill, fee,
+                     "close", pos["id"], pnl, mode())
+        journal.record_close(pos, fill, pnl, fee, reason,
+                             factors.snapshot_for(pos["symbol"]), mode())
+        db.log("info", f"平仓 [{pos['strategy']}] {pos['symbol']} {side} pnl={pnl:+.2f} — {reason}")
     return True
+
+
+async def close_all(reason="一键全平"):
+    """平掉所有持仓，返回 (成功数, 失败数)。"""
+    closed = failed = 0
+    for pos in db.open_positions():
+        price = factors.mark_price_of(pos["symbol"])
+        if price and await close_position(pos, price, reason):
+            closed += 1
+        else:
+            failed += 1
+    return closed, failed

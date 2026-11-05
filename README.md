@@ -295,3 +295,27 @@ open http://127.0.0.1:8899
 ---
 
 *Built with FastAPI · React · Ant Design · ECharts · SQLite*
+
+---
+
+## 文档索引
+
+| 文档 | 说明 |
+|---|---|
+| [docs/SHADOW_SYSTEM.md](docs/SHADOW_SYSTEM.md) | **影子系统完整档案** —— 是什么、怎么判卷、当前战绩、已知问题、怎么重新启用。改 `shadow.py` 前必读 |
+| [docs/CHANGELOG_20261105.md](docs/CHANGELOG_20261105.md) | 持仓操作区功能改造（杠杆/保证金/分批平仓/二次确认）|
+| [docs/ARCHIVE_20261104.md](docs/ARCHIVE_20261104.md) | V2 转正与 V1 归档记录 |
+
+## 流量说明（2026-11-05）
+
+系统曾有 56 个因子采集器（27 种 × 30 币），每天产生 20-30 GB 流量。
+实测这些数据策略一个都不用（S15 只用 K 线与价格），已全部关闭，**只保留 `mark_all`（现价快照）**。
+
+现状：约 143 MB/天。若需重新启用某个因子：
+
+```python
+import sqlite3
+c = sqlite3.connect(r'E:\quant-bot\quantbot.db')
+c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)", ('factor_enabled:因子名', '1'))
+c.commit()
+```
