@@ -10,9 +10,13 @@ __pycache__/
 
 # Data
 quantbot.db
+quantbot.db-journal
+quantbot.db-wal
+quantbot.db-shm
 backtest/data/
 backtest/reports/
-data/
+data/*
+!data/short_watch_state.json
 
 # Frontend
 frontend/node_modules/
@@ -25,5 +29,3 @@ logs/
 *.bak_*
 *.log.old
 
-# 空头观察基线要入库（丢了会重置观察天数）
-!data/short_watch_state.json
