@@ -15,6 +15,7 @@ quantbot.db-wal
 quantbot.db-shm
 backtest/data/
 backtest/reports/
+backtest/result_*.json
 data/*
 !data/short_watch_state.json
 

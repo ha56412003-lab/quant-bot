@@ -519,6 +519,15 @@ def _ce_zlsma(ks, ce_len=22, ce_mult=3.0, z_len=32, use_close=True):
 _LAST_BAR = {}   # (sid, symbol) -> 已评估过的K线时间戳，防止高频扫描重复出信号
 
 
+# ── S15 趋势反转出场的 bar 边界缓存 ──────────────────────────────────────
+# check_exit 每 0.5 秒被调用一次（engine.position_loop），8 个仓位就是
+# 16 次/秒。若每次都去拉 1h K 线，一天约 553MB —— 而且 99.9% 的调用
+# 拿到的都是同一根未收盘 bar，算出来的 ZLSMA 完全一样。
+# 这里只缓存「当前 bar 的 ZLSMA / ATR 值」，跨过 bar 边界才重新拉取。
+# 键: (symbol, interval)  值: (bar_ts, zlsma, atr, ready)
+_S15_ZL_CACHE = {}
+
+
 class S15CeZlsma(Base):
     sid = "S15_CE_ZLSMA"
     FACTORS = []                 # 不需要任何 Clawby 因子，不消耗额度
@@ -642,6 +651,117 @@ class S15CeZlsma(Base):
             except Exception as exc:  # noqa: BLE001
                 log.warning("S15 %s 计算失败: %s", sym, exc)
         return out
+
+    async def check_exit(self, ctx, pos):
+        """趋势反转出场：趋势掉头且已有浮盈时提前落袋。
+
+        为什么加「必须已有浮盈」这道门槛 —— 回测数据（20 币 / 20 天 /
+        组合级 8 仓上限，费率 0.05% 双边 + 滑点）对比 6 种出场规则：
+
+            规则            笔数   胜率   净总R   费用R   盈亏比
+            ATR+R止盈(现状)  197   35.0%  -34.94    9.6    0.58
+            一穿就走        1803   28.7%  -95.05   97.4    0.57
+            连续2根确认      1373   35.6%  -72.08   72.5    0.61
+            均线转向才走     1059   34.6%  -25.20   55.9    0.65
+            浮盈后趋势出场     392   61.2%  -10.49   18.9    1.21   ← 本实现
+            pine 原版       2345   22.5% -1053.63 1011.6   0.49
+
+        单纯「收盘价穿越均线就平仓」在震荡市疯狂进出：1717 次触发占
+        全部出场的 95%，光手续费就吃掉 97R，把原本 -35R 的结果恶化到
+        -95R。加浮盈门槛后交易次数降到 392，胜率从 35% 提到 61%，
+        盈亏比 0.58 → 1.21，是唯一没有因手续费失血的规则。
+
+        关键设计：亏损时不用趋势出场，把回踩空间留给 ATR×5 止损。
+        这是趋势跟踪的标准用法 —— 亏损单让止损说话，盈利单才谈保护
+        利润。反过来（亏损就跑）会在大趋势启动前的正常回踩中被打掉。
+
+        流量：check_exit 每 0.5 秒被调用一次，8 个仓位就是 16 次/秒。
+        这里按「bar 边界」缓存 ZLSMA 值 —— 一根 K 线没收盘，指标就不
+        会变，只有跨过 bar 边界才真正去拉数据。1h 周期下 8 个币一天
+        约 192 次请求 ≈ 3.8MB；不做这个缓存会是 553MB/天。
+        """
+        try:
+            return await self._trend_reversal_exit(ctx, pos)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("S15 check_exit %s 失败: %s", pos.get("symbol"), exc)
+            return None
+
+    async def _trend_reversal_exit(self, ctx, pos):
+        sym = pos["symbol"]
+        side = pos["side"]
+        entry = float(pos.get("entry_price") or 0)
+        if entry <= 0:
+            return None
+
+        ce_len = int(self._p("ce_len", 22))
+        ce_mult = float(self._p("ce_mult", 3.0))
+        z_len = int(self._p("zlsma_len", 32))
+        kline_iv = str(self.p.get("kline_interval", "1h"))
+        # 浮盈门槛（以 R 计）：0.8 意味着赚到 0.8 倍止损距离才开始
+        # 谈趋势保护。设 0 或负数 = 关闭趋势出场（回到纯 ATR 止损）。
+        min_profit_r = float(self._p("exit_min_profit_r", 0.0))
+        if min_profit_r <= 0:
+            return None
+
+        # ── bar 边界缓存：同一根 K 线内不重复拉数据 ──
+        bar_secs = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400}
+        bsec = bar_secs.get(kline_iv, 3600)
+        cur_bar = int(time.time() // bsec) * bsec
+        ck = (sym, kline_iv)
+        hit = _S15_ZL_CACHE.get(ck)
+        if hit and hit[0] == cur_bar:
+            z_now, atr_now, ready = hit[1], hit[2], hit[3]
+        else:
+            ready = False
+            z_now = atr_now = None
+
+        if not ready:
+            need = max(ce_len, z_len * 2) + 80
+            ks = await ctx.klines(sym, kline_iv, need)
+            if not ks or len(ks) < need:
+                return None
+            ind = _ce_zlsma(ks, ce_len, ce_mult, z_len, True)
+            zl, atr_s = ind["zlsma"], ind["atr"]
+            i = len(ks) - 2                  # 最后一根已收完的 K 线
+            if i < 2 or zl[i] is None:
+                return None
+            z_now = zl[i]
+            atr_now = atr_s[i] if (atr_s and i < len(atr_s)) else None
+            _S15_ZL_CACHE[ck] = (cur_bar, z_now, atr_now, True)
+
+        if z_now is None:
+            return None
+
+        # 需要最新价对比：收盘穿越才确认趋势掉头
+        # 用 ws 实时价会更早，但回测用的是收盘价，实盘保持口径一致
+        last_close = None
+        try:
+            last_close = ctx.price(sym)
+        except Exception:  # noqa: BLE001
+            last_close = None
+        if not last_close:
+            return None
+
+        # ① 价格必须已经穿到均线的另一侧（趋势确实掉头了）
+        if side == "long":
+            if last_close >= z_now:
+                return None
+        else:
+            if last_close <= z_now:
+                return None
+
+        # ② 必须已经有足够浮盈，否则这笔单子交给 ATR 止损处理
+        risk = abs(entry - float(pos.get("stop_price") or 0))
+        if risk <= 0:
+            if not atr_now or atr_now <= 0:
+                return None
+            risk = atr_now * 5.0
+        sign = 1 if side == "long" else -1
+        profit_r = (last_close - entry) * sign / risk
+        if profit_r < min_profit_r:
+            return None
+
+        return f"趋势反转出场(跌破ZLSMA, 浮盈{profit_r:.2f}R)"
 
 
 
