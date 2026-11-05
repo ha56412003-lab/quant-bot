@@ -35,7 +35,7 @@ global:
   daily_loss_halt_pct: 3.0
   risk_per_trade_pct: 0.5
   max_concurrent_coins: 8
-  max_same_side: 4
+  max_same_side: 6
   event_quiet_minutes: 30
   fear_greed_extreme:
     greed: 85
