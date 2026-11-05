@@ -30,9 +30,9 @@ global:
   - FILUSDT
   - ATOMUSDT
   - UNIUSDT
-  max_position_pct_per_coin: 10
+  max_position_pct_per_coin: 10.0
   max_gross_leverage: 3
-  daily_loss_halt_pct: 3
+  daily_loss_halt_pct: 3.0
   risk_per_trade_pct: 0.5
   max_concurrent_coins: 8
   max_same_side: 4

@@ -12,7 +12,14 @@ function GlobalRisk({ data, onSaved }) {
   const { t } = useI18n()
   const g = data?.global || {}
   const [v, setV] = useState({})
-  React.useEffect(() => { setV(g) }, [data]) // eslint-disable-line
+  const [orig, setOrig] = useState({})
+  React.useEffect(() => {
+    setV(g)
+    // 记录加载时的原始值：保存时只提交**改过的**字段。
+    // 否则表单里任何一个陈旧值都会覆盖掉别人刚改的参数
+    // （2026-11-05 事故：max_same_side 被页面里的旧值 6 覆盖回写）
+    setOrig(JSON.parse(JSON.stringify(g)))
+  }, [data]) // eslint-disable-line
   const fields = [
     ['risk_per_trade_pct', t('risk.f.rpt'), t('risk.f.rptTip')],
     ['max_gross_leverage', t('risk.f.lev'), t('risk.f.levTip')],
@@ -23,7 +30,12 @@ function GlobalRisk({ data, onSaved }) {
     ['event_quiet_minutes', t('risk.f.quiet'), t('risk.f.quietTip')],
   ]
   const save = async () => {
-    try { await api.setGlobalRisk(v); message.success(t('risk.globalSaved')); onSaved?.() }
+    const diff = {}
+    for (const k of Object.keys(v || {})) {
+      if (JSON.stringify(v[k]) !== JSON.stringify(orig[k])) diff[k] = v[k]
+    }
+    if (!Object.keys(diff).length) { message.info(t('risk.noChange')); return }
+    try { await api.setGlobalRisk(diff); message.success(t('risk.globalSaved')); onSaved?.() }
     catch (e) { message.error(`${t('config.saveFailed')}: ${e.message}`) }
   }
   return (

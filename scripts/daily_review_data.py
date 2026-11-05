@@ -212,6 +212,31 @@ def collect(start_ts: int, label: str) -> str:
             issues.append(f"净值单日跌幅 {chg:.2f}%，接近熔断线 3%")
     L.extend(f"- {i}" for i in issues) if issues else L.append("- 无异常")
 
+    # ── 今日配置变更（关键！否则 AI 会把改参数前后的数据混算）──
+    L.append("")
+    L.append("## 今日配置变更")
+    tries = [
+        ("SELECT ts, msg FROM logs WHERE ts>=? AND msg LIKE '%风控参数更新%' ORDER BY ts", (start_ts,)),
+        ("SELECT ts, msg FROM logs WHERE ts>=? AND msg LIKE '%全局风控%' ORDER BY ts", (start_ts,)),
+    ]
+    changes = []
+    for q, p in tries:
+        try:
+            changes = c.execute(q, p).fetchall()
+        except Exception:  # noqa: BLE001
+            changes = []
+        if changes:
+            break
+    if changes:
+        L.append("⚠ **今天中途改过风控参数，改之前和改之后的数据不能混在一起算！**")
+        for r in changes:
+            ts = r["ts"] if isinstance(r, dict) or hasattr(r, "keys") else r[0]
+            msg = r["msg"] if hasattr(r, "keys") else r[1]
+            L.append(f"- {_hm(ts)}  {msg}")
+        L.append("- 分析拦截统计时，请把时间切成「变更前 / 变更后」两段分别看")
+    else:
+        L.append("- 无变更")
+
     return f"# 交易日报数据 · {label}\n\n" + "\n".join(L)
 
 
