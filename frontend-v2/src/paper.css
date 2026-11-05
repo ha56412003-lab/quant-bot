@@ -1,0 +1,566 @@
+/* ============================================================
+   纸面背景主题（可切换）
+   ------------------------------------------------------------
+   用法：<html data-theme="paper"> 时生效；去掉该属性恢复原来的
+         「SPIDER 战术大屏 · 玫红深色」主题。
+
+   设计原则（方案 A · 只换背景）：
+   · 页面底色、网格、扫描线换成纸白工程图
+   · 顶栏 / 侧栏跟随纸白
+   · **卡片、面板、表格保持原来的深色**，形成「纸面上贴深色显示板」
+     的对比感 —— 动的地方最少，随时能一键切回。
+   ============================================================ */
+
+/* ── 纸面色阶 ── */
+html[data-theme="paper"] {
+  --paper:       #eeede8;
+  --paper-2:     #f6f5f1;
+  --paper-3:     #e4e2dc;
+  --paper-hair:  #d2d0c9;
+  --paper-hair2: #e0ded7;
+  --paper-ink:   #151515;
+  --paper-ink2:  #4a4a46;
+  --paper-mute:  #6f6e68;
+  color-scheme: light;
+}
+
+/* ── 页面底色 ── */
+html[data-theme="paper"] body {
+  background-color: var(--paper) !important;
+  background-image: none !important;
+  color: var(--paper-ink) !important;
+}
+
+/* ── 工程网格（替换原来的点阵） ── */
+html[data-theme="paper"] body::before {
+  content: '' !important;
+  position: fixed !important;
+  inset: 0 !important;
+  pointer-events: none !important;
+  z-index: 0 !important;
+  background:
+    linear-gradient(rgba(21, 21, 21, .032) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(21, 21, 21, .032) 1px, transparent 1px) !important;
+  background-size: 44px 44px !important;
+}
+
+/* ── 扫描线（纸纤维感） ── */
+html[data-theme="paper"] body::after {
+  content: '' !important;
+  position: fixed !important;
+  inset: 0 !important;
+  pointer-events: none !important;
+  z-index: 9997 !important;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(21, 21, 21, .017) 0 1px,
+    transparent 1px 3px
+  ) !important;
+}
+
+/* ── 顶栏：纸白底 + 墨黑字 ── */
+html[data-theme="paper"] .op-topbar {
+  background: var(--paper-2) !important;
+  border-bottom: 1px solid var(--paper-hair) !important;
+  box-shadow: 0 1px 0 var(--paper-hair) !important;
+}
+html[data-theme="paper"] .op-brand,
+html[data-theme="paper"] .op-brand b,
+html[data-theme="paper"] .op-brand .sub {
+  color: var(--paper-ink) !important;
+}
+html[data-theme="paper"] .op-brand .dot {
+  background: var(--paper-ink) !important;
+  box-shadow: none !important;
+}
+html[data-theme="paper"] .op-clock,
+html[data-theme="paper"] .op-date {
+  color: var(--paper-ink2) !important;
+}
+
+/* ── 导航（顶部那排 page 按钮） ── */
+html[data-theme="paper"] .op-nav {
+  background: transparent !important;
+  border-color: var(--paper-hair) !important;
+}
+
+/* ── 切页区的页面外壳 ── */
+html[data-theme="paper"] .op-shell {
+  background: transparent !important;
+}
+
+/* ── 滚动条跟着变浅 ── */
+html[data-theme="paper"] ::-webkit-scrollbar-track {
+  background: var(--paper-3) !important;
+}
+html[data-theme="paper"] ::-webkit-scrollbar-thumb {
+  background: #b8b6ae !important;
+  border: 2px solid var(--paper-3) !important;
+}
+html[data-theme="paper"] ::-webkit-scrollbar-thumb:hover {
+  background: #96948c !important;
+}
+html[data-theme="paper"] ::-webkit-scrollbar-corner {
+  background: var(--paper-3) !important;
+}
+
+/* ── 正文里那些默认浅色小字（原来在深色下够亮，白底会看不见） ── */
+html[data-theme="paper"] .op-shell span,
+html[data-theme="paper"] .op-shell small {
+  /* 只对没有显式设色的兜底，不强制覆盖组件自己的主题色 */
+}
+
+/* ============================================================
+   纸面模式下：把内联写死的玫红（#ff7fcb / rgba(180,47,128,…)）
+   压成墨黑。
+   外部样式表的 !important 可以覆盖内联样式（内联没加 !important 时），
+   所以用属性选择器命中 style 里带这些颜色的元素。
+   ============================================================ */
+html[data-theme="paper"] [style*="ff7fcb"],
+html[data-theme="paper"] [style*="255, 127, 203"],
+html[data-theme="paper"] [style*="255,127,203"] {
+  color: var(--paper-ink) !important;
+}
+
+html[data-theme="paper"] [style*="rgba(180,47,128"],
+html[data-theme="paper"] [style*="rgba(180, 47, 128"] {
+  background: rgba(21, 21, 21, .08) !important;
+}
+
+/* 边框也是玫红的（#ec4fae） */
+html[data-theme="paper"] [style*="ec4fae"] {
+  border-color: #b8b6ae !important;
+}
+
+/* 顶部那排 page 按钮：未选中态原来是 #73788e（深色下够亮，纸白下偏灰） */
+html[data-theme="paper"] [style*="73788e"] {
+  color: var(--paper-ink2) !important;
+}
+
+/* 分隔线 #262a39（深色系）在白底上几乎看不见，换成纸面色 */
+html[data-theme="paper"] [style*="262a39"] {
+  border-color: var(--paper-hair) !important;
+}
+
+/* React 会把 #ec4fae 渲染成 rgb(236, 79, 174)，补上这条 */
+html[data-theme="paper"] [style*="236, 79, 174"],
+html[data-theme="paper"] [style*="236,79,174"] {
+  border-color: #b8b6ae !important;
+}
+
+/* 选中页签背景 rgba(180,47,128,.35) 的另一种渲染形式 */
+html[data-theme="paper"] [style*="180, 47, 128"],
+html[data-theme="paper"] [style*="180,47,128"] {
+  background: rgba(21, 21, 21, .08) !important;
+}
+
+/* ============================================================
+   dashboard 页（总览 / SpiderBoard）用的是 spider.css 这套独立皮肤，
+   它自己的注释写着「单一深色视觉，刻意不做浅色版」。
+   玫红不是背景色，是 .spider-root 上的 --frame:#ec4fae 外框色，
+   整页底色是 .wrap 的 radial-gradient(--frame-hi, --frame, --frame-deep)。
+
+   所以纸面模式下必须整套变量一起换，只换一处会出现「白底粉框」的怪相。
+   ============================================================ */
+
+html[data-theme="paper"] .spider-root {
+  color-scheme: light;
+
+  /* 外框：纸面色阶（比正文略深，形成装订边） */
+  --frame:      #d2d0c9;
+  --frame-hi:   #eeede8;
+  --frame-deep: #c2c0b8;
+  --frame-ink:  #151515;   /* 外框上的文字：墨黑 */
+
+  /* 页面 / 面板 */
+  --bg:      #eeede8;
+  --panel:   #f6f5f1;
+  --panel-2: #efeee9;
+
+  /* 线条 */
+  --line:   #d2d0c9;
+  --line-2: #c4c2ba;
+
+  /* 文字 */
+  --ink:   #151515;
+  --ink-2: #3a3a36;
+  --mute:  #5f5e58;   /* 原 #6f6e68 在白底上偏浅，压深到 6.5:1 */
+  --dim:   #7a7873;   /* 原 #9a9892 只有 2.4:1，白底上看不清 */
+
+  /* 强调色：压深，保证白底可读 */
+  --cyan:   #2b6d80;
+  --joint:  #b8303c;
+  --good:   #1f7a4d;
+  --bad:    #b8303c;
+  --warn:   #8a6a12;
+  --sticky: #8a6a12;
+
+  /* 作战室场景：浅灰阶（原来是深色舞台） */
+  --stage:      #e9e8e2;
+  --wall:       #e4e2dc;
+  --wall-2:     #e9e8e2;
+  --floor:      #dfdfd8;
+  --desk:       #c4c2ba;
+  --desk-front: #b8b6ae;
+  --metal:      #a8a69e;
+  --screen:     #f6f5f1;
+}
+
+/* .wrap 原来是玫红径向渐变，纸面下换成纸白渐变 */
+html[data-theme="paper"] .spider-root .wrap {
+  background: radial-gradient(
+    130% 100% at 50% 0%,
+    var(--frame-hi),
+    var(--frame) 50%,
+    var(--frame-deep)
+  ) !important;
+}
+
+/* 卡片、面板一律用纸白，并加一道细边，避免白纸糊成一片 */
+html[data-theme="paper"] .spider-root .card,
+html[data-theme="paper"] .spider-root .panel,
+html[data-theme="paper"] .spider-root .hdr,
+html[data-theme="paper"] .spider-root .hdr b {
+  color: var(--ink) !important;
+}
+
+/* ============================================================
+   v2.css 里用 !important 写死了这几个组件的深色/玫红：
+     .spider-root .hdr .logo   → background:#1b0613 / color:#ff7fcb
+     .spider-root .hdr .clock  → 同上
+   选择器多一段 html[data-theme="paper"] 才压得住，且必须带 !important。
+   ============================================================ */
+html[data-theme="paper"] .spider-root .hdr .logo {
+  background: var(--ops-ink, #151515) !important;
+  color: #eeede8 !important;
+  box-shadow: none !important;
+}
+html[data-theme="paper"] .spider-root .hdr .clock {
+  background: #151515 !important;
+  color: #eeede8 !important;
+}
+
+/* 顶栏 page 按钮的选中态是内联写死的深紫黑底 + 玫红字 */
+html[data-theme="paper"] [style*="27, 6, 19"],
+html[data-theme="paper"] [style*="27,6,19"] {
+  background: rgba(21, 21, 21, .10) !important;
+  color: #151515 !important;
+  border-color: #151515 !important;
+}
+
+/* ============================================================
+   红绿语义色降饱和
+   ------------------------------------------------------------
+   纸白底上原来那对荧光色（#ff4d5e / #35e08a）太刺眼，
+   但「红涨绿跌」不能改语义，只能把饱和度压下来。
+   这几条在 v2.css 里是写死的类，不是变量，所以得逐个点名。
+   ============================================================ */
+html[data-theme="paper"] .spider-root .stage .c-red,
+html[data-theme="paper"] .spider-root .pop-row > b.up,
+html[data-theme="paper"] .spider-root .pnl-num.up,
+html[data-theme="paper"] .spider-root .pnl-num[style*="255, 77, 94"],
+html[data-theme="paper"] .spider-root [style*="255, 77, 94"] {
+  color: #c4182c !important;
+}
+html[data-theme="paper"] .spider-root .stage .c-green,
+html[data-theme="paper"] .spider-root .pop-row > b.dn,
+html[data-theme="paper"] .spider-root .pnl-num.dn,
+html[data-theme="paper"] .spider-root .pnl-num[style*="53, 224, 138"],
+html[data-theme="paper"] .spider-root [style*="53, 224, 138"] {
+  color: #0f7a3d !important;
+}
+
+/* 卡片边框原来跟盈亏色联动，纸面下用中性灰，避免整屏红绿框 */
+html[data-theme="paper"] .spider-root .cards .card {
+  border-color: #d2d0c9 !important;
+  background: #f6f5f1 !important;
+}
+
+/* 图表区：白底改纸白，避免和背景形成色差断层 */
+html[data-theme="paper"] .spider-root .pnl {
+  background: #f6f5f1 !important;
+  border-color: #d2d0c9 !important;
+}
+
+/* 表头 / 青色文字：原来是 #45e6f5，白底上几乎看不见 */
+html[data-theme="paper"] .spider-root th,
+html[data-theme="paper"] .spider-root .rtab th,
+html[data-theme="paper"] .spider-root [style*="69, 230, 245"] {
+  color: #3a3a36 !important;
+  background: #e4e2dc !important;
+}
+html[data-theme="paper"] .spider-root [style*="rgb(69,230,245)"] {
+  color: #3a3a36 !important;
+}
+
+/* 跑马灯：保持深色条，但换成墨黑，和 logo/clock 呼应，不再是紫黑 */
+html[data-theme="paper"] .spider-root .ticker {
+  background: #151515 !important;
+  color: #eeede8 !important;
+}
+html[data-theme="paper"] .spider-root .ticker * {
+  color: #eeede8 !important;
+}
+/* 跑马灯里的红绿仍保留语义，只压暗一档 */
+html[data-theme="paper"] .spider-root .ticker .up,
+html[data-theme="paper"] .spider-root .ticker [style*="255, 77, 94"] { color: #ff8a95 !important; }
+html[data-theme="paper"] .spider-root .ticker .dn,
+html[data-theme="paper"] .spider-root .ticker [style*="53, 224, 138"] { color: #6ee7a8 !important; }
+
+/* 表格分割线加深，纵向阅读不串行 */
+html[data-theme="paper"] .spider-root .rtab td,
+html[data-theme="paper"] .spider-root td {
+  border-bottom: 1px solid #dedcd4 !important;
+}
+
+/* ============================================================
+   第三轮清扫：把剩下的玫红 / 亮红全部换成墨黑或深红
+   实测抓到的源头（getComputedStyle 扫描）：
+     rgba(236,79,174,.55)  → 待进场卡 .card.idle / .tg / .av / .idle-mid / .idot
+     rgba(255,127,203,.58) → .idle-big「等待信号。。。」
+     rgb(255,77,94)        → .tg LONG 标签 / .btn「一键全平」边框
+     rgb(255,107,122)      → .cbtn-full「全平」
+   ============================================================ */
+html[data-theme="paper"] .spider-root .card.idle,
+html[data-theme="paper"] .spider-root .tg,
+html[data-theme="paper"] .spider-root .av,
+html[data-theme="paper"] .spider-root .idle-mid,
+html[data-theme="paper"] .spider-root .idot,
+html[data-theme="paper"] .spider-root .idle-big,
+html[data-theme="paper"] .spider-root [style*="236, 79, 174"],
+html[data-theme="paper"] .spider-root [style*="255, 127, 203"] {
+  color: #6f6e68 !important;
+  border-color: #d2d0c9 !important;
+}
+
+/* LONG/SHORT 标签：红绿不变语义，只压饱和 */
+html[data-theme="paper"] .spider-root .tg[style*="255, 77, 94"],
+html[data-theme="paper"] .spider-root [style*="255, 77, 94"] {
+  color: #c4182c !important;
+  border-color: rgba(196, 24, 44, .45) !important;
+}
+html[data-theme="paper"] .spider-root [style*="53, 224, 138"] {
+  color: #0f7a3d !important;
+  border-color: rgba(15, 122, 61, .45) !important;
+}
+
+/* 危险操作按钮：深红描边 + 深红字，白底可读 */
+html[data-theme="paper"] .spider-root .btn[style*="255, 77, 94"],
+html[data-theme="paper"] .spider-root .cbtn,
+html[data-theme="paper"] .spider-root .cbtn-full {
+  color: #c4182c !important;
+  border-color: rgba(196, 24, 44, .55) !important;
+}
+
+/* 辅助小字再压深一档，解决 vision 反复报的「看不清」 */
+html[data-theme="paper"] .spider-root {
+  --dim:  #6f6e68;
+  --mute: #55544f;
+}
+
+/* ============================================================
+   底部「浮动盈亏」那块和周边有色差
+   ------------------------------------------------------------
+   实测：body = #eeede8(238)，.stage = #e9e8e2(233)。
+   差 5 个色阶，深色主题下看不出来，纸白下就成了一个"浮起来的框"。
+   统一为纸底同色，只靠 1px 边框划分区域。
+   ============================================================ */
+html[data-theme="paper"] .spider-root .stage {
+  background: #eeede8 !important;
+  border-color: #d8d6cf !important;
+  box-shadow: none !important;
+}
+html[data-theme="paper"] .spider-root .stage .stats,
+html[data-theme="paper"] .spider-root .stage .stats-big3,
+html[data-theme="paper"] .spider-root .stage .sbig {
+  background: transparent !important;
+}
+
+/* 底部三大项的标签色：#7f8598 / #6b7183 在白底上太淡 */
+html[data-theme="paper"] .spider-root .stage .sbig .lb {
+  color: #55544f !important;
+}
+html[data-theme="paper"] .spider-root .stage .sbig .sub {
+  color: #6f6e68 !important;
+}
+
+/* ============================================================
+   底部五项状态栏（资金使用率 / 可用保证金 / 持仓数 / 爆仓距离 / 平均持仓）
+   ------------------------------------------------------------
+   这三处是白底上"看不见"的主因：
+     .val.plain  = #c8cddd      亮灰蓝，白底上对比度约 1.3:1，等于隐形
+     .lb         = #6b7183      标签色，约 3.2:1，偏淡
+     .bar-line   = rgba(255,255,255,.08)  白色进度槽，白底上完全消失
+   ============================================================ */
+html[data-theme="paper"] .spider-root .stage .ssm .lb {
+  color: #55544f !important;
+}
+html[data-theme="paper"] .spider-root .stage .ssm .val,
+html[data-theme="paper"] .spider-root .stage .ssm .val.plain {
+  color: #151515 !important;
+}
+html[data-theme="paper"] .spider-root .stage .ssm .val small {
+  color: #3a3a36 !important;
+}
+
+/* 进度条：白底上看不见的白色槽，换成浅灰槽 + 深色填充 */
+html[data-theme="paper"] .spider-root .stage .ssm .bar-line {
+  background: rgba(21, 21, 21, .12) !important;
+}
+html[data-theme="paper"] .spider-root .stage .ssm .bar-line i {
+  background: #151515 !important;
+  opacity: .75;
+}
+
+/* 五项上方的分隔线原来是玫红渐变 */
+html[data-theme="paper"] .spider-root .stage .stats-small5::before {
+  background: linear-gradient(90deg, rgba(21,21,21,.28), rgba(21,21,21,.06) 70%, transparent) !important;
+}
+
+/* 账户净值大数字原来是荧光青 #45e6f5，白底上刺眼且偏淡，改压深的青 */
+html[data-theme="paper"] .spider-root .stage .sbig.equity,
+html[data-theme="paper"] .spider-root .stage .c-cyan {
+  color: #1d5c6e !important;
+}
+/* 底部三大项的标签 */
+html[data-theme="paper"] .spider-root .stage .sbig .lb {
+  color: #55544f !important;
+}
+html[data-theme="paper"] .spider-root .stage .sbig .sub {
+  color: #6f6e68 !important;
+}
+
+/* 底部五项标签：9.5px 太小，纸面下放大到 11px（数值对比度已够，是字太小显淡） */
+html[data-theme="paper"] .spider-root .stage .ssm .lb {
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  letter-spacing: .12em !important;
+  color: #4a4a45 !important;
+}
+html[data-theme="paper"] .spider-root .stage .ssm .val {
+  font-size: 18px !important;
+}
+
+/* ============================================================
+   滚动条（浩哥 19:00 指出权益曲线卡的滚动条还是玫红）
+   ------------------------------------------------------------
+   v2.css 里给这几个容器单独写了玫红滚动条，且带 box-shadow 粉色光晕：
+     .scroll-y::-webkit-scrollbar-thumb                rgba(236,79,174,.4)
+     .pnl > div:last-child::-webkit-scrollbar-thumb    rgba(236,79,174,.75) + 光晕
+     .stage > div:nth-child(3)::-webkit-scrollbar-thumb 同上
+     .side > div::-webkit-scrollbar-thumb              同上
+   类选择器优先级高于我原来写的全局 ::-webkit-scrollbar，必须逐个点名覆盖。
+   ============================================================ */
+html[data-theme="paper"] .scroll-y::-webkit-scrollbar-thumb,
+html[data-theme="paper"] .pnl > div:last-child::-webkit-scrollbar-thumb,
+html[data-theme="paper"] .stage > div:nth-child(3)::-webkit-scrollbar-thumb,
+html[data-theme="paper"] .side > div::-webkit-scrollbar-thumb {
+  background: rgba(21, 21, 21, .28) !important;
+  border: 2px solid transparent !important;
+  box-shadow: none !important;
+}
+html[data-theme="paper"] .scroll-y::-webkit-scrollbar-thumb:hover,
+html[data-theme="paper"] .pnl > div:last-child::-webkit-scrollbar-thumb:hover,
+html[data-theme="paper"] .stage > div:nth-child(3)::-webkit-scrollbar-thumb:hover,
+html[data-theme="paper"] .side > div::-webkit-scrollbar-thumb:hover {
+  background: rgba(21, 21, 21, .48) !important;
+}
+
+/* 滚动槽：深色底 → 浅灰 */
+html[data-theme="paper"] .pnl > div:last-child::-webkit-scrollbar-track,
+html[data-theme="paper"] .stage > div:nth-child(3)::-webkit-scrollbar-track,
+html[data-theme="paper"] .side > div::-webkit-scrollbar-track {
+  background: rgba(21, 21, 21, .06) !important;
+  border-radius: 6px;
+}
+
+/* 空态占位框：玫红虚线 + 玫红字 → 灰虚线 + 墨灰字 */
+html[data-theme="paper"] .spider-root [style*="236, 79, 174"],
+html[data-theme="paper"] .spider-root [style*="236,79,174"] {
+  border-color: #d2d0c9 !important;
+  color: #6f6e68 !important;
+}
+
+/* ============================================================
+   全量体检结论（2026-11-05 19:03）
+   ------------------------------------------------------------
+   扫描整个 dashboard，共 315 处低对比度文字，其中 313 处是同一类：
+   antd 的 <Tag> 组件。antd 预设色是给纯白底调的，纸白底上差一口气：
+     .ant-tag-green  rgb(56,158,13)   3.37:1   × 279 处
+     .ant-tag-cyan   rgb(8,151,156)   3.39:1   × 26 处
+     .ant-tag-gold   rgb(212,136,6)   2.76:1   × 8 处
+   修法：加深文字色 + 加淡背景 + 加边框，变成"实心小标签"，一眼能扫。
+   ============================================================ */
+html[data-theme="paper"] .ant-tag-green {
+  color: #0f6b38 !important;
+  background: rgba(15, 122, 61, .10) !important;
+  border-color: rgba(15, 122, 61, .35) !important;
+}
+html[data-theme="paper"] .ant-tag-cyan {
+  color: #14556a !important;
+  background: rgba(29, 92, 110, .10) !important;
+  border-color: rgba(29, 92, 110, .35) !important;
+}
+html[data-theme="paper"] .ant-tag-gold {
+  color: #6b4d00 !important;
+  background: rgba(138, 106, 18, .12) !important;
+  border-color: rgba(138, 106, 18, .38) !important;
+}
+html[data-theme="paper"] .ant-tag-red {
+  color: #a01020 !important;
+  background: rgba(196, 24, 44, .09) !important;
+  border-color: rgba(196, 24, 44, .32) !important;
+}
+html[data-theme="paper"] .ant-tag-blue {
+  color: #1a4a72 !important;
+  background: rgba(26, 74, 114, .09) !important;
+  border-color: rgba(26, 74, 114, .32) !important;
+}
+/* 默认灰标签 */
+html[data-theme="paper"] .ant-tag {
+  color: #4a4a45 !important;
+  background: rgba(21, 21, 21, .06) !important;
+  border-color: rgba(21, 21, 21, .18) !important;
+}
+
+/* 体检抓到的粉色残留：.ant-statistic-content ringbuf 用的 #d4595e（偏粉的红） */
+html[data-theme="paper"] .spider-root .ant-statistic-content,
+html[data-theme="paper"] .spider-root .ant-statistic-content-value,
+html[data-theme="paper"] .spider-root .ant-statistic-content-value-int,
+html[data-theme="paper"] .spider-root .ant-statistic-content-value-decimal,
+html[data-theme="paper"] .spider-root .ant-statistic-content-suffix {
+  color: #b8303c !important;
+}
+
+/* 剩下 2 处 .btn / .sub 的小字 */
+html[data-theme="paper"] .spider-root .btn {
+  color: #3a3a36 !important;
+}
+
+/* 最后一个低对比度：.sub（大数字下面的小字说明） */
+html[data-theme="paper"] .spider-root .sub {
+  color: #5a5953 !important;
+}
+
+/* ── 体检收尾：最后 3 处 ── */
+/* 1) .sub 被 .stage .sbig .sub 的更高优先级压住了，4.36:1 差一点点 */
+html[data-theme="paper"] .spider-root .stage .sbig .sub,
+html[data-theme="paper"] .spider-root .stats .sub {
+  color: #56554f !important;
+}
+
+/* 2) 风控页分隔线还是玫红 rgba(193,32,126,.2) */
+html[data-theme="paper"] .ant-divider {
+  border-color: rgba(21, 21, 21, .14) !important;
+}
+html[data-theme="paper"] .ant-divider-inner-text {
+  color: #4a4a45 !important;
+}
+
+/* 3) 开关控件：开态原来是玫红 token，纸面下改墨黑 */
+html[data-theme="paper"] .ant-switch.ant-switch-checked {
+  background: #151515 !important;
+}
+html[data-theme="paper"] .ant-switch:not(.ant-switch-checked) {
+  background: rgba(21, 21, 21, .25) !important;
+}

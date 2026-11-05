@@ -1,3 +1,5 @@
+import ThemeSwitch from './ThemeSwitch'
+import PaperField from './PaperField'
 import { useState } from 'react'
 import { api } from './api'
 import { usePoll } from './hooks'
@@ -35,6 +37,8 @@ export default function App() {
 
   if (page !== 'dashboard') {
     return (
+      <>
+      <PaperField />
       <div style={{ padding: 24, minHeight: '100vh' }}>
         <div style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
           <b style={{ fontSize: 16, color: '#ff7fcb', letterSpacing: '0.1em' }}>AGENT OPS</b>
@@ -48,19 +52,24 @@ export default function App() {
                 borderRadius: 3,
               }}>{label}</button>
           ))}
-          <span style={{ marginLeft: 'auto' }}>
+          <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+            <ThemeSwitch />
             <ModeSwitch status={status} />
           </span>
         </div>
         <PageComp status={status} />
       </div>
+      </>
     )
   }
 
   return (
+    <>
+    <PaperField />
     <SpiderBoard status={status} positions={pos} nav={nav}
                  activeNav={page} onNavigate={setPage}>
       <PageComp status={status} />
     </SpiderBoard>
+    </>
   )
 }

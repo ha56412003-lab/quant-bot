@@ -1,0 +1,163 @@
+/* ============================================================
+   #ops 纸白主题 · paper theme
+   来源：参考 Agent 战术大屏 v10.0 的浅色主题配色（纸白 + 墨黑 + 工程网格）
+   只借用配色与纹理语言，不含任何第三方绘制代码。
+   ============================================================ */
+
+:root{
+  /* 底色：纸白 */
+  --ink:#eeede8;
+  --panel:#f6f5f1;
+  --panel-2:#e9e8e2;
+
+  /* 主色：墨（替换原来的玫红体系） */
+  --pink:#151515;
+  --pink-dim:#3a3a36;
+
+  /* 辅助色：压深，保证白底可读 */
+  --cyan:#2b6d80;
+  --cyan-soft:#3d8fa3;
+  --green:#1f7a4d;
+  --red:#b8303c;
+  --amber:#8a6a12;
+
+  /* 文字 */
+  --text:#151515;
+  --muted:#6f6e68;
+
+  /* 线条 */
+  --line-pink:rgba(21,21,21,.26);
+  --line-cyan:rgba(43,109,128,.30);
+
+  /* 纸面色阶 */
+  --paper:#eeede8;
+  --paper-2:#f6f5f1;
+  --paper-3:#e4e2dc;
+  --ops-hair:#d2d0c9;
+  --ops-hair2:#e0ded7;
+  --ops-mute:#6f6e68;
+  --ops-ink:#151515;
+  --ops-ink2:#4a4a46;
+}
+
+/* ── 页面底 + 工程网格 + 扫描线 ── */
+html,body,#root{
+  background:#eeede8 !important;
+  background-image:none !important;
+  color:#151515 !important;
+}
+body::before{
+  content:'' !important;
+  position:fixed; inset:0; pointer-events:none; z-index:0 !important;
+  background:
+    linear-gradient(rgba(21,21,21,.030) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(21,21,21,.030) 1px, transparent 1px) !important;
+  background-size:44px 44px !important;
+}
+body::after{
+  content:'' !important;
+  position:fixed; inset:0; pointer-events:none; z-index:9997 !important;
+  background:repeating-linear-gradient(to bottom, rgba(21,21,21,.018) 0 1px, transparent 1px 3px) !important;
+}
+
+/* ── 顶栏 ── */
+.op-topbar{
+  background:#f6f5f1 !important;
+  border-bottom:1px solid #d2d0c9 !important;
+  box-shadow:0 1px 0 #d2d0c9 !important;
+}
+.op-brand{color:#151515 !important}
+.op-brand b{color:#151515 !important}
+.op-brand .sub{color:#4a4a46 !important}
+.op-brand .dot{background:#151515 !important;box-shadow:none !important}
+.op-status .mode{color:#1f5f70 !important}
+.op-clock,.op-date{color:#4a4a46 !important}
+
+/* ── 导航 ── */
+.op-nav{background:transparent !important;border-color:#d2d0c9 !important}
+.op-nav a,.op-nav button{
+  color:#4a4a46 !important;background:transparent !important;border-color:transparent !important;
+}
+.op-nav a:hover,.op-nav button:hover{color:#151515 !important;background:rgba(21,21,21,.05) !important}
+.op-nav .active,.op-nav a[aria-current],.op-nav .on{
+  color:#151515 !important;background:rgba(21,21,21,.08) !important;
+  font-weight:600 !important;border-color:#151515 !important;box-shadow:none !important;
+}
+
+/* ── 卡片 / 面板 ── */
+.op-card,.op-panel,.op-cards,.op-mid,.op-bottom,.op-body{
+  background:#f6f5f1 !important;
+  border-color:#d2d0c9 !important;
+  box-shadow:none !important;
+}
+.op-card-bar,.op-panel-head,.op-card-top{
+  background:#e9e8e2 !important;border-color:#d2d0c9 !important;color:#151515 !important;
+}
+.op-card-sym,.op-card-meta,.op-panel-head{color:#151515 !important}
+.op-card-px,.op-card-pnl{color:#151515 !important}
+
+/* ── 表格 ── */
+.op-table,.op-table-wrap{background:transparent !important;border-color:#d2d0c9 !important}
+.op-table th{background:#e9e8e2 !important;color:#4a4a46 !important;border-color:#d2d0c9 !important}
+.op-table td{color:#151515 !important;border-color:#e0ded7 !important}
+.op-table tr:hover td{background:rgba(21,21,21,.04) !important}
+
+/* ── 进度条 / pip ── */
+.op-progress{background:#d2d0c9 !important;box-shadow:none !important}
+.op-progress>i,.op-progress span{background:#151515 !important;box-shadow:none !important}
+.op-pip{background:#151515 !important;box-shadow:none !important}
+
+/* ── 通用文字 ── */
+h1,h2,h3,h4,h5,b,strong{color:#151515}
+small,.op-muted{color:#6f6e68 !important}
+
+/* ── antd 覆盖 ── */
+.ant-card,.ant-table,.ant-table-container,.ant-table-body,.ant-table-content,
+.ant-table-thead>tr>th{
+  background:#f6f5f1 !important;color:#151515 !important;
+  box-shadow:none !important;border-color:#d2d0c9 !important;
+}
+.ant-card-head{background:transparent !important;border-bottom:1px solid #d2d0c9 !important}
+.ant-card-head-title,.ant-statistic-title,.ant-statistic-content{color:#151515 !important}
+.ant-table-thead>tr>th{background:#e9e8e2 !important;color:#4a4a46 !important}
+.ant-table-tbody>tr>td{color:#151515 !important;border-bottom:1px solid #e0ded7 !important}
+.ant-table-tbody>tr:hover>td{background:rgba(21,21,21,.04) !important}
+
+.ant-layout,.ant-layout-content,.ant-layout-sider,.ant-layout-header{
+  background:transparent !important;border-color:#d2d0c9 !important;
+}
+
+.ant-input,.ant-input-number,.ant-input-number-input,.ant-select-selector,
+.ant-input-affix-wrapper{
+  background:#f6f5f1 !important;color:#151515 !important;border-color:#bdbab1 !important;
+}
+.ant-input:focus,.ant-input-number-focused{
+  border-color:#151515 !important;box-shadow:0 0 0 2px rgba(21,21,21,.10) !important;
+}
+
+.ant-btn{
+  background:#f6f5f1 !important;color:#151515 !important;
+  border-color:#bdbab1 !important;box-shadow:none !important;
+}
+.ant-btn:hover{background:#e9e8e2 !important;border-color:#151515 !important;color:#151515 !important}
+.ant-btn-primary{background:#151515 !important;color:#eeede8 !important;border-color:#151515 !important}
+.ant-btn-primary:hover{background:#333 !important;color:#eeede8 !important}
+.ant-btn-dangerous{background:transparent !important;color:#b8303c !important;border-color:#c4676f !important}
+
+.ant-tag{background:#e9e8e2 !important;color:#4a4a46 !important;border-color:#d2d0c9 !important}
+.ant-alert{background:#f6f5f1 !important;border-color:#d2d0c9 !important;color:#151515 !important}
+.ant-message-notice-content{background:#151515 !important;color:#eeede8 !important}
+.ant-switch{background:#bdbab1 !important}
+.ant-switch-checked{background:#151515 !important}
+.ant-select-dropdown,.ant-dropdown-menu,.ant-modal-content{
+  background:#f6f5f1 !important;color:#151515 !important;border:1px solid #d2d0c9 !important;
+}
+.ant-modal-header{background:transparent !important;border-bottom:1px solid #d2d0c9 !important}
+.ant-modal-title{color:#151515 !important}
+
+/* ── 滚动条 ── */
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:#e4e2dc !important}
+::-webkit-scrollbar-thumb{background:#b8b6ae !important;border:2px solid #e4e2dc !important;border-radius:5px}
+::-webkit-scrollbar-thumb:hover{background:#96948c !important}
+::-webkit-scrollbar-corner{background:#e4e2dc !important}

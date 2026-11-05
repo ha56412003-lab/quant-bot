@@ -1,3 +1,4 @@
+import ThemeSwitch from '../ThemeSwitch'
 import { useEffect, useRef, useState } from 'react'
 import '../spider.css'
 import avatars from '../avatars.json'
@@ -230,6 +231,8 @@ export default function SpiderBoard({ status, positions = [], nav, activeNav, on
                   </button>
                 ))}
               </div>
+
+              <ThemeSwitch />
 
               <div className="clock">{now.toLocaleTimeString('zh-CN', { hour12: false })}</div>
             </header>
