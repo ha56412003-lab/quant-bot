@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import json
 import os
 import statistics
 import sys
@@ -68,7 +67,7 @@ def collect(start_ts: int, label: str) -> str:
         e0, e1 = float(eq0["equity"]), float(eq1["equity"])
         change = e1 - e0
         pct = change / e0 * 100 if e0 else 0
-        L.append(f"## 净值")
+        L.append("## 净值")
         L.append(f"- 期初 {e0:.2f}U  →  最新 {e1:.2f}U   变化 {change:+.2f}U ({pct:+.2f}%)")
         L.append(f"- 余额 {float(eq1['balance']):.2f}U   浮动盈亏 {float(eq1['equity'])-float(eq1['balance']):+.2f}U")
     else:
@@ -341,6 +340,103 @@ def collect(start_ts: int, label: str) -> str:
             L.append(f"- 由此推出：单边 {_ms} 单全止损 = {_ms} × {_rp}% = **{worst:.2f}%**{flag}")
     except Exception as exc:  # noqa: BLE001
         L.append(f"- 读取失败: {exc}")
+
+    # ── 优化路线追踪（观察期 7 问，浩哥 11-05 定：跑一周给优化路线）──
+    L.append("")
+    L.append("## 优化路线追踪（观察期）")
+    _OBS_START = int(dt.datetime(2026, 11, 5, 0, 0).timestamp())
+    _pos: list = []
+    _t = int(dt.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+    _day_no = max(1, (dt.datetime.now().date() - dt.date(2026, 11, 5)).days + 1)
+    L.append(f"- 观察期：2026-11-05 起，今天是**第 {_day_no} 天 / 共 7 天**")
+    L.append("- 纪律：**本周冻结变量，只观察不修改**。不给「立刻改」的建议，除非问题已攒够样本")
+
+    # Q1 同向 ≥4 单同时浮亏（撞熔断线的真实风险）
+    try:
+        from backend import db as _qdb, factors as _fac
+        _pos = _qdb.open_positions()
+        _ll, _ss = [], []
+        for _p in _pos:
+            _cur = float(_fac.mark_price_of(_p["symbol"]) or 0)
+            _e = float(_p["entry_price"] or 0)
+            _q = float(_p["qty"] or 0)
+            _u = (_cur - _e) * _q if _p["side"] == "long" else (_e - _cur) * _q
+            (_ll if _p["side"] == "long" else _ss).append((_p["symbol"], _u))
+        _nl = sum(1 for _s, _u in _ll if _u < 0)
+        _ns = sum(1 for _s, _u in _ss if _u < 0)
+        L.append(f"- **Q1 同向浮亏堆积**：此刻多头浮亏 {_nl}/{len(_ll)} 单，空头浮亏 {_ns}/{len(_ss)} 单"
+                 f"（≥4 单同时浮亏即为撞线风险信号）")
+    except Exception:  # noqa: BLE001
+        L.append("- Q1 同向浮亏堆积：读取失败")
+
+    # Q2/Q3 今日拦截结构（分段已在上面给出，这里给全天的）
+    try:
+        _t = int(dt.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+        _all = c.execute("SELECT acted, skip_reason FROM signals WHERE ts>=?", (_t,)).fetchall()
+        _n = len(_all) or 1
+        _c2 = sum(1 for r in _all if not r["acted"] and "并发" in (r["skip_reason"] or ""))
+        _c3 = sum(1 for r in _all if not r["acted"] and "杂讯" in (r["skip_reason"] or ""))
+        L.append(f"- **Q2 并发拦截占比**：{_c2}/{_n} = {_c2/_n*100:.0f}%（持续 <5% 则并发不再是瓶颈）")
+        L.append(f"- **Q3 杂讯过滤占比**：{_c3}/{_n} = {_c3/_n*100:.0f}%（这是候选100→监控30 的准入门）")
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Q4/Q5 影子系统按方向，观察期累计
+    try:
+        for _side, _nm in (("long", "多头"), ("short", "空头")):
+            _rows = c.execute(
+                "SELECT outcome_r FROM shadow_signals WHERE settled_ts>=? AND side=? "
+                "AND outcome_r IS NOT NULL", (_OBS_START, _side)).fetchall()
+            if _rows:
+                _v = [float(r["outcome_r"]) for r in _rows]
+                _w = sum(1 for x in _v if x > 0)
+                L.append(f"- **Q{4 if _side=='long' else 5} 影子{_nm}（观察期累计）**："
+                         f"{len(_v)} 笔，胜率 {_w/len(_v)*100:.0f}%，期望 {sum(_v)/len(_v):+.3f}R")
+            else:
+                L.append(f"- **Q{4 if _side=='long' else 5} 影子{_nm}（观察期累计）**：0 笔 —— 观察期还没有已结算样本")
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Q6 同板块同向并存（相关性风险）
+    try:
+        _SECTOR = {
+            "L1": {"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "AVAXUSDT", "NEARUSDT",
+                   "ADAUSDT", "DOTUSDT", "ATOMUSDT", "TIAUSDT", "INJUSDT", "SUIUSDT",
+                   "SEIUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "ETHFIUSDT"},
+            "DEFI": {"UNIUSDT", "AAVEUSDT", "MKRUSDT", "CRVUSDT", "COMPUSDT", "LDOUSDT",
+                     "PENDLEUSDT", "SUSHIUSDT", "1INCHUSDT"},
+            "MEME": {"DOGEUSDT", "SHIBUSDT", "1000SHIBUSDT", "PEPEUSDT", "1000PEPEUSDT",
+                     "WIFUSDT", "BONKUSDT", "FLOKIUSDT", "TRUMPUSDT", "POPCATUSDT"},
+            "L2": {"POLUSDT", "MATICUSDT", "STRKUSDT", "ZKUSDT", "MANTAUSDT", "BLASTUSDT"},
+        }
+        _hits = []
+        for _name, _coins in _SECTOR.items():
+            _in = [p for p in _pos if p["symbol"] in _coins]
+            _by_side: dict[str, list] = {}
+            for _p in _in:
+                _by_side.setdefault(_p["side"], []).append(_p["symbol"])
+            for _sd, _syms in _by_side.items():
+                if len(_syms) >= 2:
+                    _hits.append(f"{_name}/{_sd}: {'+'.join(_syms)}")
+        if _hits:
+            L.append(f"- **Q6 同板块同向并存**：{len(_hits)} 组 —— {', '.join(_hits)}"
+                     f"（相关性强，本质是一笔风险占多个名额）")
+        else:
+            L.append("- **Q6 同板块同向并存**：0 组")
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Q7 部分平仓与减仓后结果
+    try:
+        _pc = c.execute(
+            "SELECT count(*) FROM trades WHERE ts>=? AND kind='partial_close'", (_t,)).fetchone()[0]
+        L.append(f"- **Q7 部分平仓**：今日 {_pc} 次"
+                 f"（观察减仓后剩余仓位是回血还是继续亏，决定该减半还是该全平）")
+    except Exception:  # noqa: BLE001
+        pass
+
+    L.append("- 以上为观察期 7 个待验证问题的当日快照。"
+             "**样本不足时明确说「还需 N 天」，不许用单日数据下结论。**")
 
     return f"# 交易日报数据 · {label}\n\n" + "\n".join(L)
 
