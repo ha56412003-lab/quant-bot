@@ -24,3 +24,6 @@ frontend-v2/dist/
 logs/
 *.bak_*
 *.log.old
+
+# 空头观察基线要入库（丢了会重置观察天数）
+!data/short_watch_state.json
