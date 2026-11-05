@@ -34,7 +34,8 @@ global:
   max_gross_leverage: 3
   daily_loss_halt_pct: 3
   risk_per_trade_pct: 0.5
-  max_concurrent_coins: 6
+  max_concurrent_coins: 8
+  max_same_side: 4
   event_quiet_minutes: 30
   fear_greed_extreme:
     greed: 85
@@ -104,29 +105,22 @@ strategies:
       stop_atr_mult: 5.0
       rr_ratio: 1.5
       use_close: true
-
-# ══════════════════════════════════════════════════════════════
-# 三层池配置
-#   候选池(100) --每天--> 监控池(30) --1小时--> 持仓池(6) --2分钟扫信号-->
-# ══════════════════════════════════════════════════════════════
 pools:
   candidate:
-    size: 100              # 候选池目标数量
-    refresh_hour: 3        # 每天几点重建（24 小时制，凌晨低峰）
-    min_amp_pct: 10.0      # 30天振幅下限 %（剔除 PAXG 8.3% / USDC 0.3% 这类非加密资产）
-    max_amp_pct: 300.0     # 30天振幅上限 %（剔除 JCT 599% / AKE 1745% 这类妖币）
-    vol_days: 30           # 用多少天的日线算振幅
-    whitelist:             # 自选合约：优先级最高，无条件进候选池
-      - BTCUSDT
-      - ETHUSDT
-
+    size: 100
+    refresh_hour: 3
+    min_amp_pct: 10.0
+    max_amp_pct: 300.0
+    vol_days: 30
+    whitelist:
+    - BTCUSDT
+    - ETHUSDT
   monitor:
-    size: 30               # 从候选池里按成交额取前 N 只
-    refresh_sec: 3600      # 刷新间隔（秒），3600 = 1 小时
-    min_quote_vol: 10000000   # 24h 成交额下限 U（1000 万）
-    max_spike: 4.0            # 插针比上限
-    min_atr_pct: 0.6          # ATR 占价格比例下限 %
-
+    size: 30
+    refresh_sec: 3600
+    min_quote_vol: 10000000
+    max_spike: 4.0
+    min_atr_pct: 0.6
   position:
-    max_concurrent: 6      # 并发持仓上限
-    scan_interval: 2m      # 信号扫描间隔
+    max_concurrent: 8
+    scan_interval: 2m

@@ -364,9 +364,12 @@ async def api_risk_get():
 
 @app.post("/api/risk/global")
 async def api_risk_global(payload: dict):
-    config.set_global_risk(payload)
-    db.log("info", "全局风控参数更新")
-    return {"ok": True}
+    try:
+        _cfg, changed = config.set_global_risk(payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    db.log("info", "全局风控参数更新: " + ", ".join(f"{k}={v}" for k, v in changed.items()))
+    return {"ok": True, "changed": changed}
 
 
 @app.get("/api/universe")
@@ -422,7 +425,9 @@ async def api_pool():
             "monitor_size": snap.get("monitor_size"),
             "monitor": list(monitor),
             "position_n": len(held),
-            "position_max": (config.pools().get("position", {}) or {}).get("max_concurrent", 6)}
+            "position_max": (config.load_strategies().get("global", {})
+                             .get("max_concurrent_coins")
+                             or (config.pools().get("position", {}) or {}).get("max_concurrent", 8))}
 
 
 @app.get("/api/pool/candidates")

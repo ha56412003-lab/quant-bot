@@ -229,21 +229,48 @@ def set_strategy_risk(sid, risk):
     return _update_strategy(sid, mutate)
 
 
+_GLOBAL_INT_KEYS = ("max_gross_leverage", "max_concurrent_coins", "max_same_side",
+                    "event_quiet_minutes")
+_GLOBAL_FLOAT_KEYS = ("daily_loss_halt_pct", "risk_per_trade_pct", "max_position_pct_per_coin")
+_DAILY_TARGET_KEYS = ("enabled", "target_usd", "sustain_sec", "auto_close_sec",
+                      "pause_new", "notify")
+
+
 def set_global_risk(updates):
+    """把全局风控参数写回 strategies.yaml。
+
+    ⚠ 2026-11-05 修复：这个函数原来是个空壳 —— 第一个 for 循环只有 `pass`，
+    第二个 for 循环遍历空元组 `()`，一次都不执行。结果前端风控页无论改什么
+    （熔断线、每单风险、并发数、杠杆），接口都返回 {"ok": true}，
+    yaml 里却一个字节都没变。改风控等于没改。
+    """
     cfg = load_strategies()
     g = cfg.setdefault("global", {})
-    for k in ("max_gross_leverage", "daily_loss_halt_pct", "risk_per_trade_pct",
-              "max_concurrent_coins", "max_position_pct_per_coin", "event_quiet_minutes",
-              "max_same_side"):
-        pass
-    for k in ("enabled", "target_usd", "sustain_sec", "auto_close_sec", "pause_new", "notify"):
-        if "daily_target" in updates and isinstance(updates["daily_target"], dict) and k in updates["daily_target"]:
-            g.setdefault("daily_target", {})[k] = updates["daily_target"][k]
-    for k in ():
+    changed = {}
+    for k in _GLOBAL_INT_KEYS:
         if k in updates and updates[k] is not None:
-            g[k] = updates[k]
+            try:
+                g[k] = int(float(updates[k]))
+                changed[k] = g[k]
+            except (TypeError, ValueError):
+                continue
+    for k in _GLOBAL_FLOAT_KEYS:
+        if k in updates and updates[k] is not None:
+            try:
+                g[k] = float(updates[k])
+                changed[k] = g[k]
+            except (TypeError, ValueError):
+                continue
+    if isinstance(updates.get("daily_target"), dict):
+        blk = g.setdefault("daily_target", {})
+        for k in _DAILY_TARGET_KEYS:
+            if k in updates["daily_target"] and updates["daily_target"][k] is not None:
+                blk[k] = updates["daily_target"][k]
+                changed[f"daily_target.{k}"] = blk[k]
+    if not changed:
+        raise ValueError("没有可更新的字段（或值非法）")
     save_strategies(cfg)
-    return cfg
+    return cfg, changed
 
 
 def set_universe(symbols):
