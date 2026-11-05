@@ -54,9 +54,28 @@ def _s(k, v):
     db.set_meta(S + k, str(v))
 
 
-def reset():
+def reset(skip_today: bool = True):
+    """手动重置日目标。
+
+    skip_today=True（默认）：清掉状态、解除开仓封锁，并且**当天不再自动触发**。
+        这是「今日重置」的正确语义 —— 用户平完想继续做，但不想再被全平一次。
+        （2026-11-05 事故：只清状态不清 skip 标记时，若净值仍 ≥ 目标，
+         下一轮 tick 会立刻重新 armed → 再全平一遍，用户以为按钮坏了。）
+    skip_today=False：只清状态，达标会重新触发。
+    """
     for k in ("state", "hit_ts", "alert_ts", "day", "pnl_at_alert"):
         _s(k, "")
+    if skip_today:
+        _s("skip_day", _today())
+        log.info("日目标已重置：今天（%s）不再自动触发", _today())
+    else:
+        _s("skip_day", "")
+        log.info("日目标已重置（未设置今日跳过）")
+
+
+def skipped_today() -> bool:
+    """今天是否已被手动重置（不再自动触发日目标）。"""
+    return _g("skip_day", "") == _today()
 
 
 def state() -> dict:
@@ -141,13 +160,21 @@ async def tick(equity: float, day_start_equity: float, close_all_cb, c: dict):
     """每轮调用。close_all_cb() 用于自动全平。"""
     if not c["enabled"]:
         if state()["state"] not in ("", "idle"):
-            reset()
+            reset(skip_today=False)   # 关掉开关不算「今日跳过」
         return
 
     today = _today()
+
+    # 今天已被「今日重置」过 → 不再自动触发（但仍允许开仓）
+    if skipped_today():
+        st0 = state()
+        if st0["state"] not in ("", "idle"):
+            reset(skip_today=True)    # 保证状态干净
+        return
+
     st = state()
     if st["day"] != today:
-        reset()
+        reset(skip_today=False)       # 换天：清状态，但不要误设 skip 标记
         _s("day", today)
         st = state()
         st["day"] = today
@@ -229,4 +256,5 @@ def summary(equity, day_start_equity, c):
         "blocked": blocked(),
         "auto_close_left": left,
         "sustain_sec": c["sustain_sec"],
+        "skipped_today": skipped_today(),
     }

@@ -11,6 +11,9 @@ import { useI18n } from '../i18n'
 function GlobalRisk({ data, onSaved }) {
   const { t } = useI18n()
   const g = data?.global || {}
+  // /api/risk 不含 daily_target，日目标实时状态要单独拉 /api/status
+  const [dtData, dtRefresh] = usePoll(() => api.get('/api/status'), 5000)
+  const dt = dtData?.daily_target || data?.daily_target || {}
   const [v, setV] = useState({})
   const [orig, setOrig] = useState({})
   React.useEffect(() => {
@@ -90,11 +93,32 @@ function GlobalRisk({ data, onSaved }) {
         </Col>
       </Row>
       <div style={{ fontSize: 11, color: '#6b7787', marginTop: 6 }}>{t('risk.dtHint')}</div>
-      <Button size="small" style={{ marginTop: 8 }}
-              onClick={async () => {
-                try { await api.post('/api/daily-target/reset', {}); message.success(t('risk.dtResetOk')) }
-                catch (e) { message.error(e.message) }
-              }}>{t('risk.dtReset')}</Button>
+      {Number((v.daily_target || {}).auto_close_sec) > 0 && Number((v.daily_target || {}).auto_close_sec) <= 5 ? (
+        <Alert type="error" showIcon style={{ marginTop: 8 }}
+               message={t('risk.dtDanger')} />
+      ) : null}
+      <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <Button size="small" danger
+                onClick={async () => {
+                  try {
+                    const r = await api.post('/api/daily-target/reset', { skip_today: true })
+                    message.success(t('risk.dtResetOk'))
+                    if (r && r.skipped_today) message.info(t('risk.dtSkipped'))
+                    dtRefresh?.(); if (onSaved) onSaved()   // 立刻刷新，否则页面还显示旧状态
+                  } catch (e) { message.error(e.message) }
+                }}>{t('risk.dtReset')}</Button>
+        <Button size="small"
+                onClick={async () => {
+                  try {
+                    await api.post('/api/daily-target/reset', { skip_today: false })
+                    message.success(t('risk.dtRearmOk'))
+                    dtRefresh?.(); if (onSaved) onSaved()
+                  } catch (e) { message.error(e.message) }
+                }}>{t('risk.dtRearm')}</Button>
+        {dt && dt.skipped_today ? (
+          <span style={{ fontSize: 11.5, color: '#ffb020' }}>● {t('risk.dtSkippedNow')}</span>
+        ) : null}
+      </div>
       <Button type="primary" size="small" style={{ marginTop: 14 }} onClick={save}>
         {t('risk.saveGlobal')}
       </Button>

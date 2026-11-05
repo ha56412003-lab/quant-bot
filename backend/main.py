@@ -152,10 +152,18 @@ async def api_close_position(pid: int, body: dict = Body(default=None)):
 
 
 @app.post("/api/daily-target/reset")
-async def api_dt_reset():
-    """手动重置日目标状态（当日重新计算，恢复开仓）。"""
-    daily_target.reset()
-    return {"ok": True}
+async def api_dt_reset(payload: dict | None = None):
+    """手动重置日目标。
+
+    skip_today（默认 true）：
+      true  = 今日重置 —— 解除封锁 + 当天不再自动触发（平完想继续做）
+      false = 只清状态，达标后会重新触发
+    """
+    skip = True
+    if isinstance(payload, dict) and "skip_today" in payload:
+        skip = bool(payload["skip_today"])
+    daily_target.reset(skip_today=skip)
+    return {"ok": True, "skipped_today": daily_target.skipped_today()}
 
 
 @app.post("/api/positions/close-all")
