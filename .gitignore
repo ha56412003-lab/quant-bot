@@ -40,3 +40,10 @@ preview/*
 Thumbs.db
 desktop.ini
 
+
+# 交易日志（含真实成交记录，仅本地保留）
+journal/trades-*.jsonl
+
+# Python 编译产物（历史清理后防再犯）
+__pycache__/
+*.py[cod]
