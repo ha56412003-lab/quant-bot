@@ -76,27 +76,45 @@ def collect(start_ts: int, label: str) -> str:
 
     # ── 平仓交易 ────────────────────────────────────────────
     closes = c.execute(
-        """SELECT t.ts, t.symbol, t.kind, t.pnl, t.price, t.qty, t.strategy,
-                  p.side AS pside, p.opened_at, p.close_reason
+        """SELECT t.ts, t.symbol, t.kind, t.pnl, t.price, t.qty, t.strategy, t.position_id,
+                  p.side AS pside, p.opened_at, p.close_reason, p.status AS pstatus,
+                  p.qty AS p_qty
            FROM trades t LEFT JOIN positions p ON p.id = t.position_id
            WHERE t.ts >= ? AND t.kind IN ('close','partial_close')
            ORDER BY t.ts""", (start_ts,)).fetchall()
     L.append("")
-    L.append(f"## 平仓交易（{len(closes)} 笔）")
+    L.append(f"## 平仓交易（{len(closes)} 笔成交）")
     if not closes:
         L.append("- 无平仓")
     else:
         wins = [r for r in closes if (r["pnl"] or 0) > 0]
         losses = [r for r in closes if (r["pnl"] or 0) <= 0]
         tot = sum(float(r["pnl"] or 0) for r in closes)
-        L.append(f"- 合计 {tot:+.2f}U   胜 {len(wins)} / 负 {len(losses)}   胜率 {len(wins)/len(closes)*100:.0f}%")
+        # 注意：一个仓位可以被多次部分平仓，成交笔数 ≠ 独立仓位笔数。
+        # 2026-11-05 事故：POL 部分平仓被 AI 当成"第二笔独立亏损"，
+        # 进而推出"同一币种同方向连吃两次亏，判断系统性偏了"的错误结论。
+        n_pos = len({r["position_id"] for r in closes if r["position_id"] is not None})
+        L.append(f"- 合计 {tot:+.2f}U   胜 {len(wins)} / 负 {len(losses)}   "
+                 f"胜率 {len(wins)/len(closes)*100:.0f}%")
+        if n_pos and n_pos != len(closes):
+            L.append(f"- ⚠ 涉及 **{n_pos} 个独立仓位**，但成交 {len(closes)} 笔 —— "
+                     f"差额是**部分平仓**：同一仓位减仓，不是新开的一笔。")
         L.append("")
-        L.append("| 时间 | 币种 | 方向 | 盈亏 | 平仓原因 | 持仓时长 | 策略 |")
-        L.append("|---|---|---|---|---|---|---|")
+        L.append("| 时间 | 币种 | 方向 | 盈亏 | 类型 | 平仓原因 | 持仓时长 | 策略 |")
+        L.append("|---|---|---|---|---|---|---|---|")
         for r in closes:
+            kind = "部分平仓(减仓)" if r["kind"] == "partial_close" else "全部平掉"
             L.append(f"| {_hm(r['ts'])} | {r['symbol']} | {r['pside'] or '?'} | "
-                     f"{_f(r['pnl'],2,True)}U | {r['close_reason'] or '—'} | "
+                     f"{_f(r['pnl'],2,True)}U | {kind} | {r['close_reason'] or '—'} | "
                      f"{_dur(r['opened_at'], r['ts'])} | {r['strategy'] or '—'} |")
+        # 部分平仓的剩余仓位说明
+        for r in closes:
+            if r["kind"] == "partial_close":
+                # positions.qty 在部分平仓后**已被更新为剩余量**，不要再减
+                remain = float(r["p_qty"] or 0)
+                status = "仍在持仓" if r["pstatus"] == "open" else r["pstatus"]
+                L.append(f"- 说明：{r['symbol']} 是**部分平仓**，砍掉 {float(r['qty'] or 0):.2f}，"
+                         f"剩余 {remain:.2f}，仓位{status}（同一仓位，非新增亏损笔数）")
 
     # ── 开仓交易 ────────────────────────────────────────────
     opens = c.execute(
@@ -254,13 +272,44 @@ def collect(start_ts: int, label: str) -> str:
             break
     if changes:
         L.append("⚠ **今天中途改过风控参数，改之前和改之后的数据不能混在一起算！**")
+        L.append(f"- 今日共有 {len(changes)} 条参数变更记录，时间点：")
         for r in changes:
-            ts = r["ts"] if isinstance(r, dict) or hasattr(r, "keys") else r[0]
+            ts = r["ts"] if hasattr(r, "keys") else r[0]
             msg = r["msg"] if hasattr(r, "keys") else r[1]
-            L.append(f"- {_hm(ts)}  {msg}")
+            # 整条消息可能很长（全量写入），只截关键字段
+            brief = msg if len(msg) <= 60 else msg[:57] + "..."
+            L.append(f"  - {_hm(ts)}  {brief}")
+        first = changes[0]
+        L.append(f"- **最早变更时间：{_hm(first['ts'] if hasattr(first,'keys') else first[0])}**，"
+                 f"在此之前的数据全部按旧参数产生")
         L.append("- 分析拦截统计时，请把时间切成「变更前 / 变更后」两段分别看")
+        L.append("- **不要数变更条数当分析结论** —— 其中可能包含测试写入。"
+                 "真正要关注的是「变更时间点」和「最终生效值」")
     else:
         L.append("- 无变更")
+
+    # ── 当前生效的风控参数（给 AI 一个确定的事实基线）──
+    L.append("")
+    L.append("## 当前生效风控参数")
+    try:
+        import yaml as _yaml
+        _p = os.path.join(ROOT, "strategies.yaml")
+        with open(_p, encoding="utf-8") as fh:
+            _g = (_yaml.safe_load(fh) or {}).get("global", {}) or {}
+        _cc = _g.get("max_concurrent_coins")
+        _ms = _g.get("max_same_side")
+        _rp = _g.get("risk_per_trade_pct")
+        _dh = _g.get("daily_loss_halt_pct")
+        L.append(f"- 并发上限 max_concurrent_coins = **{_cc}**")
+        L.append(f"- 单边上限 max_same_side = **{_ms}**")
+        L.append(f"- 每单风险 risk_per_trade_pct = **{_rp}%**")
+        L.append(f"- 日内熔断 daily_loss_halt_pct = **{_dh}%**")
+        if _ms and _rp:
+            worst = float(_ms) * float(_rp)
+            flag = "（**正好等于熔断线，同向全止损当天即熔断**）" if _dh and abs(worst - float(_dh)) < 1e-9 else ""
+            L.append(f"- 由此推出：单边 {_ms} 单全止损 = {_ms} × {_rp}% = **{worst:.2f}%**{flag}")
+    except Exception as exc:  # noqa: BLE001
+        L.append(f"- 读取失败: {exc}")
 
     return f"# 交易日报数据 · {label}\n\n" + "\n".join(L)
 
