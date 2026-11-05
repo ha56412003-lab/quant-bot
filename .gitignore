@@ -29,3 +29,14 @@ logs/
 *.bak_*
 *.log.old
 
+# 预览/临时文件（保留可复用的工具脚本）
+preview/*
+!preview/audit_theme.js
+!preview/paper-theme.css
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+

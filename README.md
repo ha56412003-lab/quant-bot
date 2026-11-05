@@ -1,300 +1,829 @@
-# ⚡ Quant Bot — Crypto Perpetuals Trading System
+# ⚡ Quant Bot · 加密货币永续合约量化交易系统
 
-**English** | [中文](#-quant-bot--加密货币永续合约量化交易系统)
+一套自托管的全栈量化交易系统，专为币安 USDT 本位永续合约设计。
+三层币种池 + 趋势跟踪策略 + ATR 风控 + 实时看板，全部本地运行，**API 密钥永不出机器**。
 
-A self-hosted, full-stack quantitative trading system for crypto USDT-perpetuals.
-Factor-driven strategies, a replay-accurate backtesting engine, multi-exchange
-execution, and a bilingual real-time dashboard — everything runs locally, your
-API keys never leave your machine.
-
-> ⚠️ **Disclaimer**: This software is for research and education. Crypto
-> derivatives trading carries substantial risk of loss. Backtest results do not
-> guarantee future returns. Use paper mode first; go live at your own risk.
+> ⚠️ **免责声明**：本项目仅用于研究与学习。加密货币衍生品交易有重大亏损风险。
+> 回测结果不代表未来收益。**请先在 paper 模拟盘模式充分验证**，接实盘风险自负。
 
 ---
 
-## 📸 Screenshots
+## 目录
 
-**Overview — segregated paper/live equity curves, price chart with trade marks**
+- [这是什么](#这是什么)
+- [核心架构](#核心架构)
+- [三层币种池](#三层币种池)
+- [S15 策略详解](#s15-策略详解)
+- [仓位是怎么算出来的](#仓位是怎么算出来的)
+- [风控体系](#风控体系)
+- [熔断与日目标](#熔断与日目标)
+- [影子系统](#影子系统)
+- [快速开始](#快速开始)
+- [项目结构](#项目结构)
+- [配置文件说明](#配置文件说明)
+- [回测](#回测)
+- [观察期与优化路线](#观察期与优化路线)
+- [常见问题](#常见问题)
+- [文档索引](#文档索引)
 
-![Overview](docs/screenshots/dashboard.png)
+---
 
-**Strategy library — full descriptions, factor dependencies, inline symbol picker, per-instance params**
+## 这是什么
 
-![Strategies](docs/screenshots/strategies.png)
+一句话：**从全市场 500+ 个合约里，每天筛出 100 个值得看的，每小时再缩到 30 个可交易的，最后同时持有不超过 8 个仓位。**
 
-**Factor library — 56 factors with live values, listen switches, search & filters**
+它不做的事（避免误解）：
 
-![Factors](docs/screenshots/factors.png)
+| 不做 | 原因 |
+|---|---|
+| ❌ 不预测价格 | 只用趋势状态 + K 线形态判断「现在该不该跟」 |
+| ❌ 不做高频 | 最短周期 15 分钟 K 线，不是秒级套利 |
+| ❌ 不做网格/马丁 | 只用固定风险 + 止损，不加仓不摊平 |
+| ❌ 不做主观判断 | 全部规则化，情绪不参与 |
 
-**Trade journal — per-fill records with entry/exit factor snapshots, CSV export**
+它做的事：
 
-![Journal](docs/screenshots/journal.png)
+| 做 | 说明 |
+|---|---|
+| ✅ 多币种分散 | 单币风险 0.5%，8 个仓位分散，单币爆仓不影响整体 |
+| ✅ 严格止损 | 每单开仓就带止损，ATR 倍数计算，不靠感觉 |
+| ✅ 自动缩量 | 市场极端贪婪/恐惧时自动减仓 |
+| ✅ 数据可追溯 | 每笔交易记录开平仓时的因子快照，事后能复盘 |
 
-**Risk controls — global hard limits + per-strategy capital & leverage**
+---
 
-![Risk](docs/screenshots/risk.png)
+## 核心架构
 
-## ✨ Features
+```
+┌──────────────────────────────────────────────────────────────┐
+│  数据层                                                       │
+│  币安 REST（K线/行情/资金费率）                                │
+└───────────────────────────┬──────────────────────────────────┘
+                            ↓
+┌──────────────────────────────────────────────────────────────┐
+│  筛选层（三层池）                                              │
+│  候选池 100  ──每天3:00──▶  监控池 30  ──风控──▶  持仓池 8     │
+└───────────────────────────┬──────────────────────────────────┘
+                            ↓
+┌──────────────────────────────────────────────────────────────┐
+│  策略层                                                       │
+│  S15 · Chandelier Exit + ZLSMA（每 2 分钟扫一次）              │
+└───────────────────────────┬──────────────────────────────────┘
+                            ↓
+┌──────────────────────────────────────────────────────────────┐
+│  风控层（8 道闸）                                              │
+│  熔断 → 日目标 → 事件静默 → 同币去重 → 并发上限 → 方向上限     │
+│  → 杠杆上限 → 策略额度 → 仓位计算                              │
+└───────────────────────────┬──────────────────────────────────┘
+                            ↓
+┌──────────────────────────────────────────────────────────────┐
+│  执行层                                                       │
+│  paper 模拟（默认） / 实盘（币安·Bitget·OKX）                  │
+└───────────────────────────┬──────────────────────────────────┘
+                            ↓
+┌──────────────────────────────────────────────────────────────┐
+│  记录层                                                       │
+│  SQLite（仓位/成交/信号/权益曲线） + JSONL（交易日志）         │
+└──────────────────────────────────────────────────────────────┘
+```
 
-- **4 production strategies** (liquidation-cascade rebound, CVD divergence fade,
-  HF crash scalp on second-level ticks, VWAP deviation revert) — clone any
-  template into multiple instances with independent params/symbols/capital.
-- **56-factor library**: Binance official (OI, long/short ratios, taker flow,
-  basis) + Clawby-aggregated (cross-venue liquidations, funding, CVD, orderbook
-  walls, options PCR, stablecoin mcap, on-chain SOPR/NUPL, Hyperliquid whales…).
-  Per-factor listen switch, live value, poll interval, search & filters.
-- **Replay-accurate backtester**: drives the *live strategy classes* over
-  historical data (zero logic drift), anti-lookahead by construction, real cost
-  model (taker fee + slippage + funding), IS/OOS split, parameter plateau
-  selection against overfitting, second-level aggTrades replay for HF
-  strategies. One command: `python -m backend.backtest all`.
-- **Multi-exchange execution**: market data & factors are Binance-based; live
-  orders route to **Binance / Bitget / OKX** (global switch in Settings, with
-  contract-size and 1000x-ticker mapping handled).
-- **Paper / live strictly segregated**: separate equity curves, positions,
-  stats, journal filtering. Paper is the default; going live requires typing
-  `LIVE` to confirm.
-- **Risk layers**: per-trade risk sizing, gross leverage cap, per-coin exposure
-  cap, max concurrent coins, daily loss circuit-breaker, macro-event quiet
-  window, fear & greed position scaling.
-- **Bilingual UI** (English / 中文, one-click toggle) with dark theme.
-- **AI-ready trade journal**: every close appends a JSONL row with entry/exit
-  factor snapshots and MFE/MAE — built for post-trade analysis.
+**两个独立循环，都在跑**：
 
-## 🗂 Project Structure
+| 循环 | 频率 | 干什么 |
+|---|---|---|
+| `position_loop` | 0.5 秒 | 管已有仓位：止损/止盈/移动止损/超时出场 |
+| `scan_loop` | 0.5 秒 | 拉因子、扫策略、处理信号、开新仓 |
+
+**为什么分开**：持仓管理不能等策略扫描。市价突然砸下来，止损要立刻执行，不能等下一个 2 分钟扫描周期。
+
+---
+
+## 三层币种池
+
+### 第一层：候选池 100 个
+
+**刷新频率**：每天凌晨 3:00（流动性最低，24h 成交额数据已完整）
+
+**筛选规则**：
+
+| 门 | 条件 | 为什么 |
+|---|---|---|
+| ① | `underlyingType = COIN` | 排除 TSLA/NVDA 等股票代币 |
+| ② | `quoteAsset = USDT` | 排除 USDC 本位（流动性差） |
+| ③ | `contractType = PERPETUAL` | 排除季度交割（会到期） |
+| ④ | `status = TRADING` | 排除已下架 |
+| ⑤ | 30 天振幅 ∈ **[10%, 300%]** | 太死不赚钱，太疯止损被扫 |
+
+**振幅阀门的来由**（2026-11-05 实测 200 个币）：
+
+```
+中位振幅 62%，P10 = 28.9%，P90 = 357%
+
+下限 10%：剔除 PAXG(8.3%)/XAUT(8.7%)/USDC(0.3%) 这类非加密资产和稳定币
+         同时保住 BTC(13.0%)、BNB(15.1%) —— 前 100 名里振幅最低的真币
+上限 300%：剔除 AKE(1745%, 30天-90.6%)、Q(1037%)、AIN(1061%, +669%) 这类妖币
+         它们的止损会被一根 K 线直接扫掉
+```
+
+**排序**：按 24 小时成交额降序，白名单币种优先占位。
+
+**流量成本**：约 2.5 MB/天。
+
+---
+
+### 第二层：监控池 30 个
+
+**刷新频率**：每 1 小时（和 1h K 线粒度对齐，不重复计算）
+
+**三道门**：
+
+| 门 | 条件 | 阈值来由 |
+|---|---|---|
+| ① 24h 成交额 | ≥ **1000 万 U** | 低于此值的币滑点能吃光利润 |
+| ② 插针比 | ≤ **4.0** | 单根 K 线振幅 / ATR，超过说明止损容易被扫 |
+| ③ ATR 占比 | ≥ **0.6%** | 低于此值是"死水币"，止损窄到没意义 |
+
+**插针比为什么要用 1h 而不是 15m 算**：
+
+> 15m K 线噪音太大——96 根里每根都可能是十字星，29 个币的 max振幅/ATR 全落在 4~8.4，
+> 导致 28/30 个币被判"易插针"，监控池实际只剩 1 个币可用。
+> 改用 1h K 线（96 根 = 4 天窗口）后，噪音被平滑，插针值分布 2.08~8.33，区分度正常。
+
+**插针比为什么从 3.5 放宽到 4.0**：
+
+> 插针比 = 最大单根振幅 / ATR，对低波动大市值币系统性偏高。
+> BTC 的 ATR 只有 0.64%，分母小 → 比值天然高，实测 3.70 被误判；ETH 3.48 擦边。
+> 放宽到 4.0 后 BTC 放行，TRX(8.53) 等真正易插针的币仍被拦。
+
+**排序**：三道门全过的币按成交额降序取前 30。
+
+**⚠️ 重要**：**持仓中的币不受池子进出影响**。池子只管「能不能开新仓」，不管平仓。
+一个币被踢出监控池后，如果还有仓位，会继续正常管理到平仓为止。
+
+---
+
+### 第三层：持仓池（最多 8 个）
+
+受风控层的并发上限约束，见[风控体系](#风控体系)。
+
+**为什么要三层**：
+
+如果直接对全市场 500 个币跑策略，会有两个问题：
+1. **算力/流量爆炸**——每 2 分钟算 500 个币的指标，网络和 CPU 都扛不住
+2. **信号淹没**——垃圾币的假信号会挤占真实机会
+
+三层池是**漏斗**：先用便宜的条件粗筛（振幅），再用较贵的条件细筛（ATR/插针），最后才跑策略。
+
+---
+
+## S15 策略详解
+
+### 名字含义
+
+**S15 = Chandelier Exit（吊灯止损） + ZLSMA（零滞后均线）**
+
+两条腿合起来判断趋势，缺一不可。
+
+### 组件一：Chandelier Exit
+
+**作用**：判断「现在是多头趋势还是空头趋势」
+
+**公式**（everget 原版）：
+
+```python
+atr = ce_mult × ATR(ce_len)
+
+# 多头止损线（吊灯从上往下吊）
+longRaw = highestHigh(ce_len) - atr
+# 空头止损线
+shortRaw = lowestLow(ce_len) + atr
+
+# 棘轮机制：只朝有利方向移动，不回头
+longStop  = close[1] > longStop_prev  ? max(longRaw,  longStop_prev)  : longRaw
+shortStop = close[1] < shortStop_prev ? min(shortRaw, shortStop_prev) : shortRaw
+
+# 状态机：收盘价在两条线之间的哪一边
+dir = close > shortStop_prev ? 1 : (close < longStop_prev ? -1 : dir_prev)
+# dir = 1 多头，dir = -1 空头
+```
+
+**核心是「棘轮」**：多头止损线只会往上移，不会往下退。这样趋势走得越远，保护利润的线就跟得越紧。
+
+### 组件二：ZLSMA（零滞后 SMA）
+
+**作用**：判断「K 线有没有真的站上去」
+
+**公式**：
+
+```python
+lsma1 = linreg(close, z_len, 0)      # 对收盘价做线性回归估值
+lsma2 = linreg(lsma1, z_len, 0)      # 再对结果做一次
+zlsma = lsma1 + (lsma1 - lsma2)      # 补上滞后量 = 零滞后
+```
+
+普通移动平均的问题是**滞后**：均线总是慢半拍，等它转向，行情已经走了一半。
+ZLSMA 用「回归值 + 回归差值」抵消滞后，让均线更贴近当前价格。
+
+### 入场规则
+
+**做多**（三个条件同时成立）：
+
+```
+① Chandelier Exit 在上一根 K 线是 dir = 1（多头状态）
+② 上一根 K 线是「收盘价 > ZLSMA」且「收盘价 > 开盘价」的阳线
+③ 当前没有该币仓位
+→ 按信号价开多
+```
+
+**做空**：
+
+```
+① Chandelier Exit 在上一根 K 线是 dir = -1（空头状态）
+② 上一根 K 线是「收盘价 < ZLSMA」且「收盘价 < 开盘价」的阴线
+③ 当前没有该币仓位
+→ 按信号价开空
+```
+
+**关键细节**：所有判断用 `[1]`（上一根已收完的 K 线）。**绝不用未收盘的当前 K 线**——否则信号会闪烁、会重绘、回测会虚高。
+
+### 出场规则
+
+**四重保护，谁先到算谁**：
+
+| 出场方式 | 条件 |
+|---|---|
+| **固定止损** | 价格触及 `stop_price`（开仓价 ∓ ATR × stop_atr_mult） |
+| **固定止盈** | 价格触及 `take_profit`（开仓价 ± 止损距离 × rr_ratio） |
+| **策略出场** | 收盘价穿越 ZLSMA（趋势反转信号） |
+| **超时出场** | 持仓超过 `max_hold_hours`（72 小时）强制平仓 |
+
+### 当前参数
+
+```yaml
+S15_CE_ZLSMA:
+  enabled: true
+  scan_interval: 2m         # 每 2 分钟扫一次
+  max_hold_hours: 72        # 最长持仓 72 小时
+  params:
+    kline_interval: 15m     # 用 15 分钟 K 线
+    ce_len: 22              # ATR 周期 / 极值窗口
+    ce_mult: 3.0            # ATR 倍数（吊灯距离）
+    zlsma_len: 50           # ZLSMA 长度
+    stop_atr_mult: 5.0      # 止损的 ATR 倍数
+    rr_ratio: 1.5           # 止盈 = 亏损 × 1.5
+    use_close: true         # 用收盘价算极值
+```
+
+### 这套策略的弱点（诚实说明）
+
+1. **震荡市会被反复止损** —— 趋势跟踪的通病，没有根治办法
+2. **假突破无法避免** —— 「阳线站上 ZLSMA」不等于「会继续涨」
+3. **参数是历史拟合的** —— 22/50/5.0/1.5 在样本内最优，不代表未来
+4. **对 zlsma_len 极其敏感** —— 32 和 50 的信号数量差一倍以上
+
+**正确的预期**：它是个「入场时机参考工具」，不是稳赚信号源。
+
+---
+
+## 仓位是怎么算出来的
+
+这是整套系统最核心的数学。**每一笔开仓的数量都由公式算，不由人决定。**
+
+### 公式
+
+```python
+# 第一步：这笔交易最多愿意亏多少钱
+risk_usd = capital × risk_per_trade_pct / 100 × size_mult
+
+# 第二步：止损距离（开仓价到止损价）
+stop_dist = |price - stop_price|
+
+# 第三步：由此反推数量
+qty = risk_usd / stop_dist
+
+# 第四步：三重上限，谁小用谁
+notional = qty × price
+notional = min(notional, max_position_usd)                    # ① 策略单笔上限
+notional = min(notional, capital × leverage - used)           # ② 策略剩余额度
+notional = min(notional, equity × max_position_pct_per_coin   # ③ 全局单币上限
+                       / 100 × leverage)
+
+qty = notional / price
+```
+
+### 为什么这么算
+
+**核心思想：固定风险，变动仓位。**
+
+假设：
+- 账户权益 10000 U
+- 每单风险 0.5% → 最多亏 50 U
+- ATR 止损距离 2% → 止损价 = 开仓价 × 0.98
+
+那么：
+```
+qty = 50 / (price × 0.02)
+```
+
+如果 price = 100，则 `qty = 50 / 2 = 25`，名义价值 2500 U。
+
+**关键特性**：波动大的币，止损距离大，自动算出来仓位就小；波动小的币，止损窄，仓位自动变大。
+
+**这样保证每笔交易的「最大亏损金额」都一样**，不会因为某个币波动大就亏得多。
+
+### 具体数字（当前配置）
+
+| 参数 | 值 | 含义 |
+|---|---|---|
+| `risk_per_trade_pct` | 0.5% | 每单最多亏权益的 0.5% |
+| `max_concurrent_coins` | 8 | 最多同时持有 8 个币 |
+| `max_same_side` | 6 | 做多最多 6 个，做空最多 6 个 |
+| `max_gross_leverage` | 3 | 总名义价值 ≤ 权益 × 3 |
+| `max_position_pct_per_coin` | 10% | 单币名义价值 ≤ 权益 × 10% × 3 |
+
+**以 10000 U 权益计算**：
+
+```
+每单最大亏损 = 10000 × 0.5% = 50 U
+8 个仓位全部止损 = 400 U 亏损（权益的 4%）
+```
+
+### 防止除零
+
+`position_qty()` 有三处保护：
+
+```python
+if price <= 0:      return 0     # 价格无效
+if stop_dist <= 0:  return 0     # 止损距离为 0
+if not sig.stop_price:
+    stop_dist = price * 0.01     # 策略没给止损，用 1% 兜底
+```
+
+---
+
+## 风控体系
+
+**每一笔开仓要经过 8 道检查，任何一道不过就拒绝。**
+
+顺序很重要——越早拒绝的越便宜。
+
+### 闸门顺序
+
+| # | 闸门 | 条件 | 拒绝原因 |
+|---|---|---|---|
+| 1 | **日内熔断** | 当日已实现亏损 ≥ 3% 权益 | "日内熔断中" |
+| 2 | **日目标已达成** | 当日浮盈达到目标并已落袋 | "已达日目标，今日停止开新仓" |
+| 3 | **事件静默** | 30 分钟内有高重要性经济事件 | "事件静默(非农就业)" |
+| 4 | **同币去重** | 该币已有仓位 | "同币已有仓位(禁止对锁/加仓)" |
+| 5 | **并发上限** | 持仓币种数 ≥ 8 | "并发币数已达上限" |
+| 6 | **方向上限** | 同方向持仓 ≥ 6 | "多头方向已达上限(6)" |
+| 7 | **总杠杆** | 总名义价值 / 权益 ≥ 3 | "总敞口已达杠杆上限" |
+| 8 | **策略额度** | 该策略已用满分配资金 | "策略分配资金已用满" |
+
+**为什么第 6 道要限制方向**：
+
+> 避免 6 单全空/全多。市场单边反转时，同方向的仓位会同时扫损。
+
+### 额外的仓位调节
+
+**恐惧贪婪指数调节**（`fear_greed_extreme`）：
+
+```
+市场极端贪婪（≥ 84）且要做多 → 仓位 × 0.5
+市场极端恐惧（≤ 16）且要做空 → 仓位 × 0.5
+```
+
+**逻辑**：别人贪婪时你更贪婪，容易被埋在山顶。
+
+### 风控的已知局限
+
+1. **熔断只算已实现亏损**，浮亏不算。持仓浮亏 10% 也不会触发熔断。
+2. **单边 6 × 0.5% = 3.0%，正好等于熔断线 3%，没有缓冲。**
+   如果 6 个同向仓位全部止损，正好触发熔断。
+3. **Event 静默依赖经济日历数据**，数据源缺失时不会静默。
+
+---
+
+## 熔断与日目标
+
+### 日内熔断
+
+**触发条件**：当日已实现亏损 ≥ 权益的 3%
+
+**触发后果**：
+- 立刻停止开新仓
+- 已有仓位继续管理（不止损、不平仓）
+- 持续到解除时间后自动恢复
+
+**为什么是 3%**：
+```
+每单风险 0.5%，单边最多 6 个
+6 × 0.5% = 3.0%
+
+即：最坏情况下一天亏光 6 个同方向仓位的全部风险预算
+```
+
+**⚠️ 已知问题**：这个 3% 没有缓冲。
+```
+单边上限 6 单 × 每单 0.5% = 3.0%
+熔断线                        = 3.0%
+                              ↑ 正好撞上，无余量
+```
+可选方案：每单风险降到 0.4%（→ 2.4%），或熔断线提到 4%，或单边降到 5 单。
+
+**实现位置**：`backend/risk.py:27-34`，熔断时间写入数据库 `meta.halt_until`。
+
+### 日目标（落袋为安）
+
+**作用**：当天赚够了就收手，不贪。
+
+**四状态机**：
+
+```
+idle（等待）
+  ↓ 浮盈 ≥ target_usd
+armed（已达标，等确认）
+  ↓ 连续 sustain_sec 秒保持在目标之上
+alerted（已提醒，可自动平仓）
+  ↓ auto_close_sec 秒后 / 手动确认
+done（今日收工，不再开新仓）
+```
+
+**当前参数**：
+
+| 参数 | 值 | 含义 |
+|---|---|---|
+| `enabled` | true | 启用 |
+| `target_usd` | 200 | 目标浮盈 200 U |
+| `sustain_sec` | 30 | 要连续顶住 30 秒（tick 每 10 秒） |
+| `auto_close_sec` | 5 | 达标后 5 秒自动全平 |
+| `notify` | true | 飞书提醒 |
+
+**⚠️ 参数陷阱**：
+
+```
+sustain_sec = 1 且 auto_close_sec = 1
+→ 达标后约 2 秒就全平
+→ 浮盈 180 U 时就被砍了（刚过 200 又回落）
+```
+
+**建议**：`sustain_sec` 设 30-60 秒，`auto_close_sec` 设 ≥60 秒或 0（只提醒不自动平）。
+
+**手动重置**：
+
+前端风控页有两个按钮：
+- 【今日重置】：清状态 + 当天不再自动触发 + 解锁开仓
+- 【重新启用】：只清状态，下一轮 tick 会重新判断
+
+对应 API：
+```bash
+POST /api/daily-target/reset {"skip_today": true}   # 重置并跳过今天
+POST /api/daily-target/reset {"skip_today": false}  # 只重置
+```
+
+**注意**：`skip_today` 会写入数据库，重启后仍然有效。
+
+**详细说明**：`docs/日目标设置说明.md`
+
+---
+
+## 影子系统
+
+**作用**：验证「如果当时按另一套规则走，结果会怎样」。
+
+**机制**：
+
+不管信号有没有真的开仓，都记录下来，然后用虚拟仓位跟踪它后续的表现。
+
+**记录的三套规则**：
+
+| 规则 | 说明 |
+|---|---|
+| R1 | 无额外过滤，被拦就记录 |
+| R2 | 加「无持仓冲突」过滤 |
+| R3 | 加「方向不冲突」过滤 |
+
+**当前结论**（2026-11-05）：
+
+```
+多头：202 笔，胜率 84.2%，平均 +1.111R，累计 +224.4R
+空头： 60 笔，胜率  0.0%，平均 -1.012R，累计  -60.7R
+```
+
+**空头 0% 胜率的解读**：这是**当前行情单边上涨**导致的，不是策略缺陷。
+系统实际没有开空单（风控拦截），所以不影响实盘。
+
+**档案**：`docs/SHADOW_SYSTEM.md`
+
+---
+
+## 快速开始
+
+### 环境要求
+
+- **Python ≥ 3.10**（推荐 3.11+）
+- **Node.js ≥ 20**（前端构建）
+- **币安 API Key**（仅实盘需要，模拟盘不用）
+
+### 安装
+
+```bash
+# 1. 克隆
+git clone https://github.com/<你的用户名>/quant-bot.git
+cd quant-bot
+
+# 2. 创建虚拟环境（不要用系统 Python）
+python -m venv .venv
+.venv\Scripts\activate          # Windows
+# source .venv/bin/activate     # Linux/Mac
+
+# 3. 装依赖
+pip install -r requirements.txt
+
+# 4. 配置密钥
+copy .env.example .env          # Windows
+# cp .env.example .env          # Linux/Mac
+# 然后编辑 .env 填入你自己的 key
+```
+
+### 启动
+
+**Windows 一键启动**（无窗口后台）：
+```bash
+# 双击 启动量化.bat
+```
+
+**手动启动**：
+```bash
+python -m backend.main
+# 默认 http://127.0.0.1:8899
+```
+
+**前端开发模式**（改代码时用）：
+```bash
+cd frontend-v2
+npm install
+npm run dev        # http://127.0.0.1:5173
+```
+
+**前端生产构建**：
+```bash
+cd frontend-v2
+npm run build      # 产物在 dist/，后端自动读取
+```
+
+### 停止
+
+```bash
+# 双击 停止量化.bat
+# 或
+taskkill /F /IM python.exe
+```
+
+### 界面
+
+| 页面 | 路径 | 功能 |
+|---|---|---|
+| 总览 | `/` | 权益曲线、持仓卡片、行情与开平仓标记 |
+| 策略库 | `/?page=strategies` | 策略列表、参数编辑、启用开关 |
+| 因子库 | `/?page=factors` | 因子实时值、监听开关、搜索筛选 |
+| 交易日志 | `/?page=trades` | 逐笔记录、因子快照、CSV 导出 |
+| 风控 | `/?page=risk` | 全局硬约束、日目标设置 |
+| 监控池 | `/?page=pool` | 三层池实时状态 |
+
+**主题切换**：顶栏按钮可在「玫红深色」和「纸白」之间切换，选择存在 localStorage。
+
+---
+
+## 项目结构
 
 ```
 quant-bot/
-├── run.sh                     # one-command launcher (port 8899)
-├── requirements.txt           # Python deps (FastAPI, httpx, websockets, PyYAML)
-├── strategies.yaml            # strategy instances / params / risk / universe
-├── .env.example               # credentials template — copy to .env
-├── FACTORS.md                 # factor catalog documentation
-├── STRATEGIES.md              # strategy design documentation
-├── backend/
-│   ├── main.py                # FastAPI app: REST API + static frontend + engine boot
-│   ├── engine.py              # two 0.5s loops: signal scan + position management
-│   ├── strategies.py          # strategy classes (S02/S06/S11/S14) + registry
-│   ├── factors.py             # 56-factor registry + due-based async collector
-│   ├── risk.py                # global risk layer (every entry passes through)
-│   ├── executor.py            # paper simulator / live order routing
-│   ├── exchanges.py           # Bitget & OKX execution clients (sizing, mapping)
-│   ├── binance.py             # Binance REST (market data + signed trading)
-│   ├── clawby.py              # Clawby relay client (throttled)
-│   ├── ws.py                  # bookTicker WebSocket: real-time prices + tick buffer
-│   ├── db.py                  # SQLite storage (factors, positions, equity, meta)
-│   ├── journal.py             # JSONL trade journal writer
-│   ├── config.py              # .env + strategies.yaml management (hot-reload)
-│   └── backtest/
-│       ├── data.py            # historical data downloader + local cache
-│       ├── sim.py             # virtual clock / factor slicing / module patching
-│       ├── broker.py          # simulated fills, fees, funding, exits
-│       ├── runner.py          # replay main loop + metrics
-│       ├── optimize.py        # grid search + IS/OOS + plateau selection
-│       ├── report.py          # markdown reports + suggested config
-│       └── tests/             # 22 regression tests
-└── frontend/                  # React 18 + Ant Design 5 + ECharts dashboard
-    └── src/
-        ├── i18n.jsx           # zh/en dictionaries
-        ├── pages/             # Overview / Strategies / Factors / Journal / Risk / Settings
-        └── panels/            # reusable widgets (charts, tables, editors)
+├── backend/                    # 后端 Python
+│   ├── main.py                 # FastAPI 应用：REST API + 静态前端 + 引擎启动
+│   ├── engine.py               # 主引擎：两个 0.5 秒循环
+│   ├── strategies.py           # 策略实现（S15 在 420-630 行）
+│   ├── factors.py              # 因子注册表 + 异步采集器
+│   ├── risk.py                 # 风控层：8 道闸门 + 仓位计算
+│   ├── executor.py             # 执行器：paper 模拟 / 实盘路由
+│   ├── pool.py                 # 候选池（第 1 层，100 个）
+│   ├── quality.py              # 监控池（第 2 层，30 个）
+│   ├── daily_target.py         # 日目标状态机
+│   ├── shadow.py               # 影子系统（信号事后验证）
+│   ├── db.py                   # SQLite 存储
+│   ├── config.py               # 配置加载（热重载）
+│   ├── binance.py              # 币安 REST 客户端
+│   ├── exchanges.py            # Bitget / OKX 执行客户端
+│   ├── clawby.py               # Clawby 聚合数据客户端
+│   ├── ws.py                   # 行情轮询（REST，省流量）
+│   ├── journal.py              # JSONL 交易日志
+│   ├── indicators_extra.py     # 额外指标（ZLSMA 等）
+│   └── backtest/               # 回测引擎
+│       ├── data.py             # 历史数据下载 + 缓存
+│       ├── sim.py              # 虚拟时钟 / 因子切片
+│       ├── broker.py           # 模拟成交（手续费/滑点/资金费率）
+│       ├── runner.py           # 回放主循环
+│       ├── optimize.py         # 网格搜索 + IS/OOS + 参数平台选择
+│       ├── report.py           # 报告生成
+│       └── tests/              # 回归测试
+├── frontend-v2/                # 前端 React 18 + Ant Design 5 + ECharts
+│   └── src/
+│       ├── main.jsx            # 入口（双主题：玫红深色 / 纸白）
+│       ├── App.jsx             # 路由
+│       ├── paper.css           # 纸白主题
+│       ├── PaperField.jsx      # 纸面动态背景（canvas）
+│       ├── ThemeSwitch.jsx     # 主题切换
+│       └── panels/             # 页面组件
+├── share/                      # 对外分享包（S15 策略）
+├── docs/                       # 文档
+├── scripts/                    # 运维脚本（日报数据采集等）
+├── strategies.yaml             # 配置：策略参数 / 风控 / 池子
+├── chandelier-zlsma-optimized.pine  # S15 的 TradingView 版本
+├── .env.example                # 密钥模板
+├── requirements.txt            # Python 依赖
+└── README.md                   # 本文档
 ```
-
-## 🚀 Quick Start
-
-**Prerequisites**: Python ≥ 3.10 · Node.js ≥ 20 · a Binance account with a
-futures-enabled API key (withdrawals OFF, IP whitelist ON recommended) · a
-[Clawby](https://openclawby.com) API key for aggregated data factors.
-
-```bash
-# 1. Configure credentials
-cp .env.example .env && chmod 600 .env
-#    edit .env: CLAWBY_API_KEY, BINANCE_API_KEY, BINANCE_SECRET_KEY
-
-# 2. Launch (first run auto-creates .venv, installs deps, builds the frontend)
-./run.sh
-#    custom port: ./run.sh 8080
-
-# 3. Open the dashboard
-open http://127.0.0.1:8899
-```
-
-The bot starts in **paper mode** with a $10,000 virtual balance. Verify
-credentials in *Settings → API credentials → Test connection*, watch factors
-populate on the *Factors* page, then enable strategies in *Strategies*.
-
-### Manual setup (if you prefer)
-
-```bash
-python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
-cd frontend && npm install && npm run build && cd ..
-./.venv/bin/uvicorn backend.main:app --port 8899
-```
-
-## ⚙️ Configuration
-
-| Where | What |
-|---|---|
-| `.env` | API credentials (editable at runtime in *Settings*, hot-reloaded) |
-| `strategies.yaml` | universe, global risk limits, per-instance params — every field editable from the UI |
-| *Settings → Live execution venue* | route live orders to Binance / Bitget / OKX |
-| *Factors* page | per-factor listen switch + poll interval (Binance factors are cheap to poll fast; Clawby upstreams are 5m–1h granular) |
-
-**Going live**: click *Go LIVE* in the header and type `LIVE`. Fund your
-futures wallet first; a strategy with `capital_usd: 0` sizes from the whole
-account equity. Start small.
-
-## 📊 Backtesting
-
-```bash
-# download 30d of history (Binance retains some series only 30 days — run soon)
-./.venv/bin/python -m backend.backtest download
-
-# single strategy, default params
-./.venv/bin/python -m backend.backtest run --sid S14_VWAP_REVERT
-
-# full pipeline: grid search + IS/OOS validation + reports
-./.venv/bin/python -m backend.backtest all --workers 6
-# -> backtest/reports/<date>/SUMMARY.md + per-strategy reports
-#    + strategies.suggested.yaml (never touches your live config)
-```
-
-Methodology highlights: replays the live strategy code via module injection;
-factors are truncated to completed buckets only (no lookahead); exits follow a
-pessimistic same-bar rule; costs include taker fees, slippage tiers and real
-funding settlements; parameters are picked by *neighborhood plateau median*,
-not single-point maxima; OOS runs once, on the picked params only.
-
-## 🧪 Tests
-
-```bash
-./.venv/bin/pip install pytest
-./.venv/bin/python -m pytest backend/backtest/tests/ -q     # 22 tests
-```
-
-## 🔒 Security Notes
-
-- `.env` is chmod-600 and git-ignored; keys are masked in the UI and never
-  leave your machine (exchanges are called directly, no third-party relay for
-  trading).
-- Disable withdrawals and bind an IP whitelist on every exchange key.
-- Paper and live data are stored with a `mode` tag and never mixed.
 
 ---
----
 
-# ⚡ Quant Bot — 加密货币永续合约量化交易系统
+## 配置文件说明
 
-[English](#-quant-bot--crypto-perpetuals-trading-system) | **中文**
+### `strategies.yaml`
 
-自托管的全栈加密货币 USDT 永续合约量化交易系统:因子驱动策略、回放级精确的回测
-引擎、多交易所执行、中英双语实时控制台——全部本地运行,API 密钥不出你的机器。
+**分四段**：
 
-> ⚠️ **免责声明**:本软件仅用于研究与学习。加密货币衍生品交易存在重大亏损风险,
-> 回测结果不代表未来收益。请先使用模拟盘;切换实盘风险自负。
+```yaml
+# ── 1. 全局风控 ──
+global:
+  max_concurrent_coins: 8        # 并发币种上限
+  max_same_side: 6               # 同方向上限
+  risk_per_trade_pct: 0.5        # 每单风险 %
+  daily_loss_halt_pct: 3         # 熔断线 %
+  max_gross_leverage: 3          # 总杠杆上限
+  max_position_pct_per_coin: 10  # 单币名义上限 %
+  event_quiet_minutes: 30        # 事件静默窗口
 
-## 📸 界面预览
+# ── 2. 策略实例 ──
+strategies:
+  S15_CE_ZLSMA:
+    enabled: true
+    scan_interval: 2m
+    max_hold_hours: 72
+    params: { ... }
 
-界面截图见上方英文部分(共 5 张):**总览**(模拟/实盘权益曲线分离、行情与开平
-仓标记)、**策略库**(完整描述、依赖因子、行内币种多选、实例参数编辑)、
-**因子库**(56 因子实时值、监听开关、搜索筛选)、**交易日志**(逐笔记录含因子
-快照、CSV 导出)、**风控**(全局硬约束 + 各策略资金杠杆)。
+# ── 3. 币种池 ──
+pools:
+  candidate:
+    size: 100
+    min_amp_pct: 10
+    max_amp_pct: 300
+  monitor:
+    size: 30
+    min_quote_vol: 10000000
+    max_spike: 4.0
+    min_atr_pct: 0.6
 
-## ✨ 核心特性
-
-- **4 个生产策略**(爆仓瀑布接针、CVD 背离反转、秒级高频接针、VWAP 偏离回归),
-  支持模板实例化:同一策略可克隆多个实例,各自独立配置参数/币种/资金。
-- **56 因子库**:Binance 官方(OI、多空比、taker 流、基差)+ Clawby 聚合
-  (跨所爆仓、聚合费率、CVD、挂单墙、期权 PCR、稳定币市值、链上 SOPR/NUPL、
-  Hyperliquid 鲸鱼等),每因子独立监听开关、实时值、采集频率、搜索与筛选。
-- **回放级回测引擎**:直接驱动实盘策略类(零逻辑漂移),构造性防未来函数,
-  真实成本模型(taker 手续费+滑点+资金费),IS/OOS 切分 + 参数高原选参防过拟合,
-  高频策略按 aggTrades 秒级回放。一条命令:`python -m backend.backtest all`。
-- **多交易所执行**:行情与因子以 Binance 为数据基准,实盘单可路由至
-  **Binance / Bitget / OKX**(配置页全局切换,张数换算与 1000 倍合约映射已处理)。
-- **模拟盘/实盘严格隔离**:权益曲线、持仓、战绩、日志按模式分开存储与展示;
-  默认模拟盘,切实盘需输入 `LIVE` 二次确认。
-- **多层风控**:单笔风险定仓、总杠杆上限、单币敞口上限、并发币数上限、
-  日内亏损熔断、宏观事件静默窗口、恐贪极值仓位缩放。
-- **中英双语界面**(一键切换)+ 暗色主题。
-- **AI 友好交易日记**:每笔平仓写入 JSONL,含开平仓因子快照与 MFE/MAE,
-  为策略复盘与优化而设计。
-
-## 🗂 项目结构
-
-结构树见上方英文部分——`backend/` 为 FastAPI 后端(引擎/策略/因子/风控/执行/
-回测),`frontend/` 为 React + Ant Design + ECharts 控制台,`strategies.yaml`
-是策略配置的唯一事实源(UI 修改热生效)。
-
-## 🚀 快速开始
-
-**环境要求**:Python ≥ 3.10 · Node.js ≥ 20 · 开通合约权限的 Binance API key
-(建议关闭提现、绑定 IP 白名单)· [Clawby](https://openclawby.com) API key
-(聚合数据因子用)。
-
-```bash
-# 1. 配置凭据
-cp .env.example .env && chmod 600 .env
-#    编辑 .env 填入 CLAWBY_API_KEY、BINANCE_API_KEY、BINANCE_SECRET_KEY
-
-# 2. 一键启动(首次运行自动创建 .venv、安装依赖、构建前端)
-./run.sh          # 自定义端口: ./run.sh 8080
-
-# 3. 打开控制台
-open http://127.0.0.1:8899
+# ── 4. 币种白名单 ──
+universe:
+  whitelist: [BTCUSDT, ETHUSDT]
 ```
 
-启动后默认**模拟盘**($10,000 虚拟本金)。先在「配置 → API 凭据 → 测试连接」
-验证密钥,在「因子库」确认数据流入,再到「策略库」启用策略。
+**热重载**：改完 `strategies.yaml` 保存即可，引擎每 0.5 秒重新读取。
+**风控参数**改完立即生效，**正在持仓的仓位不受影响**。
 
-## ⚙️ 配置说明
-
-| 位置 | 内容 |
-|---|---|
-| `.env` | API 凭据(配置页可在线修改,热生效) |
-| `strategies.yaml` | 监控币池、全局风控、各策略实例参数——全部可在 UI 修改 |
-| 配置 → 实盘执行交易所 | 实盘单路由:Binance / Bitget / OKX |
-| 因子库页面 | 各因子监听开关与采集频率(Binance 系可调快;Clawby 上游为 5m~1h 粒度,调快只会重复消耗额度) |
-
-**切换实盘**:点击顶栏「切换实盘」并输入 `LIVE` 确认。请先向合约钱包划转资金;
-策略 `capital_usd: 0` 表示按全账户净值定仓。请从小资金开始。
-
-## 📊 回测
+### `.env`
 
 ```bash
-# 下载 30 天历史数据(Binance 部分序列仅保留 30 天,建议尽快执行)
-./.venv/bin/python -m backend.backtest download
+# 模拟盘初始资金
+PAPER_START_BALANCE=10000
+
+# 币安（仅实盘）
+BINANCE_API_KEY=你的key
+BINANCE_SECRET_KEY=你的密钥
+```
+
+**⚠️ `.env` 永远不要提交到 git。** 已在 `.gitignore` 排除。
+
+---
+
+## 回测
+
+```bash
+# 下载 30 天历史数据（币安部分序列仅保留 30 天，建议尽快执行）
+python -m backend.backtest download
 
 # 单策略默认参数回测
-./.venv/bin/python -m backend.backtest run --sid S14_VWAP_REVERT
+python -m backend.backtest run --sid S15_CE_ZLSMA
 
-# 完整管线:网格搜索 + IS/OOS 验证 + 报告
-./.venv/bin/python -m backend.backtest all --workers 6
+# 完整管线：网格搜索 + IS/OOS 验证 + 报告
+python -m backend.backtest all --workers 6
 # -> backtest/reports/<日期>/SUMMARY.md + 各策略报告
-#    + strategies.suggested.yaml(不会改动你的生产配置)
+#    + strategies.suggested.yaml（不会改动你的生产配置）
 ```
 
-方法论要点:模块注入方式回放实盘策略代码;因子仅用已完结数据桶(无未来函数);
-出场按同 bar 悲观规则;成本含 taker 手续费、分档滑点与真实资金费结算;
-选参用邻域高原中位数而非单点最优;OOS 仅对入选参数运行一次。
+**方法论要点**：
 
-## 🧪 测试
+- 模块注入方式**回放实盘策略代码**（零逻辑漂移）
+- 因子仅用已完结数据桶（**构造性防未来函数**）
+- 出场按同 bar 悲观规则
+- 成本含 taker 手续费、分档滑点与真实资金费结算
+- 选参用**邻域高原中位数**而非单点最优（防过拟合）
+- OOS 仅对入选参数运行一次
+
+### 跑测试
 
 ```bash
-./.venv/bin/pip install pytest
-./.venv/bin/python -m pytest backend/backtest/tests/ -q     # 22 个测试
+pip install pytest
+python -m pytest backend/backtest/tests/ -q
 ```
-
-## 🔒 安全说明
-
-- `.env` 权限 600 且被 git 忽略;密钥在界面打码展示,交易直连交易所不经第三方。
-- 请为所有交易所 key 关闭提现权限并绑定 IP 白名单。
-- 模拟盘与实盘数据带 `mode` 标签存储,永不混合。
 
 ---
 
-*Built with FastAPI · React · Ant Design · ECharts · SQLite*
+## 观察期与优化路线
+
+系统在 **2026-11-05 ~ 11-12** 处于**观察期**：
+
+**冻结内容**：
+- ❌ 不调参数
+- ❌ 不改代码逻辑
+- ❌ 不扩数据采集
+
+**唯一例外**：Q3 数据采集（被拦信号的事后验证）
+
+**目的**：拿到干净的样本，判断哪些参数是好的、哪些是坏的。
+
+**优化路线**：`docs/优化路线_观察期.md`（Q1~Q8 问题定义与判死条件）
+
+---
+
+## 常见问题
+
+### Q: 为什么一直是 0 仓位，不开单？
+
+检查顺序：
+
+1. **候选池有没有币**：看 `/api/pool`，`candidate` 应该有 100 个
+2. **监控池有没有币**：`/api/pool` 里 `monitor` 应该有 20-30 个
+3. **是不是熔断了**：`/api/status` 里看 `halted`
+4. **是不是日目标已达成**：看 `daily_target.state`
+5. **信号被拦的原因**：看 `/api/signals` 里 `reason` 字段
+
+### Q: 为什么某个币一直被拦？
+
+看 `/api/signals` 的 `reason`：
+
+| reason | 含义 |
+|---|---|
+| `杂讯过滤:量小` | 24h 成交额 < 1000 万 U |
+| `杂讯过滤:易插针` | 插针比 > 4.0 |
+| `杂讯过滤:死水` | ATR < 0.6% |
+| `杂讯过滤:未进监控池` | 成交额排名不在前 30 |
+| `同币已有仓位` | 该币已有仓位（禁止加仓和对锁） |
+| `并发币数已达上限` | 已有 8 个仓位 |
+| `多头方向已达上限(6)` | 多头已有 6 个 |
+
+### Q: 权益曲线和实际持仓对不上？
+
+权益曲线是**每 10 秒**采样一次，持仓浮动盈亏是**实时**的。在快速行情里会有 1-2 个采样点的偏差，属正常。
+
+### Q: 能同时跑多个策略吗？
+
+能。`strategies.yaml` 的 `strategies` 段可以写多个实例，每个独立参数、独立资金、独立币种范围。
+
+**但注意**：风控是**全局**的。多个策略共享 8 个并发名额。
+
+### Q: 回测结果和实盘差很多？
+
+常见原因：
+
+1. **手续费**：默认 0.05%，实际币安 taker 0.04%、maker 0.02%
+2. **滑点**：回测假设按收盘价成交，实盘有滑点
+3. **资金费率**：持仓过夜要付资金费，回测里可能没算
+4. **信号延迟**：回测是「K 线收盘立刻成交」，实盘有网络延迟
+
+### Q: 数据库在哪？
+
+`quantbot.db`（项目根目录）。**已被 `.gitignore` 排除，不会提交。**
+
+备份：直接复制这个文件即可（SQLite 单文件）。
+
+---
+
+## 流量说明
+
+系统曾有 56 个因子采集器（27 种 × 30 币），每天产生 20-30 GB 流量。
+
+实测这些数据策略一个都不用（S15 只用 K 线与价格），已全部关闭，**只保留 `mark_all`（现价快照）**。
+
+现状：约 143 MB/天。若需重新启用某个因子：
+
+```python
+import sqlite3
+c = sqlite3.connect('quantbot.db')
+c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)",
+          ('factor_enabled:因子名', '1'))
+c.commit()
+```
 
 ---
 
@@ -302,20 +831,31 @@ open http://127.0.0.1:8899
 
 | 文档 | 说明 |
 |---|---|
-| [docs/SHADOW_SYSTEM.md](docs/SHADOW_SYSTEM.md) | **影子系统完整档案** —— 是什么、怎么判卷、当前战绩、已知问题、怎么重新启用。改 `shadow.py` 前必读 |
-| [docs/CHANGELOG_20261105.md](docs/CHANGELOG_20261105.md) | 持仓操作区功能改造（杠杆/保证金/分批平仓/二次确认）|
+| [docs/SHADOW_SYSTEM.md](docs/SHADOW_SYSTEM.md) | **影子系统完整档案** —— 是什么、怎么判卷、当前战绩、已知问题。改 `shadow.py` 前必读 |
+| [docs/三层池架构.md](docs/三层池架构.md) | 三层池的完整设计与阈值来由 |
+| [docs/持仓与入仓机制说明.md](docs/持仓与入仓机制说明.md) | 开仓/加仓/平仓的完整链路 |
+| [docs/日目标设置说明.md](docs/日目标设置说明.md) | 日目标四状态机、五参数、重置方法 |
+| [docs/优化路线_观察期.md](docs/优化路线_观察期.md) | Q1~Q8 问题定义与判死条件 |
+| [docs/空头验证机制.md](docs/空头验证机制.md) | 空头方向 0% 胜率的验证方法 |
+| [docs/每日报告说明.md](docs/每日报告说明.md) | 日报的字段含义与生成逻辑 |
+| [docs/纸面主题_色值体检报告.md](docs/纸面主题_色值体检报告.md) | 主题改造的完整色值映射表 |
+| [docs/CHANGELOG_20261105.md](docs/CHANGELOG_20261105.md) | 2026-11-05 变更日志 |
 | [docs/ARCHIVE_20261104.md](docs/ARCHIVE_20261104.md) | V2 转正与 V1 归档记录 |
+| [STRATEGIES.md](STRATEGIES.md) | 策略设计文档 |
+| [FACTORS.md](FACTORS.md) | 因子目录 |
 
-## 流量说明（2026-11-05）
+---
 
-系统曾有 56 个因子采集器（27 种 × 30 币），每天产生 20-30 GB 流量。
-实测这些数据策略一个都不用（S15 只用 K 线与价格），已全部关闭，**只保留 `mark_all`（现价快照）**。
+## 授权与致谢
 
-现状：约 143 MB/天。若需重新启用某个因子：
+- **License**：MIT
+- **数据源**：[Binance](https://binance.com)（行情与交易）
+- **策略来源**：Chandelier Exit（everget）、ZLSMA（veryfid），均来自 TradingView 社区公开实现
+- **UI 灵感**：纸白主题的视觉语言参考了 @赛博老爸 的「Agent 战术大屏」（PolyForm 非商业许可），
+  **仅借鉴视觉语言，动态效果为自研 canvas 实现，未使用其任何代码**
 
-```python
-import sqlite3
-c = sqlite3.connect(r'E:\quant-bot\quantbot.db')
-c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)", ('factor_enabled:因子名', '1'))
-c.commit()
-```
+---
+
+*Built with FastAPI · React · Ant Design · ECharts · SQLite*
+
+**最后更新**：2026-11-05

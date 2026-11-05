@@ -1,0 +1,154 @@
+//@version=5
+// ============================================================
+//  S15 · Chandelier Exit + ZLSMA（趋势跟踪 · 优化版）
+// ------------------------------------------------------------
+//  本脚本来自一套实盘级量化系统的核心策略，用于 TradingView 快速验证。
+//
+//  入场逻辑（两根条件同时成立）：
+//    做多 = Chandelier Exit 处于多头状态  +  上一根是「收在 ZLSMA 上方的阳线」
+//    做空 = Chandelier Exit 处于空头状态  +  上一根是「收在 ZLSMA 下方的阴线」
+//
+//  出场逻辑（两种模式可切换）：
+//    ① 原版   = 关键K线高低点止损 + 收盘穿越 ZLSMA 止盈
+//    ② 优化   = ATR 倍数止损 + 固定 R 倍数止盈   ← 默认
+//
+//  指标公式严格对齐作者原版：
+//    CE   : useClose 极值 + 棘轮(只朝有利方向移动) + dir 状态机
+//    ZLSMA: lsma + (lsma - lsma2)   即零滞后 SMMA
+// ============================================================
+strategy("S15 · CE + ZLSMA 优化版", shorttitle = "S15_CE_ZL", overlay = true,
+     initial_capital = 10000,
+     default_qty_type = strategy.percent_of_equity, default_qty_value = 10,
+     commission_type = strategy.commission.percent, commission_value = 0.05,
+     slippage = 2, pyramiding = 0, calc_on_every_tick = false,
+     margin_long = 100, margin_short = 100,
+     process_orders_on_close = false)
+
+// ---------------- 参数 ----------------
+grpCE    = "Chandelier Exit (everget)"
+grpZL    = "ZLSMA (veryfid)"
+grpExit  = "出场规则"
+grpEntry = "入场过滤"
+
+ceLen    = input.int(22, "ATR 周期 / 极值窗口", group = grpCE, minval = 2)
+ceMult   = input.float(3.0, "ATR 倍数", step = 0.1, group = grpCE, minval = 0.5)
+useClose = input.bool(true, "用收盘价算极值（everget 默认 true）", group = grpCE)
+
+zLen     = input.int(50, "ZLSMA 长度", group = grpZL, minval = 2)
+
+exitMode = input.string("优化: ATR止损 + R倍止盈", "出场方式",
+     options = ["优化: ATR止损 + R倍止盈", "原版: 关键K线止损 + 均线止盈"], group = grpExit)
+slAtrMult = input.float(5.0, "止损 ATR 倍数", step = 0.1, group = grpExit, minval = 0.5)
+rrRatio   = input.float(1.5, "止盈 R 倍数（1.5 = 赚1.5倍亏损）", step = 0.1, group = grpExit, minval = 0.5)
+
+entryMode = input.string("状态（同原版）", "入场方式",
+     options = ["状态（同原版）", "翻转当根（更严格）"], group = grpEntry)
+useTrend  = input.bool(false, "EMA200 顺势过滤", group = grpEntry)
+cooldown  = input.int(0, "平仓后冷却根数", minval = 0, group = grpEntry)
+
+// ---------------- ZLSMA ----------------
+lsma1 = ta.linreg(close, zLen, 0)
+lsma2 = ta.linreg(lsma1, zLen, 0)
+zlsma = lsma1 + (lsma1 - lsma2)
+
+// ---------------- Chandelier Exit（everget 原版公式） ----------------
+atr     = ceMult * ta.atr(ceLen)
+longRaw  = (useClose ? ta.highest(close, ceLen) : ta.highest(high, ceLen)) - atr
+shortRaw = (useClose ? ta.lowest(close, ceLen)  : ta.lowest(low, ceLen))  + atr
+
+var float longStop = na
+var float shortStop = na
+longStopPrev  = nz(longStop[1], longRaw)
+shortStopPrev = nz(shortStop[1], shortRaw)
+// 棘轮：多头止损只上移、空头止损只下移
+longStop  := close[1] > longStopPrev  ? math.max(longRaw,  longStopPrev)  : longRaw
+shortStop := close[1] < shortStopPrev ? math.min(shortRaw, shortStopPrev) : shortRaw
+
+var int ceDir = 1
+ceDir := close > shortStopPrev ? 1 : close < longStopPrev ? -1 : ceDir
+
+// ---------------- 入场信号 ----------------
+stateLong  = ceDir[1] == 1
+stateShort = ceDir[1] == -1
+flipLong   = ceDir[1] == 1  and ceDir[2] == -1
+flipShort  = ceDir[1] == -1 and ceDir[2] == 1
+
+ceLongOk  = entryMode == "翻转当根（更严格）" ? flipLong  : stateLong
+ceShortOk = entryMode == "翻转当根（更严格）" ? flipShort : stateShort
+
+// 关键K线（只看已收完的上一根）
+keyLong  = close[1] > zlsma[1] and close[1] > open[1]
+keyShort = close[1] < zlsma[1] and close[1] < open[1]
+
+ema200 = ta.ema(close, 200)
+trendLongOk  = not useTrend or close[1] > ema200[1]
+trendShortOk = not useTrend or close[1] < ema200[1]
+
+var int lastExitBar = -100000
+coolOk = cooldown == 0 or (bar_index - lastExitBar) >= cooldown
+
+// ---------------- 止损 / 止盈价位 ----------------
+var float stopPrice = na
+var float tpPrice   = na
+
+isOptimized = exitMode == "优化: ATR止损 + R倍止盈"
+
+atrRaw = ta.atr(ceLen)   // 先赋值才能取历史值，Pine 不允许 ta.atr(x)[1]
+longStopCalc  = isOptimized ? close[1] - atrRaw[1] * slAtrMult : low[1]
+shortStopCalc = isOptimized ? close[1] + atrRaw[1] * slAtrMult : high[1]
+
+// ---------------- 开仓 ----------------
+longEntry  = ceLongOk  and keyLong  and trendLongOk  and coolOk and strategy.position_size == 0
+shortEntry = ceShortOk and keyShort and trendShortOk and coolOk and strategy.position_size == 0
+
+if longEntry
+    stopPrice := longStopCalc
+    tpPrice   := close[1] + (close[1] - stopPrice) * rrRatio
+    strategy.entry("L", strategy.long, comment = "多: CE多头 + 阳线站上ZLSMA")
+
+if shortEntry
+    stopPrice := shortStopCalc
+    tpPrice   := close[1] - (stopPrice - close[1]) * rrRatio
+    strategy.entry("S", strategy.short, comment = "空: CE空头 + 阴线跌破ZLSMA")
+
+// ---------------- 平仓 ----------------
+if strategy.position_size > 0
+    if isOptimized
+        strategy.exit("LX", "L", stop = stopPrice, limit = tpPrice,
+             comment_profit = "止盈R倍", comment_loss = "止损")
+    else
+        strategy.exit("LX", "L", stop = stopPrice, comment_loss = "止损")
+        if close[1] < zlsma[1]
+            strategy.close("L", comment = "止盈: 收盘下穿ZLSMA")
+        if strategy.position_size == 0
+            lastExitBar := bar_index
+
+if strategy.position_size < 0
+    if isOptimized
+        strategy.exit("SX", "S", stop = stopPrice, limit = tpPrice,
+             comment_profit = "止盈R倍", comment_loss = "止损")
+    else
+        strategy.exit("SX", "S", stop = stopPrice, comment_loss = "止损")
+        if close[1] > zlsma[1]
+            strategy.close("S", comment = "止盈: 收盘上穿ZLSMA")
+        if strategy.position_size == 0
+            lastExitBar := bar_index
+
+// 冷却期：记录仓位归零的那一根（两种模式都记）
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    lastExitBar := bar_index
+
+// ---------------- 画图 ----------------
+plot(zlsma, "ZLSMA", color = color.new(color.orange, 0), linewidth = 2)
+plot(longStop,  "CE 多头止损", color = color.new(color.green, 0), style = plot.style_linebr)
+plot(shortStop, "CE 空头止损", color = color.new(color.red, 0),   style = plot.style_linebr)
+plot(useTrend ? ema200 : na, "EMA200", color = color.new(color.gray, 40))
+
+plotshape(longEntry,  "做多", shape.triangleup,   location.belowbar, color.new(color.green, 0), size = size.small)
+plotshape(shortEntry, "做空", shape.triangledown, location.abovebar, color.new(color.red, 0),   size = size.small)
+
+// 实时显示当前状态
+if barstate.islast
+    lbl = "出场: " + (isOptimized ? "ATR×" + str.tostring(slAtrMult) + " + " + str.tostring(rrRatio) + "R" : "原版") + "\n入场: " + entryMode
+    label.new(bar_index, high, lbl, style = label.style_label_down,
+         color = color.new(color.gray, 20), textcolor = color.white, size = size.small)
