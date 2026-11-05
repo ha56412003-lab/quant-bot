@@ -153,11 +153,45 @@ def collect(start_ts: int, label: str) -> str:
         s_short = sum(1 for r in sig if r["side"] == "short")
         L.append(f"- 方向：多头 {s_long} / 空头 {s_short}")
 
+    # ── 价格兜底 ────────────────────────────────────────────
+    # mark_price_of 在 ws 无行情 + mark_all 快照过期(>120s)时会**静默返回 0**。
+    # 一旦返回 0，空单浮盈会被算成 +573U 这种鬼数（2026-11-05 实测踩到）。
+    # 统一预取一次实时标记价，取不到才退回 mark_price_of。
+    _PX_CACHE: dict = {}
+
+    def _prefetch_prices(symbols):
+        if not symbols:
+            return
+        try:
+            import httpx as _hx
+            _r = _hx.get("https://fapi.binance.com/fapi/v1/premiumIndex", timeout=15)
+            _r.raise_for_status()
+            for _item in _r.json():
+                _s = _item.get("symbol")
+                if _s in symbols:
+                    try:
+                        _PX_CACHE[_s] = float(_item.get("markPrice") or 0)
+                    except (TypeError, ValueError):
+                        pass
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _price(sym: str) -> float:
+        v = _PX_CACHE.get(sym)
+        if v:
+            return v
+        try:
+            from backend import factors as _f
+            return float(_f.mark_price_of(sym) or 0)
+        except Exception:  # noqa: BLE001
+            return 0.0
+
     # ── 当前持仓 ────────────────────────────────────────────
     try:
-        from backend import db as qdb, factors
+        from backend import db as qdb
         qdb.init()
         pos = qdb.open_positions()
+        _prefetch_prices({p["symbol"] for p in pos})
 
         # 余额：名义杠杆的分母，必须脚本算好给 AI，否则它会自己估（曾算出 6.5x，实际 0.72x）
         _bal = 0.0
@@ -168,10 +202,7 @@ def collect(start_ts: int, label: str) -> str:
             pass
 
         def _px(sym):
-            try:
-                return float(factors.mark_price_of(sym) or 0)
-            except Exception:  # noqa: BLE001
-                return 0.0
+            return _price(sym)
 
         def _dist(a, b):
             """a 到 b 的百分比距离（分母 a）。"""
@@ -349,6 +380,7 @@ def collect(start_ts: int, label: str) -> str:
     _ll: list = []
     _ss: list = []
     _g: dict = {}
+    _fac = None
     _t = int(dt.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
     _day_no = max(1, (dt.datetime.now().date() - dt.date(2026, 11, 5)).days + 1)
     L.append(f"- 观察期：2026-11-05 起，今天是**第 {_day_no} 天 / 共 7 天**")
@@ -360,7 +392,7 @@ def collect(start_ts: int, label: str) -> str:
         _pos = _qdb.open_positions()
         _ll, _ss = [], []
         for _p in _pos:
-            _cur = float(_fac.mark_price_of(_p["symbol"]) or 0)
+            _cur = _price(_p["symbol"])
             _e = float(_p["entry_price"] or 0)
             _q = float(_p["qty"] or 0)
             _u = (_cur - _e) * _q if _p["side"] == "long" else (_e - _cur) * _q
@@ -446,6 +478,57 @@ def collect(start_ts: int, label: str) -> str:
                  f"（观察减仓后剩余仓位是回血还是继续亏，决定该减半还是该全平）")
     except Exception:  # noqa: BLE001
         pass
+
+    def _bo_fetch(sym: str, limit: int = 200) -> list:
+        """同步拉 1h K 线（Q8 判 CE/ZLSMA 用）。失败返回空列表。"""
+        try:
+            import httpx as _hx
+            _r = _hx.get("https://fapi.binance.com/fapi/v1/klines",
+                         params={"symbol": sym, "interval": "1h", "limit": limit},
+                         timeout=15)
+            _r.raise_for_status()
+            return [{"ts": int(k[0] // 1000), "open": float(k[1]), "high": float(k[2]),
+                     "low": float(k[3]), "close": float(k[4]), "volume": float(k[5])}
+                    for k in _r.json()]
+        except Exception:  # noqa: BLE001
+            return []
+
+    # Q8 策略加仓机会（未实装，只统计"如果允许加仓今天会出现几次"）
+    # 判据：浮盈 > 0 且 CE 大方向未翻转 且 收盘仍站在 ZLSMA 同侧
+    try:
+        if _fac is None:
+            from backend import factors as _fac  # noqa: F811
+        from backend.strategies import _ce_zlsma
+        _opp = []
+        for _p in _pos:
+            _cur = _price(_p["symbol"])
+            _e = float(_p["entry_price"] or 0)
+            _q = float(_p["qty"] or 0)
+            _u = (_cur - _e) * _q if _p["side"] == "long" else (_e - _cur) * _q
+            if _u <= 0:
+                continue  # 铁锁 1：浮亏一律不加（防马丁格尔）
+            _ks = _bo_fetch(_p["symbol"], 200)
+            if not _ks or len(_ks) < 120:
+                continue
+            _ind = _ce_zlsma(_ks, 22, 3.0, 32, True)
+            _i = len(_ks) - 2
+            _z = _ind["zlsma"][_i]
+            _d = int(_ind["dir"][_i] or 1)
+            _c = _ind["close"][_i]
+            if _z is None:
+                continue
+            _z = float(_z)
+            _want = 1 if _p["side"] == "long" else -1
+            # 铁锁：CE 方向必须仍与持仓同向，且收盘仍在 ZLSMA 同侧
+            if _d == _want and ((_want == 1 and _c > _z) or (_want == -1 and _c < _z)):
+                _opp.append(f"{_p['symbol']}({_p['side']}, 浮盈 {_u:+.1f}U)")
+        if _opp:
+            L.append(f"- **Q8 加仓机会**：{len(_opp)} 个 —— {', '.join(_opp)}"
+                     f"（满足浮盈>0 + CE方向未翻转 + 仍站 ZLSMA 同侧）")
+        else:
+            L.append("- **Q8 加仓机会**：0 个（当前没有仓位同时满足三道判据）")
+    except Exception as _exc:  # noqa: BLE001
+        L.append(f"- **Q8 加仓机会**：统计失败 ({_exc})")
 
     L.append("- 以上为观察期 7 个待验证问题的当日快照。"
              "**样本不足时明确说「还需 N 天」，不许用单日数据下结论。**")
