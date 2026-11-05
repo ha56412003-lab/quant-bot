@@ -48,3 +48,7 @@ journal/trades-*.jsonl
 # Python 编译产物（历史清理后防再犯）
 __pycache__/
 *.py[cod]
+
+# Backtest temp checkpoints
+backtest/orig_*.json
+backtest/*.log

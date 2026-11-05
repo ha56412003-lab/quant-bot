@@ -92,6 +92,11 @@ def init():
             "ALTER TABLE positions ADD COLUMN mode TEXT NOT NULL DEFAULT 'paper'",
             "ALTER TABLE positions ADD COLUMN leverage REAL",
             "ALTER TABLE positions ADD COLUMN extra_margin REAL NOT NULL DEFAULT 0",
+            # 成本口径按仓位存：不同策略可能是挂单(maker)或吃单(taker)，
+            # 平仓时必须用开仓那一笔的口径，否则单笔盈亏算不准。
+            # NULL = 用全局 config.PAPER_FEE_RATE / PAPER_SLIPPAGE。
+            "ALTER TABLE positions ADD COLUMN fee_rate REAL",
+            "ALTER TABLE positions ADD COLUMN slip_pct REAL",
             "ALTER TABLE equity_curve ADD COLUMN mode TEXT NOT NULL DEFAULT 'paper'",
         ):
             try:
@@ -240,13 +245,14 @@ def open_position(**kw):
         cur = _conn.execute(
             "INSERT INTO positions(strategy,symbol,side,qty,entry_price,stop_price,"
             "take_profit,trail_atr,opened_at,max_hold_sec,time_exit_at,extreme,status,"
-            "entry_factors,reason,mode,leverage,extra_margin) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?,?,?,?)",
+            "entry_factors,reason,mode,leverage,extra_margin,fee_rate,slip_pct) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?,?,?,?,?,?)",
             (kw["strategy"], kw["symbol"], kw["side"], kw["qty"], kw["entry_price"],
              kw.get("stop_price"), kw.get("take_profit"), kw.get("trail_atr"),
              int(time.time()), kw["max_hold_sec"], kw.get("time_exit_at"),
              kw["entry_price"], kw.get("entry_factors"), kw.get("reason", ""),
-             mode, kw.get("leverage"), kw.get("extra_margin", 0.0)))
+             mode, kw.get("leverage"), kw.get("extra_margin", 0.0),
+             kw.get("fee_rate"), kw.get("slip_pct")))
     return cur.lastrowid
 
 

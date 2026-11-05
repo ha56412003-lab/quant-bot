@@ -145,7 +145,7 @@ async def position_loop():
         started = time.monotonic()
         try:
             cfg = config.load_strategies()
-            ctx = Ctx(config.UNIVERSE)
+            ctx = Ctx(config.UNIVERSE, quality.monitor_list())
             await manage_positions(ctx, _strategies(cfg))
             db.set_meta("last_manage_ts_ms", int(time.time() * 1000))
         except Exception as exc:  # noqa: BLE001
@@ -188,7 +188,7 @@ async def scan_loop():
             strategies = _strategies(cfg) if equity_cache > 0 else {}
             if equity_cache <= 0:
                 db.set_meta("last_error", f"{int(time.time())}: 权益读取失败，暂停开仓")
-            ctx = Ctx(config.UNIVERSE)
+            ctx = Ctx(config.UNIVERSE, quality.monitor_list())
             for sid, scfg in cfg.get("strategies", {}).items():
                 if not scfg.get("enabled") or sid not in strategies:
                     continue

@@ -133,6 +133,12 @@ def get(symbol: str):
     return _cache.get(symbol)
 
 
+def monitor_list() -> list[str]:
+    """当前监控池（30 个）。策略扫描时应以它为准，而不是全量候选池 ——
+    扫了也白扫：执行层的 is_tradable() 会把非监控池的信号全拦掉。"""
+    return list(_monitor)
+
+
 def is_tradable(symbol: str):
     """(是否放行, 原因)。数据缺失时放行，避免因刷新失败误停整个系统。"""
     q = _cache.get(symbol)

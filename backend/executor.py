@@ -110,11 +110,15 @@ async def open_position(sig, qty, price, leverage=None):
             db.log("error", f"live[{venue}] 开仓失败 {sig.symbol} {sig.side}: {exc}")
             return None
         fill = price
-        fee = fill * qty * 0.0005
+        fee = fill * qty * _close_fee_rate(pos)
     else:
-        slip = 1 + config.PAPER_SLIPPAGE if sig.side == "long" else 1 - config.PAPER_SLIPPAGE
+        # 策略可以用 sig.slip_pct / sig.fee_rate 覆盖全局口径（S15 是挂单策略，
+        # 回测按 maker 0.02% + 零滑点算的，线上必须同口径才可比）
+        _slip = config.PAPER_SLIPPAGE if sig.slip_pct is None else sig.slip_pct
+        _fee_rate = config.PAPER_FEE_RATE if sig.fee_rate is None else sig.fee_rate
+        slip = 1 + _slip if sig.side == "long" else 1 - _slip
         fill = price * slip
-        fee = fill * qty * config.PAPER_FEE_RATE
+        fee = fill * qty * _fee_rate
         _adjust_paper_balance(-fee)
     pid = db.open_position(
         strategy=sig.strategy, symbol=sig.symbol, side=sig.side, qty=qty,
@@ -124,10 +128,23 @@ async def open_position(sig, qty, price, leverage=None):
         max_hold_sec=sig.max_hold_sec,
         time_exit_at=sig.time_exit_at or None,
         entry_factors=json.dumps(factors.snapshot_for(sig.symbol), ensure_ascii=False),
-        reason=sig.reason, leverage=float(leverage or 0) or None)
+        reason=sig.reason, leverage=float(leverage or 0) or None,
+        fee_rate=sig.fee_rate, slip_pct=sig.slip_pct)
     db.log_trade(sig.strategy, sig.symbol, sig.side, qty, fill, fee, "open", pid, None, mode())
     db.log("info", f"开仓 [{sig.strategy}] {sig.symbol} {sig.side} qty={qty:.6g} @ {fill:.6g} — {sig.reason}")
     return pid
+
+
+def _close_fee_rate(pos):
+    """平仓手续费率：优先用开仓时记下的口径（S15 是 maker 0.02%），
+    没有记录就回落到全局默认。"""
+    v = pos.get("fee_rate")
+    return float(v) if v is not None else config.PAPER_FEE_RATE
+
+
+def _close_slip_pct(pos):
+    v = pos.get("slip_pct")
+    return float(v) if v is not None else config.PAPER_SLIPPAGE
 
 
 async def close_position(pos, price, reason, fraction=1.0):
@@ -152,11 +169,13 @@ async def close_position(pos, price, reason, fraction=1.0):
             db.log("error", f"live[{venue}] 平仓失败 {pos['symbol']}: {exc}")
             return False
         fill = price
-        fee = fill * qty * 0.0005
+        fee = fill * qty * _close_fee_rate(pos)
     else:
-        slip = 1 - config.PAPER_SLIPPAGE if side == "long" else 1 + config.PAPER_SLIPPAGE
+        _slip = _close_slip_pct(pos)
+        _rate = _close_fee_rate(pos)
+        slip = 1 - _slip if side == "long" else 1 + _slip
         fill = price * slip
-        fee = fill * qty * config.PAPER_FEE_RATE
+        fee = fill * qty * _rate
     sign = 1 if side == "long" else -1
     pnl = (fill - pos["entry_price"]) * qty * sign - fee
     if mode() != "live":

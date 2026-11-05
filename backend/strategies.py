@@ -29,6 +29,13 @@ class Signal:
     size_mult: float = 1.0
     fresh: int = 999          # 距信号触发（如 CE 翻转）已过几根 K 线，越小越新鲜
     strength: float = 0.0     # 信号强度（如 |close-ZLSMA| / ATR），越大趋势越强
+    # 成本口径覆盖：None = 用全局 PAPER_FEE_RATE / PAPER_SLIPPAGE。
+    # 为什么需要：S15 是挂单（maker）策略，回测按 0.02% 手续费 + 零滑点算出来
+    # 的结论；如果线上按 taker 0.05% + 0.03% 滑点记账，每笔成本从 0.017R 涨到
+    # 0.0425R，回测里 +21.71R 会直接翻成负数 —— 记账口径和回测不一致时，
+    # 观察期看到的数字毫无意义。
+    fee_rate: float | None = None
+    slip_pct: float | None = None
 
 
 def _z(series, value=None, window=None):
@@ -44,8 +51,9 @@ def _z(series, value=None, window=None):
 class Ctx:
     """Per-tick context handed to strategies: factors, klines/ATR cache, positions."""
 
-    def __init__(self, universe):
+    def __init__(self, universe, monitor=None):
         self.universe = universe
+        self.monitor = monitor or []
         self._kcache = {}
         self._atr = {}
 
@@ -98,8 +106,16 @@ class Base:
         self.max_hold = int(float(cfg.get("max_hold_hours", 24)) * 3600)
 
     def syms(self, ctx):
-        """Per-strategy symbol list, or the global monitored universe if unset."""
-        return self.symbols or ctx.universe
+        """Per-strategy symbol list.
+
+        默认用「监控池」（30 个）而不是全量候选池（100 个）：执行层的
+        quality.is_tradable() 只放行监控池里的币，扫其余的纯属浪费 ——
+        75 个币的 K 线请求打水漂，还往 signals 表灌一堆被拦的噪音。
+        监控池为空（还没刷新完）时回落到全量，避免启动初期完全不出信号。
+        """
+        if self.symbols:
+            return self.symbols
+        return getattr(ctx, "monitor", None) or ctx.universe
 
     async def evaluate(self, ctx) -> list:
         return []
@@ -470,13 +486,80 @@ def _rma(vals, length):
     return out
 
 
-def _ce_zlsma(ks, ce_len=22, ce_mult=3.0, z_len=32, use_close=True):
-    """返回 {zlsma, atr, dir, close, open} 序列。"""
-    close = [float(k["close"]) for k in ks]
-    openp = [float(k["open"]) for k in ks]
-    high = [float(k["high"]) for k in ks]
-    low = [float(k["low"]) for k in ks]
-    n = len(close)
+def _heikin_ashi(ks):
+    """把原始 K 线转成 Heikin Ashi 序列。返回 (ho, hh, hl, hc)。
+
+    为什么用 HA：浩哥在 TradingView 上看图时切的就是 HA 图，指标（ZLSMA /
+    Chandelier Exit）的输入是 HA 的收盘价，而不是原始收盘价。用原始 K 线算
+    出来的买卖点和他在图上看到的对不上。
+    """
+    ho, hh, hl, hc = [], [], [], []
+    for i, k in enumerate(ks):
+        o, h, l, c = (float(k["open"]), float(k["high"]),
+                      float(k["low"]), float(k["close"]))
+        hc_ = (o + h + l + c) / 4.0
+        ho_ = (o + c) / 2.0 if i == 0 else (ho[i - 1] + hc[i - 1]) / 2.0
+        ho.append(ho_)
+        hc.append(hc_)
+        hh.append(max(h, ho_, hc_))
+        hl.append(min(l, ho_, hc_))
+    return ho, hh, hl, hc
+
+
+def _bollinger_width(src, length=20, mult=2.0):
+    """布林带宽度 % = (上轨 - 下轨) / 中轨 × 100。
+
+    宽度小 = 价格挤在一起（震荡/变盘前）；宽度大 = 价格分散（有行情）。
+    """
+    n = len(src)
+    out: list = [None] * n
+    for i in range(length - 1, n):
+        seg = src[i - length + 1:i + 1]
+        if any(v is None for v in seg):
+            continue
+        ma = sum(seg) / length
+        if ma == 0:
+            continue
+        sd = (sum((v - ma) ** 2 for v in seg) / length) ** 0.5
+        out[i] = (2 * mult * sd) / ma * 100.0
+    return out
+
+
+def _pct_rank(series, lookback=100):
+    """当前值在过去 lookback 根里的百分位（0~100）。
+
+    用相对分位而不是绝对值，是因为不同币的波动率差好几倍，绝对阈值没法通用。
+    """
+    n = len(series)
+    out: list = [None] * n
+    for i in range(n):
+        if series[i] is None:
+            continue
+        lo = max(0, i - lookback + 1)
+        vals = [v for v in series[lo:i + 1] if v is not None]
+        if len(vals) < 20:          # 样本太少，分位没有意义
+            continue
+        out[i] = sum(1 for v in vals if v <= series[i]) / len(vals) * 100.0
+    return out
+
+
+def _ce_zlsma(ks, ce_len=1, ce_mult=2.0, z_len=50, use_close=True, use_ha=True):
+    """返回 {zlsma, atr, dir, close, open, low_raw, high_raw} 序列。
+
+    use_ha=True 时所有指标输入用 Heikin Ashi 序列（对齐 TradingView 图表）；
+    另附 low_raw / high_raw（原始 K 线的真实高低点），供止损取阶段低点使用 ——
+    HA 的 high/low 是合成值，实盘不可能在那个价位成交。
+    """
+    n = len(ks)
+    low_raw = [float(k["low"]) for k in ks]
+    high_raw = [float(k["high"]) for k in ks]
+    if use_ha:
+        openp, high, low, close = _heikin_ashi(ks)
+    else:
+        close = [float(k["close"]) for k in ks]
+        openp = [float(k["open"]) for k in ks]
+        high = high_raw[:]
+        low = low_raw[:]
 
     l1 = _linreg(close, z_len, 0)
     l2 = _linreg(l1, z_len, 0)
@@ -513,7 +596,8 @@ def _ce_zlsma(ks, ce_len=22, ce_mult=3.0, z_len=32, use_close=True):
         else:
             dirs[i] = dirs[i - 1]
     return dict(zlsma=zlsma, atr=atr, dir=dirs, close=close, open=openp,
-                long_stop=long_stop, short_stop=short_stop)
+                long_stop=long_stop, short_stop=short_stop,
+                low_raw=low_raw, high_raw=high_raw)
 
 
 _LAST_BAR = {}   # (sid, symbol) -> 已评估过的K线时间戳，防止高频扫描重复出信号
@@ -526,6 +610,12 @@ _LAST_BAR = {}   # (sid, symbol) -> 已评估过的K线时间戳，防止高频�
 # 这里只缓存「当前 bar 的 ZLSMA / ATR 值」，跨过 bar 边界才重新拉取。
 # 键: (symbol, interval)  值: (bar_ts, zlsma, atr, ready)
 _S15_ZL_CACHE = {}
+
+# ── S15 逐仓位状态（峰顶浮盈 / 连续破均线计数）──────────────────────────
+# 键: (symbol, side, opened_at) -> {"peak": float, "bar_ts": any, "cnt": int}
+# 为什么不放数据库：这两个值只影响出场时机，丢了最多晚一根 K 线出场，
+# 不值得为它加一次写库（positions 每次写都要加锁，已有 database is locked 隐患）。
+_S15_POS_STATE = {}
 
 
 class S15CeZlsma(Base):
@@ -558,15 +648,35 @@ class S15CeZlsma(Base):
             return default
 
     async def evaluate(self, ctx) -> list:
-        ce_len = int(self._p("ce_len", 22))
-        ce_mult = float(self._p("ce_mult", 3.0))
-        z_len = int(self._p("zlsma_len", 32))
-        stop_mult = float(self._p("stop_atr_mult", 3.0))
-        rr = float(self._p("rr_ratio", 2.0))
-        use_close = bool(self._p("use_close", True))
-        kline_iv = str(self.p.get("kline_interval", "1h"))
+        """入场：CE 方向翻转（事件）+ 均线同侧关键K线 + ATR 门槛 + 布林带宽度分位门槛。
 
-        need = max(ce_len, z_len * 2) + 80
+        设计要点（都是回测结论，见 docs/S15_回测结论_20261105.md）：
+          · CE 方向翻转是「事件」不是「状态」—— 只在翻那一刻出信号，否则每根
+            都满足条件会刷出 7 倍的假箭头。
+          · ATR > 2.5% 是生死线：止损距离决定手续费占 R 的比例，ATR 太小
+            时手续费是毛利的 2.7 倍，数学上必亏。
+          · 布林带宽度分位 > 70% 用来排除震荡市 —— 布林带宽度只衡量「价格分散
+            程度」，是唯一没有被证伪的趋势过滤器（ADX、ADX上升、效率比全部失效）。
+          · 止损取 20 根阶段低点（用原始 K 线真实价格，不用 HA 合成值）。
+        """
+        ce_len = int(self._p("ce_len", 1))
+        ce_mult = float(self._p("ce_mult", 2.0))
+        z_len = int(self._p("zlsma_len", 50))
+        rr = float(self._p("rr_ratio", 1.2))
+        use_close = bool(self._p("use_close", True))
+        use_ha = bool(self._p("use_ha", True))
+        swing_lb = int(self._p("swing_lookback", 20))
+        min_atr_pct = float(self._p("min_atr_pct", 2.5))
+        bbw_pct_min = float(self._p("bbw_pct_min", 70.0))
+        max_risk_pct = float(self._p("max_risk_pct", 30.0))
+        # 成本口径：默认按 maker 0.02% / 零滑点，和回测一致。
+        # ⚠ 这是「假设挂单能成交」的记账口径，不代表线上真能挂到单。
+        #    真实限价挂单能力是执行层待办（观察期后单独做）。
+        fee_rate = float(self._p("fee_rate", 0.0002))
+        slip_pct = float(self._p("slip_pct", 0.0))
+        kline_iv = str(self.p.get("kline_interval", "15m"))
+
+        need = max(ce_len, z_len * 2, swing_lb, 100) + 80
         out = []
 
         for sym in self.syms(ctx):
@@ -577,77 +687,88 @@ class S15CeZlsma(Base):
                 if not ks or len(ks) < need:
                     continue
 
-                ind = _ce_zlsma(ks, ce_len, ce_mult, z_len, use_close)
+                ind = _ce_zlsma(ks, ce_len, ce_mult, z_len, use_close, use_ha)
+                bbw = _bollinger_width(ind["close"], 20, 2.0)
+                bbw_pct = _pct_rank(bbw, 100)
+
                 i = len(ks) - 2          # 最后一根已收完的 K 线
-                if i < 1:
+                if i < 1 or i < swing_lb:
                     continue
-                # 同一根已收完的K线只评估一次，避免 2 分钟扫描把同一信号记多遍
                 bar_key = (self.sid, sym)
                 bar_ts = ks[i].get("ts", i)
                 if _LAST_BAR.get(bar_key) == bar_ts:
                     continue
                 _LAST_BAR[bar_key] = bar_ts
 
-                z, atr, dirs = ind["zlsma"][i], ind["atr"][i], ind["dir"][i]
+                z, atr = ind["zlsma"][i], ind["atr"][i]
                 dirs_arr = ind["dir"]
                 if z is None or atr is None or atr <= 0:
                     continue
-                z = float(z)
-                atr = float(atr)
-                dirs = int(dirs or 1)
-
+                z, atr = float(z), float(atr)
                 c, o = ind["close"][i], ind["open"][i]
+                if not (math.isfinite(c) and math.isfinite(z)):
+                    continue
+
+                # ① CE 方向翻转（事件，不是状态）
+                d_now = int(dirs_arr[i] or 1)
+                d_prev = int(dirs_arr[i - 1] or 1)
+                if d_now == d_prev:
+                    continue
+
+                # ② ATR 门槛
+                atr_pct = atr / c * 100.0 if c > 0 else 0.0
+                if atr_pct < min_atr_pct:
+                    continue
+
+                # ③ 布林带宽度分位门槛（排除震荡）
+                bp = bbw_pct[i]
+                if bp is None or bp < bbw_pct_min:
+                    continue
+
+                # ④ 关键 K 线（HA 阳线站上均线 / 阴线跌破均线）
                 key_long = c > z and c > o
                 key_short = c < z and c < o
-                px = ctx.price(sym) or c
-                if px <= 0:
+                if d_now == 1 and not key_long:
                     continue
-                # 信号新鲜度：距上一次 CE 方向翻转已过几根 K 线（0 = 本根刚翻）
-                j = i
-                while j > 0 and int(dirs_arr[j] or 1) == int(dirs_arr[j - 1] or 1):
-                    j -= 1
-                fresh = i - j
-                # 信号强度：收盘价偏离 ZLSMA 的幅度（以 ATR 为单位），越大趋势越强
-                strength = abs(c - z) / atr if atr > 0 else 0.0
-
-                # 最后一道数值防线：K 线已在 binance.klines 里校验过，
-                # 但指标本身也可能因极端输入产出 inf/nan。任何一个
-                # 非有限值写进 positions 都会让止损判断恒为 False
-                # （NaN 比较永远 False）→ 仓位裸奔；NaN 写进 qty 会让
-                # paper_balance 变 NaN → 熔断失效。所以宁可丢信号。
-                if not (math.isfinite(px) and math.isfinite(atr) and math.isfinite(z)):
+                if d_now == -1 and not key_short:
                     continue
 
-                if dirs == 1 and key_long:
-                    stop = px - atr * stop_mult
-                    if stop <= 0 or not math.isfinite(stop):
-                        continue
-                    tp = px + (px - stop) * rr
-                    if not math.isfinite(tp):
-                        continue
-                    out.append(Signal(
-                        strategy=self.sid, symbol=sym, side="long",
-                        reason=f"CE多头+阳线站上ZLSMA(RSI无关) ATR={atr:.4g}",
-                        stop_price=round(stop, 8),
-                        take_profit=round(tp, 8),
-                        max_hold_sec=self.max_hold,
-                        fresh=fresh, strength=strength,
-                    ))
-                elif dirs == -1 and key_short:
-                    stop = px + atr * stop_mult
-                    if stop <= 0 or not math.isfinite(stop):
-                        continue
-                    tp = px - (stop - px) * rr
-                    if not math.isfinite(tp) or tp <= 0:
-                        continue
-                    out.append(Signal(
-                        strategy=self.sid, symbol=sym, side="short",
-                        reason=f"CE空头+阴线跌破ZLSMA ATR={atr:.4g}",
-                        stop_price=round(stop, 8),
-                        take_profit=round(tp, 8),
-                        max_hold_sec=self.max_hold,
-                        fresh=fresh, strength=strength,
-                    ))
+                px = float(c)
+                if px <= 0 or not math.isfinite(px):
+                    continue
+
+                # ⑤ 止损 = 20 根阶段低点/高点（原始 K 线真实价格）
+                if d_now == 1:
+                    stop = min(ind["low_raw"][i - swing_lb + 1:i + 1])
+                    risk = px - stop
+                    side = "long"
+                    tp = px + risk * rr
+                else:
+                    stop = max(ind["high_raw"][i - swing_lb + 1:i + 1])
+                    risk = stop - px
+                    side = "short"
+                    tp = px - risk * rr
+
+                if risk <= 0 or not math.isfinite(risk):
+                    continue
+                # 止损距离过宽直接放弃：R 太大 → 仓位被压得极小，且可能有数据问题
+                if risk / px * 100.0 > max_risk_pct:
+                    continue
+                if not (math.isfinite(stop) and math.isfinite(tp) and stop > 0 and tp > 0):
+                    continue
+
+                out.append(Signal(
+                    strategy=self.sid, symbol=sym, side=side,
+                    reason=(f"CE{'多' if side == 'long' else '空'}翻向+"
+                            f"{'阳' if side == 'long' else '阴'}线"
+                            f"{'站上' if side == 'long' else '跌破'}ZLSMA "
+                            f"ATR={atr_pct:.2f}% BBW分位={bp:.0f}%"),
+                    stop_price=round(stop, 8),
+                    take_profit=round(tp, 8),
+                    max_hold_sec=self.max_hold,
+                    fresh=0, strength=abs(c - z) / atr,
+                    fee_rate=fee_rate, slip_pct=slip_pct,
+                ))
             except Exception as exc:  # noqa: BLE001
                 log.warning("S15 %s 计算失败: %s", sym, exc)
         return out
@@ -687,83 +808,108 @@ class S15CeZlsma(Base):
             return None
 
     async def _trend_reversal_exit(self, ctx, pos):
+        """出场③：收盘跌破 ZLSMA 且从峰顶回撤 ≥ trail_r，连续 N 根确认后全平。
+
+        为什么必须和「从峰顶回撤」绑定，而不是「一穿均线就走」：
+        震荡市里价格会反复穿越均线，一穿就走会被来回割 —— 回测里一次性
+        穿均线就平有 1717 次触发、占全部出场 95%，光手续费就吃掉 97R，
+        把 -35R 的结果恶化到 -95R。要求「已赚到的利润回吐超过 trail_r」
+        才平，才能滤掉这部分假突破。
+
+        为什么还要连续 N 根确认：震荡市里的假突破常常是单根插针，
+        连续 2 根收盘都在均线另一侧，才算真掉头。回测里 1 根→2 根，
+        胜率 38.0%→38.9%，净 R -0.88→-0.35。
+
+        注意「回撤」是相对持仓期最高浮盈（峰顶）算的，不是浮盈门槛 ——
+        这是浩哥明确纠正过的：以前做成「浮盈不足 X R 就不平」方向反了。
+
+        流量：check_exit 每 0.5 秒调用一次，8 仓位 = 16 次/秒。
+        按 bar 边界缓存 ZLSMA（15m 8 币一天约 768 次请求 ≈ 15MB）；
+        不做缓存会是 553MB/天。
+        """
         sym = pos["symbol"]
         side = pos["side"]
         entry = float(pos.get("entry_price") or 0)
         if entry <= 0:
             return None
 
-        ce_len = int(self._p("ce_len", 22))
-        ce_mult = float(self._p("ce_mult", 3.0))
-        z_len = int(self._p("zlsma_len", 32))
-        kline_iv = str(self.p.get("kline_interval", "1h"))
-        # 浮盈门槛（以 R 计）：0.8 意味着赚到 0.8 倍止损距离才开始
-        # 谈趋势保护。设 0 或负数 = 关闭趋势出场（回到纯 ATR 止损）。
-        min_profit_r = float(self._p("exit_min_profit_r", 0.0))
-        if min_profit_r <= 0:
+        trail_r = float(self._p("trail_r", 0.8))
+        if trail_r <= 0:              # 0 = 关闭该出场，只剩止损/止盈/超时
             return None
+        ma_confirm = max(1, int(self._p("ma_confirm_bars", 2)))
+        ce_len = int(self._p("ce_len", 1))
+        ce_mult = float(self._p("ce_mult", 2.0))
+        z_len = int(self._p("zlsma_len", 50))
+        use_close = bool(self._p("use_close", True))
+        use_ha = bool(self._p("use_ha", True))
+        kline_iv = str(self.p.get("kline_interval", "15m"))
 
-        # ── bar 边界缓存：同一根 K 线内不重复拉数据 ──
+        # 风险基数：入场时确定的止损距离（止损 = 阶段低点）
+        risk = abs(entry - float(pos.get("stop_price") or 0))
+        if risk <= 0 or not math.isfinite(risk):
+            return None
+        sign = 1.0 if side == "long" else -1.0
+
+        px = ctx.price(sym)
+        if not px or not math.isfinite(px):
+            return None
+        cur_r = (px - entry) * sign / risk
+
+        # ── 逐仓位状态 ──
+        st_key = (sym, side, pos.get("opened_at"))
+        st = _S15_POS_STATE.get(st_key)
+        if st is None:
+            # 顺手清理已平仓留下的孤儿状态（超过 7 天没被访问）
+            now_ts = time.time()
+            for k in [k for k, v in _S15_POS_STATE.items()
+                      if now_ts - v.get("seen", now_ts) > 7 * 86400]:
+                _S15_POS_STATE.pop(k, None)
+            st = {"peak": 0.0, "bar_ts": None, "cnt": 0}
+            _S15_POS_STATE[st_key] = st
+        st["seen"] = time.time()
+        if cur_r > st["peak"]:
+            st["peak"] = cur_r
+
+        # ── bar 边界缓存 ──
         bar_secs = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400}
-        bsec = bar_secs.get(kline_iv, 3600)
+        bsec = bar_secs.get(kline_iv, 900)
         cur_bar = int(time.time() // bsec) * bsec
         ck = (sym, kline_iv)
         hit = _S15_ZL_CACHE.get(ck)
         if hit and hit[0] == cur_bar:
-            z_now, atr_now, ready = hit[1], hit[2], hit[3]
+            z_now, ha_close, bar_ts = hit[1], hit[4], hit[5]
         else:
-            ready = False
-            z_now = atr_now = None
-
-        if not ready:
-            need = max(ce_len, z_len * 2) + 80
+            need = max(ce_len, z_len * 2, 100) + 80
             ks = await ctx.klines(sym, kline_iv, need)
             if not ks or len(ks) < need:
                 return None
-            ind = _ce_zlsma(ks, ce_len, ce_mult, z_len, True)
-            zl, atr_s = ind["zlsma"], ind["atr"]
-            i = len(ks) - 2                  # 最后一根已收完的 K 线
-            if i < 2 or zl[i] is None:
+            ind = _ce_zlsma(ks, ce_len, ce_mult, z_len, use_close, use_ha)
+            i = len(ks) - 2          # 最后一根已收完的 K 线
+            if i < 2 or ind["zlsma"][i] is None:
                 return None
-            z_now = zl[i]
-            atr_now = atr_s[i] if (atr_s and i < len(atr_s)) else None
-            _S15_ZL_CACHE[ck] = (cur_bar, z_now, atr_now, True)
+            z_now = ind["zlsma"][i]
+            ha_close = ind["close"][i]
+            bar_ts = ks[i].get("ts", i)
+            _S15_ZL_CACHE[ck] = (cur_bar, z_now, ind["atr"][i], True,
+                                 ha_close, bar_ts)
 
-        if z_now is None:
+        if z_now is None or ha_close is None:
             return None
 
-        # 需要最新价对比：收盘穿越才确认趋势掉头
-        # 用 ws 实时价会更早，但回测用的是收盘价，实盘保持口径一致
-        last_close = None
-        try:
-            last_close = ctx.price(sym)
-        except Exception:  # noqa: BLE001
-            last_close = None
-        if not last_close:
+        # ── 破均线判断：用 HA 收盘价，和回测口径一致 ──
+        broke = (ha_close < z_now) if side == "long" else (ha_close > z_now)
+        if st["bar_ts"] != bar_ts:        # 跨到新的一根 K 线才更新计数
+            st["bar_ts"] = bar_ts
+            st["cnt"] = st["cnt"] + 1 if broke else 0
+
+        if st["cnt"] < ma_confirm:
+            return None
+        drawdown = st["peak"] - cur_r
+        if drawdown < trail_r:
             return None
 
-        # ① 价格必须已经穿到均线的另一侧（趋势确实掉头了）
-        if side == "long":
-            if last_close >= z_now:
-                return None
-        else:
-            if last_close <= z_now:
-                return None
-
-        # ② 必须已经有足够浮盈，否则这笔单子交给 ATR 止损处理
-        risk = abs(entry - float(pos.get("stop_price") or 0))
-        if risk <= 0:
-            if not atr_now or atr_now <= 0:
-                return None
-            risk = atr_now * 5.0
-        sign = 1 if side == "long" else -1
-        profit_r = (last_close - entry) * sign / risk
-        if profit_r < min_profit_r:
-            return None
-
-        return f"趋势反转出场(跌破ZLSMA, 浮盈{profit_r:.2f}R)"
-
-
+        return (f"破均线回撤出场(连续{st['cnt']}根确认, "
+                f"峰顶{st['peak']:.2f}R 回撤{drawdown:.2f}R)")
 
 
 # ── S16 UT Bot + STC + Hull Suite ───────────────────────────────────────────
