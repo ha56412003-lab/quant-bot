@@ -288,6 +288,37 @@ def collect(start_ts: int, label: str) -> str:
     else:
         L.append("- 无变更")
 
+    # ── 按配置变更点分段统计（脚本算好，不留给 AI 自己切）──
+    # 原则：凡是需要二次计算才能得到的指标，必须在数据里算好。
+    # AI 面对"帮我按时间切两段统计"会倾向跳过，然后写"系统还没分段"。
+    if changes:
+        cut_ts = min((r["ts"] if hasattr(r, "keys") else r[0]) for r in changes)
+        segs = [("变更前", start_ts, cut_ts), ("变更后", cut_ts, 9_999_999_999)]
+        L.append("")
+        L.append("## 信号漏斗 · 按配置变更分段（脚本已切好，可直接引用）")
+        L.append("| 时段 | 信号数 | 开仓 | 并发拦截 | 杂讯过滤 | 方向上限 | 其他 | 并发占比 |")
+        L.append("|---|---|---|---|---|---|---|---|")
+        for name, a, b in segs:
+            try:
+                rows = c.execute(
+                    "SELECT side, acted, skip_reason FROM signals WHERE ts>=? AND ts<?",
+                    (a, b)).fetchall()
+            except Exception:  # noqa: BLE001
+                rows = []
+            n = len(rows)
+            if n == 0:
+                L.append(f"| {name} | 0 | 0 | 0 | 0 | 0 | 0 | **无样本** |")
+                continue
+            opened = sum(1 for r in rows if r["acted"])
+            conc = sum(1 for r in rows if not r["acted"] and "并发" in (r["skip_reason"] or ""))
+            noise = sum(1 for r in rows if not r["acted"] and "杂讯" in (r["skip_reason"] or ""))
+            dirs = sum(1 for r in rows if not r["acted"] and "方向" in (r["skip_reason"] or ""))
+            other = n - opened - conc - noise - dirs
+            L.append(f"| {name} | {n} | {opened} | {conc} | {noise} | {dirs} | {other} | "
+                     f"{conc/n*100:.0f}% |")
+        L.append(f"- 分段点：{_hm(cut_ts)}（今天最早一次参数变更）")
+        L.append("- 变更后样本 <20 条时，任何占比都不具统计意义，直接说「样本不足」")
+
     # ── 当前生效的风控参数（给 AI 一个确定的事实基线）──
     L.append("")
     L.append("## 当前生效风控参数")
