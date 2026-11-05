@@ -450,6 +450,16 @@ def collect(start_ts: int, label: str) -> str:
     L.append("- 以上为观察期 7 个待验证问题的当日快照。"
              "**样本不足时明确说「还需 N 天」，不许用单日数据下结论。**")
 
+    # ── Q3 的核心证据：被拦信号事后涨跌 ──
+    try:
+        sys.path.insert(0, os.path.join(ROOT, "scripts"))
+        import blocked_outcome as _bo
+        L.append("")
+        L.append(_bo.summarize(days=7))
+    except Exception as _exc:  # noqa: BLE001
+        L.append("")
+        L.append(f"## 被拦信号事后验证（Q3）\n- 读取失败: {_exc}")
+
     return f"# 交易日报数据 · {label}\n\n" + "\n".join(L)
 
 
