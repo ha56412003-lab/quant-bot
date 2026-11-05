@@ -142,35 +142,60 @@ def collect(start_ts: int, label: str) -> str:
         qdb.init()
         pos = qdb.open_positions()
 
-        def upnl(p):
+        # 余额：名义杠杆的分母，必须脚本算好给 AI，否则它会自己估（曾算出 6.5x，实际 0.72x）
+        _bal = 0.0
+        try:
+            _r = c.execute("SELECT balance FROM equity_curve ORDER BY ts DESC LIMIT 1").fetchone()
+            _bal = float(_r["balance"]) if _r and _r["balance"] else 0.0
+        except Exception:  # noqa: BLE001
+            pass
+
+        def _px(sym):
             try:
-                px = float(factors.mark_price_of(p["symbol"]) or 0)
-                e = float(p["entry_price"] or 0)
-                q = float(p["qty"] or 0)
-                if not px or not e:
-                    return 0.0
-                return (px - e) * q if p["side"] == "long" else (e - px) * q
+                return float(factors.mark_price_of(sym) or 0)
             except Exception:  # noqa: BLE001
                 return 0.0
+
+        def _dist(a, b):
+            """a 到 b 的百分比距离（分母 a）。"""
+            return abs(a - b) / a * 100 if a and b else 0.0
 
         L.append("")
         L.append(f"## 当前持仓（{len(pos)} 个）")
         if not pos:
             L.append("- 空仓")
         else:
-            L.append("| 币种 | 方向 | 开仓价 | 现价 | 名义 | 浮盈亏 | 持仓时长 | 止损距离 |")
-            L.append("|---|---|---|---|---|---|---|---|")
+            L.append("| 币种 | 方向 | 开仓价 | 现价 | 名义 | 浮盈亏 | 持仓时长 | "
+                     "**开仓止损距离** | 现止损距离 |")
+            L.append("|---|---|---|---|---|---|---|---|---|")
+            tot_notional = 0.0
+            tot_upnl = 0.0
             for p in sorted(pos, key=lambda x: x["opened_at"]):
-                px = float(factors.mark_price_of(p["symbol"]) or 0)
+                px = _px(p["symbol"])
                 e = float(p["entry_price"] or 0)
                 q = float(p["qty"] or 0)
                 stop = float(p["stop_price"] or 0)
-                dist = abs(px - stop) / px * 100 if px and stop else 0
-                L.append(f"| {p['symbol']} | {p['side']} | {_f(e,6)} | {_f(px,6)} | "
-                         f"{q*px:.0f}U | {_f(upnl(p),2,True)}U | "
-                         f"{_dur(p['opened_at'], dt.datetime.now().timestamp())} | {dist:.2f}% |")
-            tot_u = sum(upnl(p) for p in pos)
-            L.append(f"\n- 合计浮动 {tot_u:+.2f}U")
+                up = (px - e) * q if p["side"] == "long" else (e - px) * q
+                notional = q * px
+                tot_notional += notional
+                tot_upnl += up
+                # 开仓止损距离 = 开仓那一刻到止损的百分比。
+                # 必须单独给：AI 看到"现止损距离 1.31%"会误当成"开仓时就这么近"，
+                # 进而建议"止损距离<2%的不开"（POL 开仓时其实是 4.45%）。
+                L.append(
+                    f"| {p['symbol']} | {p['side']} | {_f(e,6)} | {_f(px,6)} | "
+                    f"{notional:.0f}U | {_f(up,2,True)}U | "
+                    f"{_dur(p['opened_at'], dt.datetime.now().timestamp())} | "
+                    f"{_dist(e, stop):.2f}% | {_dist(px, stop):.2f}% |"
+                )
+            L.append(f"\n- 合计浮动 **{tot_upnl:+.2f}U**")
+            if _bal:
+                L.append(f"- 合计名义 **{tot_notional:.0f}U**   余额 {_bal:.2f}U   "
+                         f"**名义杠杆 {tot_notional/_bal:.2f}x**")
+            n_long = sum(1 for p in pos if p["side"] == "long")
+            L.append(f"- 方向分布：多头 {n_long} / 空头 {len(pos)-n_long}")
+            L.append("- 注：**开仓止损距离**是入场那一刻的风险宽度；"
+                     "**现止损距离**是价格走动后的剩余空间。两者含义不同，不要混用。")
     except Exception as exc:  # noqa: BLE001
         L.append(f"\n## 当前持仓\n- 读取失败: {exc}")
 
