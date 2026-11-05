@@ -214,9 +214,15 @@ async def tick(equity: float, day_start_equity: float, close_all_cb, c: dict):
         return
 
     if cur == "alerted":
-        # 没有持仓了 → 视为已落袋
-        if close_all_pending(c):
-            pass
+        # 已无持仓 → 视为已落袋（手动平了 / 自动平完），立刻转 done
+        # 这一步必须做，否则 auto_close_sec=0（只提醒不自动平）时状态永远停在
+        # alerted，而 blocked() 认 alerted → 当天再也开不了仓。
+        if not has_open_positions():
+            _s("state", "done")
+            log.info("日目标：已无持仓，视为落袋完成（%.2f）", pnl)
+            if c["notify"]:
+                _push(f"【量化系统】日目标已落袋。\n今日盈亏 +${pnl:.2f}")
+            return
         if c["auto_close_sec"] and now - st["alert_ts"] >= c["auto_close_sec"]:
             log.warning("日目标提醒超时 %.0f 分钟，自动全平", (now - st["alert_ts"]) / 60)
             try:
@@ -229,8 +235,13 @@ async def tick(equity: float, day_start_equity: float, close_all_cb, c: dict):
         return
 
 
-def close_all_pending(c):
-    return False
+def has_open_positions() -> bool:
+    """当前（活跃模式）是否还有持仓。查不到时保守当作「还有」。"""
+    try:
+        return bool(db.open_positions())
+    except Exception as exc:  # noqa: BLE001
+        log.warning("持仓查询失败，按「仍有持仓」处理: %s", exc)
+        return True
 
 
 def mark_done(reason="手动"):

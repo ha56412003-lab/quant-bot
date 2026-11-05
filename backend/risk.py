@@ -26,12 +26,15 @@ def halted():
 
 def check_daily_halt(equity, cfg_global):
     pnl = daily_realized_pnl()
-    if equity > 0 and pnl < 0 and abs(pnl) / equity * 100 >= cfg_global["daily_loss_halt_pct"]:
-        tomorrow = _day_start() + 86400
-        db.set_meta("halt_until", tomorrow)
-        db.log("warn", f"日内熔断触发:已实现亏损 {pnl:.2f} ({abs(pnl)/equity*100:.1f}%),停止开仓至次日 UTC0")
+    if not (equity > 0 and pnl < 0 and abs(pnl) / equity * 100 >= cfg_global["daily_loss_halt_pct"]):
+        return False
+    # 已经熔断中就不要每 10 秒重写 meta、重打一条 warn（日志会被刷爆）
+    if halted():
         return True
-    return False
+    tomorrow = _day_start() + 86400
+    db.set_meta("halt_until", tomorrow)
+    db.log("warn", f"日内熔断触发:已实现亏损 {pnl:.2f} ({abs(pnl)/equity*100:.1f}%),停止开仓至次日 UTC0")
+    return True
 
 
 def event_quiet(cfg_global):

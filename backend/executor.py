@@ -45,7 +45,12 @@ def _adjust_paper_balance(delta):
 
 
 async def equity():
-    """(equity, balance, unrealized) in USDT for the active mode."""
+    """(equity, balance, unrealized) in USDT for the active mode.
+
+    live 模式下取不到账户数据时返回 (0, 0, 0) —— 绝不回退到纸面余额。
+    用纸面余额给实盘算仓位会导致超配（例如实盘只有 5000 却按 10000 下单）。
+    调用方必须检查 equity<=0 并停止开仓（见 engine.py）。
+    """
     if mode() == "live":
         try:
             venue = exchange()
@@ -57,7 +62,9 @@ async def equity():
             total, _avail = await exchanges.equity(venue)
             return total, total, 0.0
         except Exception as exc:  # noqa: BLE001
-            log.warning("live account fetch failed: %s", exc)
+            log.error("live account fetch failed, 本轮禁止开仓: %s", exc)
+            db.log("error", f"实盘账户读取失败，暂停开仓: {exc}")
+            return 0.0, 0.0, 0.0
     bal = paper_balance()
     upnl = 0.0
     for p in db.open_positions():
@@ -147,7 +154,7 @@ async def close_position(pos, price, reason, fraction=1.0):
         # 部分平仓：只减仓，剩余数量与追加保证金按比例保留，仓位保持 open
         # 注意：positions 表没有 margin 列（保证金是算出来的：qty*entry/leverage），只有 extra_margin
         remain = full_qty - qty
-        old_extra = float(pos.get("extra_margin") or 0)
+        old_extra = float(pos["extra_margin"] or 0)
         db.update_position(pos["id"], qty=remain, extra_margin=old_extra * (1 - frac))
         db.log_trade(pos["strategy"], pos["symbol"],
                      "sell" if side == "long" else "buy", qty, fill, fee,
@@ -169,12 +176,27 @@ async def close_position(pos, price, reason, fraction=1.0):
 
 
 async def close_all(reason="一键全平"):
-    """平掉所有持仓，返回 (成功数, 失败数)。"""
+    """平掉所有持仓，返回 (成功数, 失败数)。
+
+    拿不到价格的仓位：
+      - paper 模式 → 无法模拟成交，记为失败并写日志（不能假装平掉了）
+      - live  模式 → 下单不需要本地价格，用开仓价兜底（reduce_only 市价单真实成交）
+    """
     closed = failed = 0
     for pos in db.open_positions():
         price = factors.mark_price_of(pos["symbol"])
-        if price and await close_position(pos, price, reason):
+        if not price:
+            if mode() == "live":
+                price = float(pos["entry_price"])
+                db.log("warn", f"一键全平：{pos['symbol']} 无行情价，用开仓价记 PnL")
+            else:
+                db.log("error", f"一键全平跳过 {pos['symbol']}：无可用价格，无法模拟成交")
+                failed += 1
+                continue
+        if await close_position(pos, price, reason):
             closed += 1
         else:
             failed += 1
+    if failed:
+        db.log("error", f"一键全平完成：成功 {closed}，失败 {failed}")
     return closed, failed

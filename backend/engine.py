@@ -144,7 +144,9 @@ async def scan_loop():
                     log.debug("daily_target tick failed: %s", _exc)
                 last_book = time.time()
 
-            strategies = _strategies(cfg)
+            strategies = _strategies(cfg) if equity_cache > 0 else {}
+            if equity_cache <= 0:
+                db.set_meta("last_error", f"{int(time.time())}: 权益读取失败，暂停开仓")
             ctx = Ctx(config.UNIVERSE)
             for sid, scfg in cfg.get("strategies", {}).items():
                 if not scfg.get("enabled") or sid not in strategies:
