@@ -346,6 +346,9 @@ def collect(start_ts: int, label: str) -> str:
     L.append("## 优化路线追踪（观察期）")
     _OBS_START = int(dt.datetime(2026, 11, 5, 0, 0).timestamp())
     _pos: list = []
+    _ll: list = []
+    _ss: list = []
+    _g: dict = {}
     _t = int(dt.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
     _day_no = max(1, (dt.datetime.now().date() - dt.date(2026, 11, 5)).days + 1)
     L.append(f"- 观察期：2026-11-05 起，今天是**第 {_day_no} 天 / 共 7 天**")
@@ -399,6 +402,9 @@ def collect(start_ts: int, label: str) -> str:
 
     # Q6 同板块同向并存（相关性风险）
     try:
+        import yaml as _y2
+        with open(os.path.join(ROOT, "strategies.yaml"), encoding="utf-8") as _fh:
+            _g = (_y2.safe_load(_fh) or {}).get("global", {}) or {}
         _SECTOR = {
             "L1": {"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "AVAXUSDT", "NEARUSDT",
                    "ADAUSDT", "DOTUSDT", "ATOMUSDT", "TIAUSDT", "INJUSDT", "SUIUSDT",
@@ -409,6 +415,7 @@ def collect(start_ts: int, label: str) -> str:
                      "WIFUSDT", "BONKUSDT", "FLOKIUSDT", "TRUMPUSDT", "POPCATUSDT"},
             "L2": {"POLUSDT", "MATICUSDT", "STRKUSDT", "ZKUSDT", "MANTAUSDT", "BLASTUSDT"},
         }
+        _upnl_map = {s: u for s, u in (_ll + _ss)}
         _hits = []
         for _name, _coins in _SECTOR.items():
             _in = [p for p in _pos if p["symbol"] in _coins]
@@ -417,10 +424,15 @@ def collect(start_ts: int, label: str) -> str:
                 _by_side.setdefault(_p["side"], []).append(_p["symbol"])
             for _sd, _syms in _by_side.items():
                 if len(_syms) >= 2:
-                    _hits.append(f"{_name}/{_sd}: {'+'.join(_syms)}")
+                    # 板块合计浮盈亏由脚本算好 —— 曾让 AI 自己加，把 +17 算成 -49
+                    _grp = sum(_upnl_map.get(_s, 0.0) for _s in _syms)
+                    _n = len(_syms)
+                    _hits.append(f"{_name}/{_sd}: {'+'.join(_syms)} —— {_n} 笔合计 "
+                                 f"**{_grp:+.2f}U**（占 {_n} 个并发名额、{_n}×{_g.get('risk_per_trade_pct')}% 风险）")
         if _hits:
-            L.append(f"- **Q6 同板块同向并存**：{len(_hits)} 组 —— {', '.join(_hits)}"
-                     f"（相关性强，本质是一笔风险占多个名额）")
+            L.append(f"- **Q6 同板块同向并存**：{len(_hits)} 组")
+            for _h in _hits:
+                L.append(f"  - {_h}")
         else:
             L.append("- **Q6 同板块同向并存**：0 组")
     except Exception:  # noqa: BLE001
