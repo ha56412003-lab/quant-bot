@@ -5,6 +5,7 @@ position) -> reason|None for strategy-specific exits. All entries/holds respect
 the <=24h intraday constraint via max_hold_sec.
 """
 import logging
+import math
 import statistics
 import time
 from dataclasses import dataclass
@@ -600,25 +601,41 @@ class S15CeZlsma(Base):
                 # 信号强度：收盘价偏离 ZLSMA 的幅度（以 ATR 为单位），越大趋势越强
                 strength = abs(c - z) / atr if atr > 0 else 0.0
 
+                # 最后一道数值防线：K 线已在 binance.klines 里校验过，
+                # 但指标本身也可能因极端输入产出 inf/nan。任何一个
+                # 非有限值写进 positions 都会让止损判断恒为 False
+                # （NaN 比较永远 False）→ 仓位裸奔；NaN 写进 qty 会让
+                # paper_balance 变 NaN → 熔断失效。所以宁可丢信号。
+                if not (math.isfinite(px) and math.isfinite(atr) and math.isfinite(z)):
+                    continue
+
                 if dirs == 1 and key_long:
                     stop = px - atr * stop_mult
-                    if stop <= 0:
+                    if stop <= 0 or not math.isfinite(stop):
+                        continue
+                    tp = px + (px - stop) * rr
+                    if not math.isfinite(tp):
                         continue
                     out.append(Signal(
                         strategy=self.sid, symbol=sym, side="long",
                         reason=f"CE多头+阳线站上ZLSMA(RSI无关) ATR={atr:.4g}",
                         stop_price=round(stop, 8),
-                        take_profit=round(px + (px - stop) * rr, 8),
+                        take_profit=round(tp, 8),
                         max_hold_sec=self.max_hold,
                         fresh=fresh, strength=strength,
                     ))
                 elif dirs == -1 and key_short:
                     stop = px + atr * stop_mult
+                    if stop <= 0 or not math.isfinite(stop):
+                        continue
+                    tp = px - (stop - px) * rr
+                    if not math.isfinite(tp) or tp <= 0:
+                        continue
                     out.append(Signal(
                         strategy=self.sid, symbol=sym, side="short",
                         reason=f"CE空头+阴线跌破ZLSMA ATR={atr:.4g}",
                         stop_price=round(stop, 8),
-                        take_profit=round(max(px - (stop - px) * rr, 1e-8), 8),
+                        take_profit=round(tp, 8),
                         max_hold_sec=self.max_hold,
                         fresh=fresh, strength=strength,
                     ))

@@ -45,15 +45,56 @@ def _strategies(cfg):
     return out
 
 
+# ── 缺价告警（限频，避免刷屏）────────────────────────────────────
+# manage_positions 每 0.5 秒跑一次。缺价时旧代码直接 `continue`，
+# 既不记日志也不告警：喂价一断，该仓位的止损/止盈/移动止损/持仓时限
+# 全部不再执行，敞口无人看守，而系统看上去一切正常。
+# 这里按 symbol 限频告警，并把"连续缺价超时"写进 meta 让前端能看见。
+_PRICE_MISS = {}              # symbol -> [last_warn_ts, first_miss_ts, alerted]
+_PRICE_MISS_WARN_GAP = 60     # 同一币两次告警的最小间隔（秒）
+_PRICE_MISS_ALERT_SEC = 60    # 连续缺价超过这个时长升级为 error
+
+
+def _note_price_miss(symbol, now):
+    st = _PRICE_MISS.get(symbol)
+    if st is None:
+        _PRICE_MISS[symbol] = [now, now, False]
+        db.log("warn", f"缺价：{symbol} 拿不到价格，该仓位的止损/止盈本轮未判断")
+        return
+    if now - st[0] >= _PRICE_MISS_WARN_GAP:
+        st[0] = now
+        db.log("warn", f"缺价持续 {int(now - st[1])} 秒：{symbol} 止损/止盈未生效")
+    if not st[2] and now - st[1] >= _PRICE_MISS_ALERT_SEC:
+        st[2] = True
+        db.set_meta("last_price_miss",
+                    f"{symbol} 缺价 {int(now - st[1])} 秒 @ {int(now)}")
+        db.log("error", f"缺价超时 {int(now - st[1])} 秒：{symbol} 无法判断出场")
+
+
+def _clear_price_miss(symbol):
+    if _PRICE_MISS.pop(symbol, None) is not None:
+        db.log("info", f"行情恢复：{symbol}")
+
+
 async def manage_positions(ctx, strategies):
     for pos in db.open_positions():
         price = factors.mark_price_of(pos["symbol"])
         if not price:
+            # 缺价不代表没有风险：仓位还在，只是这一轮没法判断出场。
+            # 必须留下痕迹（限频），否则喂价断掉后系统会安静地裸奔。
+            _note_price_miss(pos["symbol"], time.time())
+            continue
+        _clear_price_miss(pos["symbol"])
+        entry = pos["entry_price"]
+        if not entry or entry <= 0:
+            # 脏数据（历史导入/手工补单）会让下面的除法抛 ZeroDivisionError，
+            # 而外层只有一个整体 try → 所有仓位当轮全部不做风控。
+            db.log("error", f"持仓 {pos['id']} {pos['symbol']} entry_price 非法({entry})，跳过")
             continue
         side, now = pos["side"], time.time()
         # MFE/MAE excursion tracking (monotonic -> sparse writes) for the journal
         sign = 1 if side == "long" else -1
-        exc_pct = (price - pos["entry_price"]) / pos["entry_price"] * 100 * sign
+        exc_pct = (price - entry) / entry * 100 * sign
         if exc_pct > (pos.get("mfe_pct") or 0):
             db.update_position(pos["id"], mfe_pct=exc_pct)
             pos["mfe_pct"] = exc_pct

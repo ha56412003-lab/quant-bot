@@ -67,11 +67,22 @@ async def equity():
             return 0.0, 0.0, 0.0
     bal = paper_balance()
     upnl = 0.0
+    missing = []
+    total = 0
     for p in db.open_positions():
+        total += 1
         price = factors.mark_price_of(p["symbol"])
         if price:
             sign = 1 if p["side"] == "long" else -1
             upnl += (price - p["entry_price"]) * p["qty"] * sign
+        else:
+            # 缺价时按开仓价估值（浮盈亏记 0）—— 这是保守做法，但净值会
+            # 因此虚高或虚低，而日目标会拿这个净值判断"是否达标全平"。
+            # 必须让调用方和用户知道这一轮净值不可信。
+            missing.append(p["symbol"])
+    if missing:
+        db.set_meta("equity_missing_price",
+                    f"{len(missing)}/{total} 仓缺价: {','.join(missing[:6])}")
     return bal + upnl, bal, upnl
 
 

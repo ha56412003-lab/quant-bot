@@ -55,6 +55,16 @@ DEFAULT_UNIVERSE = [s.strip() for s in os.environ.get(
 UNIVERSE = list(DEFAULT_UNIVERSE)   # reassigned from strategies.yaml on load
 
 PAPER_START_BALANCE = float(os.environ.get("QB_PAPER_BALANCE", "10000"))
+
+# ── API 访问控制 ─────────────────────────────────────────────────
+# Host 白名单：挡 DNS rebinding —— 攻击者把自己的域名解析到 127.0.0.1，
+# 浏览器认为同源（Sec-Fetch-Site: same-origin），但 Host 头是攻击者域名。
+# 上云服务器时必须把公网域名/IP 加进 QB_API_ALLOWED_HOSTS，否则全部 403。
+API_ALLOWED_HOSTS = [h.strip().lower() for h in os.environ.get(
+    "QB_API_ALLOWED_HOSTS", "127.0.0.1,localhost,::1").split(",") if h.strip()]
+
+# 写操作 token：留空则不校验（本机用）。暴露公网时必须设置。
+API_TOKEN = os.environ.get("QB_API_TOKEN", "").strip()
 PAPER_FEE_RATE = 0.0005      # taker
 PAPER_SLIPPAGE = 0.0003
 

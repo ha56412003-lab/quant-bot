@@ -10,8 +10,8 @@ if hasattr(signal, "SIGUSR1"):           # SIGUSR1 is Unix-only — Windows has 
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Body, FastAPI, HTTPException
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import binance, config, daily_target, db, engine, executor, factors, pool, quality, risk, shadow, ws
@@ -40,6 +40,65 @@ async def _prune_loop():
             log.warning("数据清理失败: %s", exc)
 
 
+def _mk_supervisor(state):
+    """看门狗：循环异常退出或心跳停滞时自动重启。
+
+    背景：scan_loop / position_loop / ws_loop 都是 `while True` + 内部
+    try/except，单次异常能兜住，但有两种情况会让它们静默死亡或卡死：
+      ① 抛出的异常不是 Exception 子类（如 asyncio.CancelledError 之外
+         的 BaseException、MemoryError 等），任务直接结束；
+      ② 卡在一个 await 上（DB 锁、网络挂起、同步推送阻塞事件循环）。
+    两种情况进程都还活着、HTTP 还响应，用户以为系统在盯盘，实际
+    止损/止盈已经停摆。这个看门狗每 30 秒检查一次任务状态和心跳
+    meta，发现问题就 cancel + 重建任务。
+    """
+    async def _watch():
+        await asyncio.sleep(60)          # 启动缓冲：ws/池子预热期间不判死
+        while True:
+            try:
+                now = time.time()
+                for name, s in state.items():
+                    task = s["task"]
+                    if task.done():
+                        exc = None
+                        if not task.cancelled():
+                            try:
+                                exc = task.exception()
+                            except Exception:  # noqa: BLE001
+                                exc = "unknown"
+                        log.error("看门狗：%s 循环已退出(%s)，重启", name, exc)
+                        db.log("error", f"看门狗：{name} 循环已退出，自动重启")
+                        s["task"] = asyncio.create_task(s["fn"]())
+                        continue
+                    key = s.get("meta")
+                    if not key:
+                        continue
+                    raw = db.get_meta(key)
+                    if not raw:
+                        continue
+                    try:
+                        v = int(float(raw))
+                    except (TypeError, ValueError):
+                        continue
+                    ts = v / 1000.0 if key.endswith("_ms") else float(v)
+                    age = now - ts
+                    if age > s["stale_sec"]:
+                        log.error("看门狗：%s 心跳停滞 %.0f 秒，重启", name, age)
+                        db.log("error",
+                               f"看门狗：{name} 心跳停滞 {int(age)} 秒，已重启")
+                        db.set_meta("watchdog_last_restart",
+                                    f"{name} @ {int(now)} (停滞 {int(age)}s)")
+                        try:
+                            task.cancel()
+                        except Exception:  # noqa: BLE001
+                            pass
+                        s["task"] = asyncio.create_task(s["fn"]())
+            except Exception as exc:  # noqa: BLE001
+                log.warning("看门狗自身异常: %s", exc)
+            await asyncio.sleep(30)
+    return _watch()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init()
@@ -57,20 +116,92 @@ async def lifespan(app: FastAPI):
     # 让 config.UNIVERSE 立刻反映候选池（load_strategies 里也有同样逻辑）
     config.load_strategies()
     _wl = lambda: (config.pools().get("candidate", {}) or {}).get("whitelist") or []
-    tasks = [asyncio.create_task(ws.ws_loop()),
-             asyncio.create_task(engine.scan_loop()),
-             asyncio.create_task(engine.position_loop()),
-             asyncio.create_task(pool.loop(_wl)),
+    # 受监督的核心循环（看门狗按心跳判定是否卡死）
+    supervised = {
+        "ws":       {"fn": ws.ws_loop,       "task": None,
+                     "meta": None,             "stale_sec": 120},
+        "scan":     {"fn": engine.scan_loop, "task": None,
+                     "meta": "last_tick_ts",   "stale_sec": 120},
+        "position": {"fn": engine.position_loop, "task": None,
+                     "meta": "last_manage_ts_ms", "stale_sec": 30},
+    }
+    for s in supervised.values():
+        s["task"] = asyncio.create_task(s["fn"]())
+    # 不受心跳监督的辅助循环
+    tasks = [asyncio.create_task(pool.loop(_wl)),
              asyncio.create_task(_prune_loop()),
              asyncio.create_task(quality.loop(
                  lambda: config.UNIVERSE,
-                 lambda: config.pools().get("monitor", {})))]
-    yield
-    for t in tasks:
-        t.cancel()
+                 lambda: config.pools().get("monitor", {}))),
+             _mk_supervisor(supervised)]
+    try:
+        yield
+    finally:
+        for s in supervised.values():
+            s["task"].cancel()
+        for t in tasks:
+            t.cancel()
+        await binance.aclose()      # 关掉复用的 HTTP 连接池
 
 
 app = FastAPI(title="quant-bot", lifespan=lifespan)
+
+
+# ── API 访问控制中间件 ───────────────────────────────────────────
+# 修之前：全部 696 行路由零鉴权、零 Origin 校验、零限流。
+# 虽然服务只绑 127.0.0.1，但 `POST /api/positions/close-all`、
+# `POST /api/daily-target/reset` 这类无 body 的简单请求，任意网页用
+# `fetch(url, {mode:'no-cors'})` 就能打出去 —— 打开一个恶意页面就能
+# 一键清光持仓。加上 DNS rebinding（攻击者域名解析到 127.0.0.1，
+# 浏览器判定同源）还能绕过 localhost 隔离。
+#
+# 三层防护，全部不需要前端改动：
+#  ① Host 白名单 —— 挡 DNS rebinding
+#  ② Sec-Fetch-Site / Origin —— 挡 CSRF（现代浏览器强制发送）
+#  ③ 可选 token —— 上云后暴露公网时启用
+_WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+@app.middleware("http")
+async def _api_guard(request: Request, call_next):
+    allowed = config.API_ALLOWED_HOSTS
+
+    # ① Host 白名单
+    raw_host = (request.headers.get("host") or "").strip().lower()
+    host = raw_host.rsplit(":", 1)[0] if ":" in raw_host and not raw_host.startswith("[") else raw_host
+    if allowed and host and host not in allowed:
+        log.warning("拒绝访问：Host=%s 不在白名单", host)
+        return JSONResponse({"detail": f"host not allowed: {host}"}, status_code=403)
+
+    # ② 写操作的跨站防护
+    if request.method in _WRITE_METHODS:
+        site = (request.headers.get("sec-fetch-site") or "").lower()
+        origin = (request.headers.get("origin") or "").strip()
+        if site == "cross-site":
+            log.warning("拒绝跨站写请求: %s %s", request.method, request.url.path)
+            return JSONResponse({"detail": "cross-site write rejected"}, status_code=403)
+        if origin and site != "same-origin":
+            ohost = ""
+            try:
+                from urllib.parse import urlparse
+                ohost = (urlparse(origin).hostname or "").lower()
+            except Exception:  # noqa: BLE001
+                ohost = ""
+            if allowed and ohost and ohost not in allowed:
+                log.warning("拒绝跨站写请求: origin=%s", origin)
+                return JSONResponse({"detail": "cross-site origin rejected"}, status_code=403)
+
+        # ③ token（配置了才校验）
+        if config.API_TOKEN:
+            tok = (request.headers.get("x-api-token") or "").strip()
+            if not tok:
+                auth = (request.headers.get("authorization") or "").strip()
+                if auth.lower().startswith("bearer "):
+                    tok = auth[7:].strip()
+            if tok != config.API_TOKEN:
+                return JSONResponse({"detail": "invalid api token"}, status_code=401)
+
+    return await call_next(request)
 
 
 @app.get("/api/status")

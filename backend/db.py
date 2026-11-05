@@ -12,8 +12,28 @@ _conn = None
 
 def init():
     global _conn
-    _conn = sqlite3.connect(config.DB_PATH, check_same_thread=False)
+    # 重复调用（uvicorn --reload / 测试）时先关旧连接，否则连接泄漏
+    if _conn is not None:
+        try:
+            _conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+    _conn = sqlite3.connect(config.DB_PATH, check_same_thread=False, timeout=10.0)
     _conn.row_factory = sqlite3.Row
+    # WAL：读写不互相阻塞（rollback journal 下写事务会卡住所有读，
+    # 而持仓循环每 0.5s 读、API 5s 读、因子采集写，必然抢锁）
+    # busy_timeout：另一进程（scripts/*.py）持锁时等待而不是立刻抛 database is locked
+    for pragma in (
+        "PRAGMA journal_mode=WAL",
+        "PRAGMA busy_timeout=8000",
+        "PRAGMA synchronous=NORMAL",
+        "PRAGMA wal_autocheckpoint=1000",
+    ):
+        try:
+            _conn.execute(pragma)
+        except sqlite3.Error as exc:  # noqa: BLE001
+            log_msg = f"PRAGMA 设置失败 {pragma}: {exc}"
+            print(f"[db] {log_msg}")
     with _lock, _conn:
         _conn.executescript("""
         CREATE TABLE IF NOT EXISTS factor_values (
@@ -93,6 +113,28 @@ def init():
                     SELECT ts, equity, balance, unrealized, mode FROM equity_curve_old;
                 DROP TABLE equity_curve_old;
             """)
+
+        # 索引：这些表被高频全表扫描（position_loop 每 0.5s、API 5s、
+        # prune 的 WHERE ts<? 也吃不上 idx_fh 的复合前缀），补上后
+        # 库再长大也不会把 0.5s 循环拖垮。放在 migration 之后建，
+        # 因为 positions/equity_curve 的 mode 列可能刚补上。
+        for idx_ddl in (
+            "CREATE INDEX IF NOT EXISTS idx_pos_status ON positions(status, mode)",
+            "CREATE INDEX IF NOT EXISTS idx_pos_key ON positions(strategy, symbol, status)",
+            "CREATE INDEX IF NOT EXISTS idx_sig_ts ON signals(ts)",
+            "CREATE INDEX IF NOT EXISTS idx_sig_key ON signals(strategy, symbol, ts)",
+            "CREATE INDEX IF NOT EXISTS idx_sig_acted ON signals(acted, ts)",
+            "CREATE INDEX IF NOT EXISTS idx_trades_mode ON trades(mode, id)",
+            "CREATE INDEX IF NOT EXISTS idx_trades_pos ON trades(position_id)",
+            "CREATE INDEX IF NOT EXISTS idx_trades_ts ON trades(ts)",
+            "CREATE INDEX IF NOT EXISTS idx_logs_ts ON logs(ts)",
+            "CREATE INDEX IF NOT EXISTS idx_fh_ts ON factor_history(ts)",
+            "CREATE INDEX IF NOT EXISTS idx_eq_mode ON equity_curve(mode, ts)",
+        ):
+            try:
+                _conn.execute(idx_ddl)
+            except sqlite3.OperationalError as exc:  # noqa: BLE001
+                print(f"[db] 建索引失败 {idx_ddl}: {exc}")
 
 
     # 影子模式（因子打分，不干预实盘）
