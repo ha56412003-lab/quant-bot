@@ -204,7 +204,8 @@ def simulate(sym, ks, ind, swing_lookback=20, min_atr_pct=2.5, min_adx=25.0,
              half_at_rr=False, adx_mode="level", adx_lookback=1,
              adx_min_level=0.0, bbw_min=0.0, bbw_pct_min=0.0,
              er_min=0.0, er_len=20,
-             time_stop_bars=0, ma_confirm_bars=1, breakeven_r=0.0):
+             time_stop_bars=0, ma_confirm_bars=1, breakeven_r=0.0,
+             stop_atr_mult=0.0):
     """浩哥定稿规则。返回 (trades, missed)。"""
     ho, hh, hl, hc = ind["ho"], ind["hh"], ind["hl"], ind["hc"]
     zl, dirs, atr, adx = ind["zlsma"], ind["dir"], ind["atr"], ind["adx"]
@@ -309,6 +310,21 @@ def simulate(sym, ks, ind, swing_lookback=20, min_atr_pct=2.5, min_adx=25.0,
         else:
             stop = swing_high * 1.001
             risk = stop - entry
+        # stop_atr_mult > 0 时：止损至少放到 N×ATR 之外（取更远的那个）
+        # 目的：15m 的「20 根阶段低点」中位只有 1.6%，一根插针就扫掉。
+        # 用 ATR 兜底把止损推远，代价是仓位自动缩小（风险金额不变）。
+        if stop_atr_mult > 0:
+            _a = atr[i]
+            if _a and _a > 0:
+                if want == "long":
+                    _atr_stop = entry - _a * stop_atr_mult
+                    if _atr_stop < stop:
+                        stop = _atr_stop
+                else:
+                    _atr_stop = entry + _a * stop_atr_mult
+                    if _atr_stop > stop:
+                        stop = _atr_stop
+                risk = abs(entry - stop)
         if risk <= 0 or risk / entry * 100 > max_risk_pct:
             i += 1
             continue

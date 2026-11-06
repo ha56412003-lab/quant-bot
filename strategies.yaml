@@ -30,12 +30,13 @@ global:
   - FILUSDT
   - ATOMUSDT
   - UNIUSDT
-  max_position_pct_per_coin: 10.0
+  max_position_pct_per_coin: 32.0   # 10→32：单笔 1.5% 在止损 1.6% 时需要 9380U 名义，
+                                     # 10%×3x 只有 3002U，不改这里风险比例白提
   max_gross_leverage: 3
-  daily_loss_halt_pct: 3.0
-  risk_per_trade_pct: 0.5
-  max_concurrent_coins: 8
-  max_same_side: 6
+  daily_loss_halt_pct: 7.0          # 3→7：单笔 1.5% 时连亏 5 笔才停（原 3% 是连亏 2 笔）
+  risk_per_trade_pct: 1.5           # 0.5→1.5：1R = 净值×1.5% ≈ 150U（原 50U）
+  max_concurrent_coins: 3           # 8→3：单币要吃 9380U 名义，3 个 = 2.81x，刚好在 3x 总杠杆内
+  max_same_side: 3                  # 6→3：跟并发上限对齐（3 个币已很小，不再额外限方向）
   event_quiet_minutes: 30
   fear_greed_extreme:
     greed: 85
@@ -43,7 +44,7 @@ global:
     size_mult: 0.6
   daily_target:
     enabled: true
-    target_usd: 200
+    target_usd: 800                 # 200→800：1.5% 时 200U 只要 1.33R，30%+ 的日子中午就收工
     sustain_sec: 30
     auto_close_sec: 5
     pause_new: true
