@@ -167,8 +167,18 @@ async def _api_guard(request: Request, call_next):
     allowed = config.API_ALLOWED_HOSTS
 
     # ① Host 白名单
+    # IPv6 三种写法都要能正确取出主机名：
+    #   [::1]:8899  → ::1      （带方括号+端口）
+    #   [::1]       → ::1
+    #   ::1         → ::1      （裸 IPv6，冒号多于一个）
+    # 原实现用 rsplit(":",1) 会把 ::1 切成 ":"，导致本机 IPv6 访问整站 403。
     raw_host = (request.headers.get("host") or "").strip().lower()
-    host = raw_host.rsplit(":", 1)[0] if ":" in raw_host and not raw_host.startswith("[") else raw_host
+    if raw_host.startswith("["):
+        host = raw_host[1:].split("]", 1)[0]
+    elif raw_host.count(":") > 1:
+        host = raw_host
+    else:
+        host = raw_host.rsplit(":", 1)[0] if ":" in raw_host else raw_host
     if allowed and host and host not in allowed:
         log.warning("拒绝访问：Host=%s 不在白名单", host)
         return JSONResponse({"detail": f"host not allowed: {host}"}, status_code=403)
@@ -220,6 +230,10 @@ async def api_status():
         # 2026-11-06 自检修复：前端把 universe（候选池 200）当"监控标的"显示，
         # 实际监控池是 quality 维护的 ≤23 名单。这里单独给一个字段。
         "monitor_n": len(quality.monitor_list() or []),
+        # 扫描节拍从配置读，别让前端写死 —— 2026-11-06 就是写死 15m
+        # 而配置实际是 2m，ui 和真实行为对不上。
+        "scan_sec": engine._interval_sec(
+            (cfg.get("strategies", {}).get("S15_CE_ZLSMA", {}) or {}).get("scan_interval", "15m")),
         "last_tick_ts": int(db.get_meta("last_tick_ts", "0") or 0),
         "last_manage_ms": int(db.get_meta("last_manage_ts_ms", "0") or 0),
         "ws_symbols": len(ws.PRICES),
@@ -871,7 +885,17 @@ if DIST.exists():
 
     @app.get("/{path:path}", include_in_schema=False)
     async def spa(path: str):
-        target = DIST / path
-        if path and target.is_file():
-            return FileResponse(target)
+        # 安全：path 来自 URL 且已被 Starlette 解码，直接 DIST/path 拼接能被
+        # `..%2F..%2F.env` 穿越出 dist 目录，读走任意文件（实测可读到 .env 里的
+        # 交易所私钥）。这里先规范化再做前缀校验，不在 dist 内的路径一律 404。
+        if path:
+            base = DIST.resolve()
+            try:
+                target = (base / path).resolve()
+                target.relative_to(base)      # 越界会抛 ValueError
+            except (ValueError, OSError, RuntimeError):
+                log.warning("拒绝越界静态路径: %s", path)
+                return JSONResponse({"detail": "not found"}, status_code=404)
+            if target.is_file():
+                return FileResponse(target)
         return FileResponse(DIST / "index.html")
