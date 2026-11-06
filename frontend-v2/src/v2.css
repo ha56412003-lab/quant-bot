@@ -1739,6 +1739,77 @@ html, body, #root {
   letter-spacing: 0 !important;
 }
 
+/* ═══ 信息流面板：整条高度链撑满 ═══
+   2026-11-06 浩哥反馈「信息流那个模块底下是空的」。
+   实测 .pnl 容器 593px，而里面 .ant-card 只有 213px —— 差 370px 全空着。
+   原因是这条链上每一层都是内容高度（auto），没有一层 flex 撑开：
+     .pnl > .ant-card > .ant-card-body > .ant-tabs > .ant-tabs-content-holder
+       > .ant-tabs-content > .ant-tabs-tabpane > Table
+   逐层加上 flex:1 + min-height:0 让它们吃满父容器，
+   表格再用 scroll.y 吃掉剩下的空间（JS 里按实测高度算）。
+   用 :has(.ant-tabs) 定位 —— .pnl 在页面里有 4 个，只有信息流这个含 tabs。 */
+.spider-root .bot > .pnl:has(.ant-tabs) .ant-card {
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+.spider-root .bot > .pnl:has(.ant-tabs) .ant-card-body {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+.spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs {
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+.spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-nav {
+  flex: 0 0 auto !important;
+  margin-bottom: 8px !important;
+}
+.spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-content-holder {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+.spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-content,
+.spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tabpane {
+  height: 100% !important;
+  min-height: 0 !important;
+}
+.spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tabpane-active {
+  display: flex !important;
+  flex-direction: column !important;
+}
+.spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tabpane-active > .ant-table-wrapper,
+.spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tabpane-active > div {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+/* 表格滚动区永远占满可用高度（--act-scroll-y 由 JS 实测下发）。
+   antd 的 scroll.y 只是 max-height：数据少时表格缩到内容高度，
+   面板底下就空一大片。补 min-height 后，数据少时表格拉满，
+   数据多时超出部分照常出滚动条。 */
+.spider-root .bot > .pnl:has(.ant-tabs) .ant-table-body {
+  min-height: var(--act-scroll-y, 300px) !important;
+}
+/* 单元格一律不换行：一旦某行文字折行就会比其他行高一截，
+   高度按行数取整时就会露出半截行（实测 PARTIUSDT 换行导致过）。
+   超出部分用省略号，完整内容靠列上的 ellipsis/Tooltip。
+   height 用 --act-row-h（JS 按可用高度平摊下发）：
+   行数 × 行高正好等于可用高度，不留半截行也不留空白。 */
+.spider-root .bot > .pnl:has(.ant-tabs) .ant-table-tbody > tr > td {
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  height: var(--act-row-h, auto) !important;
+  box-sizing: border-box !important;
+}
+
 /* ══════════ antd 弹窗深色主题（默认白底在暗界面上太戳眼）══════════ */
 .ant-modal-mask { background: rgba(0, 0, 0, .86) !important; }
 

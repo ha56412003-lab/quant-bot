@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { Card, Table, Tabs, Tag, Typography } from 'antd'
 import { fmtPnl } from '../api'
 import { useI18n } from '../i18n'
@@ -44,6 +45,58 @@ const fmtCd = (mins) => {
 
 export default function ActivityTabs({ signals, trades, logs, gates, events }) {
   const { t, lang } = useI18n()
+
+  // 表格高度按实际可用空间算（2026-11-06 浩哥：列表优先适配高度，不够再用滑块）。
+  // 以前 5 个表都写死 scroll.y=330，容器 495px 也只用 330 —— 底下留一大片空白。
+  // 现在量 .ant-tabs-content-holder 的实测高度，减掉状态行和表头，剩下的全给表格。
+  // 数据多时超出这段高度才会出现滚动条，数据少时表格就短 —— 但面板本身始终是满高的。
+  const wrapRef = useRef(null)
+  const calcRef = useRef(() => {})
+  const [scrollY, setScrollY] = useState(330)
+
+  useEffect(() => {
+    const host = wrapRef.current
+    if (!host) return
+    const calc = () => {
+      const holder = host.querySelector('.ant-tabs-content-holder')
+      const pane = host.querySelector('.ant-tabs-tabpane-active')
+      const avail = (holder || pane)?.clientHeight || 0
+      if (avail < 120) return                       // 还没布局好，等下一次
+      const statusEl = pane?.querySelector('[data-act-status]')
+      const statusH = statusEl ? statusEl.offsetHeight + 6 : 0
+      const theadH = 34                             // size="small" 表头
+      // 按整行取整：高度不是行高的整数倍时，最底下一行会露出半截
+      // （实测信号流就有一行被切掉一半）。量第一行实际高度，能放几行就给几行。
+      const rowEl = pane?.querySelector('.ant-table-tbody tr.ant-table-row')
+      const rowH = rowEl ? Math.max(28, Math.round(rowEl.getBoundingClientRect().height)) : 39
+      const usable = avail - statusH - theadH
+      const nRows = Math.max(3, Math.floor(usable / rowH))
+      // 行高平摊：整行取整会剩 37–46px 空白（不够一行），
+      // 把余量摊到每行，N 行正好等于可用高度 —— 既没有半截行，也不留空白。
+      const finalRowH = Math.floor(usable / nRows)
+      const next = nRows * finalRowH
+      // 差 4px 以内不更新：否则 ResizeObserver → setState → 重排 → 再触发，来回抖
+      setScrollY((prev) => (Math.abs(prev - next) < 4 ? prev : next))
+      // antd 的 scroll.y 是 max-height —— 数据少时表格只有内容那么高，
+      // 面板下方就留一大片空白（经济事件只有 3 条时实测空了 391px）。
+      // 通过 CSS 变量下发 min-height（直接改 el.style 会被 React 重渲染冲掉）：
+      // 数据少 → 表格拉满（空白留在表格内），数据多 → 超出部分出滚动条。
+      host.style.setProperty('--act-scroll-y', `${next}px`)
+      host.style.setProperty('--act-row-h', `${finalRowH}px`)
+    }
+    calcRef.current = calc
+    calc()
+    const ro = new ResizeObserver(calc)
+    ro.observe(host)
+    // 字体/窗口变化时也重算一次
+    window.addEventListener('resize', calc)
+    return () => { ro.disconnect(); window.removeEventListener('resize', calc) }
+  }, [])
+
+  // 切换标签后各 tab 的状态行高度不同（经济事件/三道光闸有状态行），要重算
+  const onTabChange = () => setTimeout(() => calcRef.current(), 80)
+
+
   const ts = (v) => new Date(v * 1000).toLocaleString(lang === 'en' ? 'en-US' : 'zh-CN', {
     month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
@@ -166,7 +219,7 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
     { key: 'events', label: evLabel,
       children: (
         <div>
-          <div style={{ fontSize: 12, marginBottom: 6 }}>
+          <div data-act-status style={{ fontSize: 12, marginBottom: 6 }}>
             {quietNow
               ? <span style={{ color: '#d4595e', fontWeight: 600 }}>
                   ⏸ {t('ev.quietTitle')}：{evName(quietNow)} —— 暂停开新仓，已有持仓照常管理（止损/平半/时间止损不受影响）
@@ -180,7 +233,7 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
           </div>
           {evRows.length
             ? <Table rowKey="ts" dataSource={evRows} columns={evCols} size="small"
-                     pagination={false} scroll={{ y: 330 }} />
+                     pagination={false} scroll={{ y: scrollY }} />
             : <div style={{ color: '#8c8c8c', fontSize: 12, padding: '20px 0', textAlign: 'center' }}>
                 {t('ev.none')}
               </div>}
@@ -190,28 +243,28 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
       label: `${t('act.gates')} ${gateRows.length ? `(${g.passed || 0}/${gateRows.length})` : ''}`,
       children: (
         <div>
-          <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 6 }}>
+          <div data-act-status style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 6 }}>
             {t('gate.bar')} {gateBar} · {t('gate.summary')({
               ce: g.ce_n || 0, ha: g.ha_n || 0, bbw: g.bbw_n || 0, n: gateRows.length,
             })}
           </div>
           <Table rowKey="symbol" dataSource={gateRows} columns={gateCols} size="small"
-                 pagination={false} scroll={{ y: 330 }} />
+                 pagination={false} scroll={{ y: scrollY }} />
         </div>
       ) },
     { key: 'signals', label: `${t('act.signals')} (${signals.length})`,
       children: <Table rowKey="id" dataSource={signals} columns={signalCols} size="small"
-                       pagination={false} scroll={{ y: 330 }} /> },
+                       pagination={false} scroll={{ y: scrollY }} /> },
     { key: 'trades', label: `${t('act.trades')} (${trades.length})`,
       children: <Table rowKey="id" dataSource={trades} columns={tradeCols} size="small"
-                       pagination={false} scroll={{ y: 330 }} /> },
+                       pagination={false} scroll={{ y: scrollY }} /> },
     { key: 'logs', label: t('act.logs'),
       children: <Table rowKey="id" dataSource={logs} columns={logCols} size="small"
-                       pagination={false} scroll={{ y: 330 }} /> },
+                       pagination={false} scroll={{ y: scrollY }} /> },
   ]
   return (
-    <Card size="small">
-      <Tabs items={items} size="small" />
+    <Card size="small" ref={wrapRef}>
+      <Tabs items={items} size="small" onChange={onTabChange} />
     </Card>
   )
 }

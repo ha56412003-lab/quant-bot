@@ -518,7 +518,7 @@ export default function Dashboard({ status }) {
           </div>
         </article>
         <article className="pnl">
-          <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+          <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
             <ActivityTabs
               signals={signals?.signals || []}
               trades={trades?.trades || []}
