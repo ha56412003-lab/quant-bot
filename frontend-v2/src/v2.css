@@ -909,24 +909,27 @@ html, body, #root {
 }
 
 /* ② 羽化回撤区：当前价 → 峰顶。
-   要「看得清」，不是淡淡的雾：
-   主体是不透明度够高的半透明白 → 两端用 mask 渐隐（羽化过渡）
-   → 内部一道白光 2.6s 从当前价扫向峰顶（动效）。 */
+   要「一眼看得清」，所以主体白度拉高到 .72，再加一层淡斜纹给质感
+   （斜纹是连续的线，不是虚点），两端用 mask 渐隐做出羽化过渡。 */
 .spider-root .cards .card .bar.prog .dd-zone {
   position: absolute;
   top: 0; bottom: 0;
   z-index: 4;
   pointer-events: none;
   overflow: hidden;
-  background: linear-gradient(90deg,
-    rgba(255, 255, 255, .16) 0%,
-    rgba(255, 255, 255, .62) 35%,
-    rgba(255, 255, 255, .40) 100%);
+  background:
+    repeating-linear-gradient(45deg,
+      rgba(255, 255, 255, .12) 0px, rgba(255, 255, 255, .12) 2px,
+      transparent 2px, transparent 7px),
+    linear-gradient(90deg,
+      rgba(255, 255, 255, .30) 0%,
+      rgba(255, 255, 255, .72) 45%,
+      rgba(255, 255, 255, .55) 100%);
   /* 左右两端淡出 = 羽化过渡，不是硬边 */
   -webkit-mask-image: linear-gradient(90deg,
-    transparent 0%, #000 16%, #000 84%, transparent 100%);
+    transparent 0%, #000 14%, #000 86%, transparent 100%);
   mask-image: linear-gradient(90deg,
-    transparent 0%, #000 16%, #000 84%, transparent 100%);
+    transparent 0%, #000 14%, #000 86%, transparent 100%);
   transition: left .55s cubic-bezier(.4, 0, .2, 1),
               width .55s cubic-bezier(.4, 0, .2, 1);
 }
@@ -937,23 +940,27 @@ html, body, #root {
   inset: 0;
   background: linear-gradient(90deg,
     transparent 0%,
-    rgba(255, 255, 255, .85) 50%,
+    rgba(255, 255, 255, .95) 50%,
     transparent 100%);
   background-size: 50% 100%;
   background-repeat: no-repeat;
   animation: featherSweep 2.6s ease-in-out infinite;
 }
 @keyframes featherSweep {
-  0%   { background-position: -55% 0; opacity: .25; }
+  0%   { background-position: -55% 0; opacity: .3; }
   40%  { opacity: 1; }
-  100% { background-position: 155% 0; opacity: .25; }
+  100% { background-position: 155% 0; opacity: .3; }
 }
 /* 亏损态羽化区降一档：绿底上白光容易糊成一片 */
 .spider-root .cards .card .bar.prog.loss .dd-zone {
-  background: linear-gradient(90deg,
-    rgba(255, 255, 255, .10) 0%,
-    rgba(255, 255, 255, .45) 35%,
-    rgba(255, 255, 255, .28) 100%);
+  background:
+    repeating-linear-gradient(45deg,
+      rgba(255, 255, 255, .08) 0px, rgba(255, 255, 255, .08) 2px,
+      transparent 2px, transparent 7px),
+    linear-gradient(90deg,
+      rgba(255, 255, 255, .18) 0%,
+      rgba(255, 255, 255, .52) 45%,
+      rgba(255, 255, 255, .38) 100%);
 }
 
 /* ③ 出局标记：红色倒三角（闪烁）+ 后面两个小圆点
@@ -993,6 +1000,35 @@ html, body, #root {
   background: #ff4d5e;
   border-color: #ff9aa4;
   box-shadow: 0 0 7px rgba(255, 77, 94, 1);
+}
+
+/* 破均线计数点：跟峰顶箭头走，独立于出局线。
+   用青色（均线信号）跟红色（回撤出局）区分开，一眼能分清是哪条条件在推进。 */
+.spider-root .cards .card .bar.prog .ma-dots {
+  position: absolute;
+  bottom: calc(100% + 2px);
+  display: flex;
+  gap: 3px;
+  margin-left: 6px;
+  z-index: 8;
+  transition: left .55s cubic-bezier(.4, 0, .2, 1);
+}
+.spider-root .cards .card .bar.prog .ma-dots.flip {
+  transform: translateX(-100%);
+  margin-left: -6px;
+}
+.spider-root .cards .card .bar.prog .ma-dots .dot {
+  width: 6px !important; height: 6px !important;
+  border-radius: 50% !important;
+  box-sizing: border-box;
+  background: rgba(69, 230, 245, .12);
+  border: 1.5px solid rgba(69, 230, 245, .5);
+  transition: background .3s, box-shadow .3s, border-color .3s;
+}
+.spider-root .cards .card .bar.prog .ma-dots .dot.on {
+  background: #45e6f5;
+  border-color: #a8f4fb;
+  box-shadow: 0 0 7px rgba(69, 230, 245, 1);
 }
 
 /* ④ 峰顶箭头：轨道【上方】的绿色倒三角 */

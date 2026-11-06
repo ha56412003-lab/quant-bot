@@ -181,10 +181,21 @@ function PosCard({ p, avatar }) {
         )}
 
         {/* ③ 出局标记：红色倒三角（闪烁）+ 两个小圆点
-              亮一个 = 已经触碰过一次 0.8R 出局线；亮两个 = 该出场了 */}
+              亮一个 = 已经触碰过一次 0.8R 出局线；亮两个 = 该出场了
+              峰顶不足 0.8R 时这条线不存在（位置是负数），所以整组不显示 */}
         {showExit && (
           <span className="exit-mark" style={{ left: `${exitPct}%` }}>
             <i className="tri" />
+            <i className={`dot${maCnt >= 1 ? ' on' : ''}`} />
+            <i className={`dot${maCnt >= 2 ? ' on' : ''}`} />
+          </span>
+        )}
+
+        {/* 破均线计数点：独立于出局线。峰顶还没到 0.8R 时出局线不存在，
+            但「已经连续几根破均线」这个信息照样要能看见 ——
+            贴在峰顶箭头右边，不抢出局标记的位置 */}
+        {maCnt > 0 && (
+          <span className={`ma-dots${peakPct > 88 ? ' flip' : ''}`} style={{ left: `${Math.min(peakPct, 100)}%` }}>
             <i className={`dot${maCnt >= 1 ? ' on' : ''}`} />
             <i className={`dot${maCnt >= 2 ? ' on' : ''}`} />
           </span>
