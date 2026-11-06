@@ -60,7 +60,8 @@ MIN_DWELL_SEC = 1800    # 进池后最短停留 30 分钟
 
 ATR_INTERVAL = "5m"     # ATR 周期
 ATR_N = 14              # ATR 回看根数
-BBW_INTERVAL = "1h"     # 布林带周期
+BBW_INTERVAL = "1h"     # 布林带周期（仅表示 BBW 采集周期；K 线请求周期已写死 1h）
+_RETRY_SEC = 600         # 整轮刷新全失败时的重试间隔（秒）
 BBW_LEN = 20            # 布林带长度
 BBW_MULT = 2.0          # 布林带倍数
 BBW_LOOKBACK = 100      # 分位回看根数
@@ -203,9 +204,18 @@ async def _fetch_atr(sym: str):
 
 
 async def _fetch_1h(sym: str, need_spike: bool, need_bbw: bool):
-    """1 小时 K 线：一次拉 100 根，同时算插针和布林带分位。"""
+    """1 小时 K 线：一次拉 100 根，同时算插针和布林带分位。
+
+    ⚠ 这里的周期必须写死 "1h"，不能再用 BBW_INTERVAL。
+    2026-11-06 踩过的坑：为了省流量把 yaml 的 bbw_interval 设成 "off"
+    （本意只是"别采布林带"），结果这个变量同时被当成 klines 的 interval
+    传给币安 → 请求 interval=off → 400 → 整个函数返回 {} → 插针值算不出来
+    → 「插针 ≤4.0」这道池子门槛静默失效（日志只显示 refreshed for 0 symbols，
+    一条报错都没有，异常被 log.debug 吞掉）。
+    BBW 采不采由调用方的 need_bbw 控制，与 K 线周期是两件事。
+    """
     try:
-        bars = await binance.klines(sym, BBW_INTERVAL, BBW_LOOKBACK)
+        bars = await binance.klines(sym, "1h", BBW_LOOKBACK)
         if len(bars) < 96:
             return {}
         out = {}
@@ -316,7 +326,18 @@ async def _refresh_atr(universe, only=None) -> int:
         row["atr_pct"] = v
         row["ts_atr"] = time.time()
         n += 1
-    if only is None:
+    # 2026-11-06：整轮失败（n==0）不能更新时间戳，否则会把失败当成成功、
+    # 静默空窗一整个周期（池外 15 分钟 / 池内 3 分钟）。但又不能完全不更新
+    # 时间戳——那样每个 tick（0.5s）都会重试，直接打爆权重。折中：退避 10 分钟。
+    if n == 0:
+        retry_at = time.time() - (SCAN_SEC if only is None else REFRESH_SEC) + _RETRY_SEC
+        if only is None:
+            _ts_atr_scan = retry_at
+        else:
+            _ts_atr_pool = retry_at
+        log.warning("quality atr: 本轮 %d 个全部失败（%s），%ds 后重试",
+                    len(targets), "全池" if only is None else "池内", _RETRY_SEC)
+    elif only is None:
         _ts_atr_scan = time.time()
     else:
         _ts_atr_pool = time.time()
@@ -336,7 +357,11 @@ async def _refresh_bbw(syms) -> int:
         row.update(d)
         row["ts_bbw"] = time.time()
         n += 1
-    _ts_bbw = time.time()
+    if n == 0:
+        _ts_bbw = time.time() - BBW_REFRESH_SEC + _RETRY_SEC
+        log.warning("quality bbw: 本轮 %d 个全部失败，%ds 后重试", len(syms), _RETRY_SEC)
+    else:
+        _ts_bbw = time.time()
     return n
 
 
@@ -351,8 +376,14 @@ async def _refresh_daily(universe) -> int:
             continue
         _rows.setdefault(sym, {}).update(d)
         n += 1
-    _ts_daily = time.time()
-    log.info("quality daily: spike refreshed for %d symbols", n)
+    if n == 0:
+        # 整轮失败：退避 10 分钟重试，而不是空等 24 小时（插针门槛会一直失效）
+        _ts_daily = time.time() - DAILY_REFRESH_SEC + _RETRY_SEC
+        log.warning("quality daily: 插针刷新全部失败（%d 个），%ds 后重试",
+                    len(universe), _RETRY_SEC)
+    else:
+        _ts_daily = time.time()
+        log.info("quality daily: spike refreshed for %d/%d symbols", n, len(universe))
     return n
 
 
@@ -369,15 +400,25 @@ def recompute(universe) -> list[str]:
     for sym in _monitor:
         if sym not in now_set:
             continue                       # 掉出候选池，自动出局
+        # 缺失进池时间时按「现在」补上：否则 now - 0 是个巨大值，
+        # 最短停留保护会反向失效（刚进池就被踢，3 分钟级反复进出）。
+        _in_since.setdefault(sym, now)
         r = _rows.get(sym) or {}
-        band = _band_of.get(sym, "lo")
         atr = r.get("atr_pct")
+        # 档位缺失时按当前 ATR 推断，别无条件默认 "lo" ——
+        # 高档币被当成低档判断会被硬底线瞬间踢出。
+        band = _band_of.get(sym) or _band_new(atr) or "lo"
+        _band_of[sym] = band
         if _band_force_exit(atr, band):
             continue                       # 硬底线，立刻踢
-        if _band_keep(atr, band):
-            kept.append(sym)
-        elif now - _in_since.get(sym, 0) < MIN_DWELL_SEC:
-            kept.append(sym)               # 最短停留保护
+        if _band_keep(atr, band) or now - _in_since[sym] < MIN_DWELL_SEC:
+            kept.append(sym)               # 缓冲带内 or 最短停留保护
+
+    # 容量下调时 kept 也要截断，否则 size 从 23 改成 20 后
+    # 页面会出现 monitor_n=23 / monitor_size=20 的自相矛盾。
+    if len(kept) > MONITOR_SIZE:
+        log.info("quality: 监控池容量下调 %d → %d，裁掉末位", len(kept), MONITOR_SIZE)
+        kept = kept[:MONITOR_SIZE]
 
     # ② 未在池的：按双档门槛找新的
     fresh_lo: list[tuple[str, float]] = []
