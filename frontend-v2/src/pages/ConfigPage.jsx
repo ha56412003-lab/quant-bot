@@ -210,7 +210,7 @@ function UniverseConfig() {
       <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,.06)',
                     fontSize: 12, color: '#8b949e', lineHeight: 1.9 }}>
         <div>
-          <span style={{ color: '#45e6f5' }}>当前候选池</span>：
+          <span style={{ color: 'var(--cyan, #45e6f5)' }}>当前候选池</span>：
           <b style={{ color: '#e6edf3' }}>{cand?.symbols?.length ?? 0}</b> 只
           {cand?.size ? <span style={{ color: '#7d8590' }}> / 目标 {cand.size}</span> : null}
           <span style={{ marginLeft: 12 }}>构建于 {builtAt}</span>

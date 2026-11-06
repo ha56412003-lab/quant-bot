@@ -41,14 +41,14 @@ export default function App() {
       <PaperField />
       <div style={{ padding: 24, minHeight: '100vh' }}>
         <div style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
-          <b style={{ fontSize: 16, color: '#ff7fcb', letterSpacing: '0.1em' }}>AGENT OPS</b>
+          <b style={{ fontSize: 16, color: 'var(--joint, #ff7fcb)', letterSpacing: '0.1em' }}>AGENT OPS</b>
           {nav.map(([k, label]) => (
             <button key={k} onClick={() => setPage(k)}
               style={{
                 padding: '5px 12px', fontSize: 12, cursor: 'pointer',
                 background: page === k ? 'rgba(180,47,128,.35)' : 'transparent',
-                color: page === k ? '#ff7fcb' : '#73788e',
-                border: '1px solid ' + (page === k ? '#ec4fae' : '#262a39'),
+                color: page === k ? 'var(--joint, #ff7fcb)' : 'var(--mute, #73788e)',
+                border: '1px solid ' + (page === k ? 'var(--joint, #ec4fae)' : 'var(--line, #262a39)'),
                 borderRadius: 3,
               }}>{label}</button>
           ))}

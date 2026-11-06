@@ -1,5 +1,6 @@
 import './v2.css'
 import './paper.css'
+import './mac.css'
 import { initTheme, useThemeMode } from './ThemeSwitch'
 import ReactDOM from 'react-dom/client'
 import { ConfigProvider, theme as antdTheme } from 'antd'
@@ -86,13 +87,102 @@ const PAPER_THEME = {
   },
 }
 
+
+const MAC_FONT_STACK = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", sans-serif'
+
+/* ── MAC 极简 · 深 ──
+   antd 的组件底色由 algorithm 决定，CSS 覆盖不彻底，
+   所以浅色/深色必须在这里跟着 data-theme 一起切。 */
+const MAC_DARK_THEME = {
+  algorithm: antdTheme.darkAlgorithm,
+  token: {
+    colorPrimary: '#0a84ff',
+    colorInfo: '#0a84ff',
+    colorSuccess: '#30d158',
+    colorError: '#ff453a',
+    colorWarning: '#ff9f0a',
+    colorLink: '#0a84ff',
+    colorBgBase: '#000000',
+    colorBgContainer: '#1c1c1e',
+    colorBgElevated: '#2c2c2e',
+    colorBorder: 'rgba(255,255,255,0.10)',
+    colorBorderSecondary: 'rgba(255,255,255,0.07)',
+    colorText: '#f5f5f7',
+    colorTextSecondary: '#c7c7cc',
+    colorTextTertiary: '#98989d',
+    borderRadius: 8,
+    borderRadiusLG: 12,
+    borderRadiusSM: 6,
+    fontSize: 12.5,
+    controlHeight: 30,
+    fontFamily: MAC_FONT_STACK,
+  },
+  components: {
+    Card: { colorBgContainer: '#1c1c1e', headerBg: 'transparent' },
+    Table: {
+      headerBg: '#232325',
+      headerColor: '#98989d',
+      rowHoverBg: 'rgba(255,255,255,0.04)',
+      borderColor: 'rgba(255,255,255,0.07)',
+    },
+    Button: { primaryShadow: 'none' },
+    Tag: { defaultBg: 'rgba(255,255,255,0.06)' },
+    Statistic: { contentFontSize: 22 },
+  },
+}
+
+/* ── MAC 极简 · 浅 ── */
+const MAC_LIGHT_THEME = {
+  algorithm: antdTheme.defaultAlgorithm,
+  token: {
+    colorPrimary: '#007aff',
+    colorInfo: '#007aff',
+    colorSuccess: '#248a3d',
+    colorError: '#d70015',
+    colorWarning: '#c93400',
+    colorLink: '#007aff',
+    colorBgBase: '#f5f5f7',
+    colorBgContainer: '#ffffff',
+    colorBgElevated: '#ffffff',
+    colorBorder: 'rgba(0,0,0,0.10)',
+    colorBorderSecondary: 'rgba(0,0,0,0.07)',
+    colorText: '#1d1d1f',
+    colorTextSecondary: '#424245',
+    colorTextTertiary: '#6e6e73',
+    borderRadius: 8,
+    borderRadiusLG: 12,
+    borderRadiusSM: 6,
+    fontSize: 12.5,
+    controlHeight: 30,
+    fontFamily: MAC_FONT_STACK,
+  },
+  components: {
+    Card: { colorBgContainer: '#ffffff', headerBg: 'transparent' },
+    Table: {
+      headerBg: '#f5f5f7',
+      headerColor: '#6e6e73',
+      rowHoverBg: 'rgba(0,0,0,0.03)',
+      borderColor: 'rgba(0,0,0,0.07)',
+    },
+    Button: { primaryShadow: 'none' },
+    Tag: { defaultBg: 'rgba(0,0,0,0.04)' },
+    Statistic: { contentFontSize: 22 },
+  },
+}
+
+
 function LocaleShell() {
   const { lang } = useI18n()
   const mode = useThemeMode()
   return (
     <ConfigProvider
       locale={lang === 'en' ? enUS : zhCN}
-      theme={mode === 'paper' ? PAPER_THEME : DARK_THEME}
+      theme={
+        mode === 'paper' ? PAPER_THEME
+        : mode === 'mac-dark' ? MAC_DARK_THEME
+        : mode === 'mac-light' ? MAC_LIGHT_THEME
+        : DARK_THEME
+      }
     >
       <App />
     </ConfigProvider>

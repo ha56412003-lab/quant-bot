@@ -41,12 +41,12 @@ function fmtQty(v) {
 
 const TH = {
   padding: '7px 8px', textAlign: 'left', fontWeight: 700,
-  color: '#45e6f5', borderBottom: '1px solid #262a39',
+  color: 'var(--cyan, #45e6f5)', borderBottom: '1px solid #262a39',
   whiteSpace: 'nowrap', fontSize: 10.5, letterSpacing: '0.04em',
 }
 
 const PANEL_TITLE = {
-  fontSize: 11.5, fontWeight: 700, color: '#45e6f5',
+  fontSize: 11.5, fontWeight: 700, color: 'var(--cyan, #45e6f5)',
   marginBottom: 6, letterSpacing: '0.06em',
 }
 
@@ -155,8 +155,8 @@ export default function Dashboard({ status }) {
             display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px',
             borderBottom: '1px solid var(--line)', flex: '0 0 auto', height: 34,
           }}>
-            <b style={{ color: '#45e6f5', fontSize: 12, letterSpacing: '0.08em' }}>持仓操作区</b>
-            <span style={{ fontSize: 11, color: '#73788e' }}>{pos.length} 单</span>
+            <b style={{ color: 'var(--cyan, #45e6f5)', fontSize: 12, letterSpacing: '0.08em' }}>持仓操作区</b>
+            <span style={{ fontSize: 11, color: 'var(--mute, #73788e)' }}>{pos.length} 单</span>
             <span style={{ marginLeft: 'auto' }}>
               {pos.length > 0 && (
                 <Popconfirm title={'确定全平 ' + pos.length + ' 单？'} onConfirm={closeAll}>
@@ -186,7 +186,7 @@ export default function Dashboard({ status }) {
                 <col style={{ width: '14.9%' }} />
               </colgroup>
               <thead>
-                <tr style={{ position: 'sticky', top: 0, background: '#0b0c12', zIndex: 2 }}>
+                <tr style={{ position: 'sticky', top: 0, background: 'var(--panel)', zIndex: 2 }}>
                   {[
                     ['币种', 'left'], ['方向', 'left'], ['杠杆', 'left'], ['爆仓价', 'right'],
                     ['策略', 'left'], ['开仓价', 'right'], ['现价', 'right'], ['数量', 'right'],
@@ -261,8 +261,8 @@ export default function Dashboard({ status }) {
                                 style={{
                                   padding: '1px 4px', fontSize: 9.5, cursor: 'pointer',
                                   background: (p.leverage || 3) === lv ? 'rgba(236,79,174,.35)' : 'transparent',
-                                  color: (p.leverage || 3) === lv ? '#ff7fcb' : '#73788e',
-                                  border: '1px solid ' + ((p.leverage || 3) === lv ? '#ec4fae' : '#262a39'),
+                                  color: (p.leverage || 3) === lv ? 'var(--joint, #ff7fcb)' : 'var(--mute, #73788e)',
+                                  border: '1px solid ' + ((p.leverage || 3) === lv ? 'var(--joint, #ec4fae)' : 'var(--line, #262a39)'),
                                   borderRadius: 2,
                                 }}>{lv}x</button>
                             </Popconfirm>
@@ -449,7 +449,7 @@ export default function Dashboard({ status }) {
                       <div className="bar-line">
                         <i style={{
                           width: `${Math.min(100, marginUse)}%`,
-                          background: marginUse < 40 ? '#45e6f5' : marginUse < 60 ? '#ffb454' : '#ff4d5e',
+                          background: marginUse < 40 ? 'var(--cyan, #45e6f5)' : marginUse < 60 ? '#ffb454' : '#ff4d5e',
                         }} />
                       </div>
                     </div>

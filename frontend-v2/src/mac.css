@@ -1,0 +1,742 @@
+/* ============================================================
+   MAC 极简主题 · mac-dark / mac-light
+   ------------------------------------------------------------
+   设计原则（refined minimalism）：
+     · 灰度为主，单一强调色（系统蓝）。不出现第二个彩色
+     · 层级靠「留白 + 极细分隔线 + 微阴影」，不靠发光和描边
+     · 圆角统一：卡片 12 / 控件 8 / 小标记 6
+     · 字体回到系统栈（SF Pro / 苹方），数字用 tabular-nums 对齐
+     · 删掉所有装饰：点阵背景、扫描线、斜纹、霓虹辉光、卡通头像、蛛形 logo
+     · 字号收敛：标题不再 34px/900，改 26px/600
+   只覆盖视觉，不动任何结构与交互。
+   ============================================================ */
+
+/* ───────────────────────── 一、macOS 深色 ───────────────────────── */
+html[data-theme="mac-dark"] {
+  color-scheme: dark;
+
+  /* 系统表面色（macOS Dark 的 window/control 层次） */
+  --m-bg: #000000;
+  --m-surface: #1c1c1e;
+  --m-surface-2: #2c2c2e;
+  --m-surface-3: #3a3a3c;
+
+  /* 文字四档 */
+  --m-text: #f5f5f7;
+  --m-text-2: #c7c7cc;
+  --m-text-3: #98989d;
+  --m-text-4: #636366;
+
+  /* 唯一强调色 + 语义色（苹果系统色板） */
+  --m-accent: #0a84ff;
+  --m-accent-dim: rgba(10, 132, 255, .16);
+  --m-up: #ff453a;
+  --m-down: #30d158;
+  --m-warn: #ff9f0a;
+
+  --m-line: rgba(255, 255, 255, .075);
+  --m-line-2: rgba(255, 255, 255, .12);
+
+  /* 阴影：柔和、短距，不要辉光 */
+  --m-shadow-1: 0 1px 2px rgba(0, 0, 0, .55);
+  --m-shadow-2: 0 4px 16px rgba(0, 0, 0, .45);
+
+  /* 圆角 */
+  --m-r-card: 12px;
+  --m-r-ctl: 8px;
+  --m-r-tag: 6px;
+}
+
+/* ───────────────────────── 二、macOS 浅色 ───────────────────────── */
+html[data-theme="mac-light"] {
+  color-scheme: light;
+
+  --m-bg: #f5f5f7;
+  --m-surface: #ffffff;
+  --m-surface-2: #fafafa;
+  --m-surface-3: #f0f0f2;
+
+  --m-text: #1d1d1f;
+  --m-text-2: #424245;
+  --m-text-3: #6e6e73;
+  --m-text-4: #aeaeb2;
+
+  --m-accent: #007aff;
+  --m-accent-dim: rgba(0, 122, 255, .10);
+  --m-up: #d70015;
+  --m-down: #248a3d;
+  --m-warn: #c93400;
+
+  --m-line: rgba(0, 0, 0, .075);
+  --m-line-2: rgba(0, 0, 0, .12);
+
+  --m-shadow-1: 0 1px 3px rgba(0, 0, 0, .07);
+  --m-shadow-2: 0 4px 16px rgba(0, 0, 0, .10);
+
+  --m-r-card: 12px;
+  --m-r-ctl: 8px;
+  --m-r-tag: 6px;
+}
+
+/* ══════════════════ 三、两套 MAC 主题的共同结构覆盖 ══════════════════ */
+
+/* 3.1 字体与画布 ------------------------------------------------ */
+html[data-theme^="mac-"] body {
+  background: var(--m-bg) !important;
+  background-image: none !important;
+  color: var(--m-text) !important;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+               "Noto Sans SC", "Helvetica Neue", sans-serif !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 干掉全屏的粉色扫描渐变 */
+html[data-theme^="mac-"] body::before { display: none !important; }
+
+/* 3.2 把 spider 的变量全部接到 MAC 令牌上 ---------------------- */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root {
+  /* 外框：不再有洋红，就是窗口底色 */
+  --frame: var(--m-bg);
+  --frame-hi: var(--m-bg);
+  --frame-deep: var(--m-bg);
+  --frame-ink: var(--m-text);
+
+  --bg: var(--m-bg);
+  --panel: var(--m-surface);
+  --panel-2: var(--m-surface-2);
+  --line: var(--m-line);
+  --line-2: var(--m-line-2);
+
+  --ink: var(--m-text);
+  --ink-2: var(--m-text-2);
+  --mute: var(--m-text-3);
+  --dim: var(--m-text-4);
+
+  /* 语义色：红涨绿跌保留，但用系统色板 */
+  --cyan: var(--m-accent);
+  --joint: var(--m-accent);
+  --good: var(--m-down);
+  --bad: var(--m-up);
+  --warn: var(--m-warn);
+  --sticky: var(--m-warn);
+
+  /* 舞台/墙面等杂项统一压平 */
+  --stage: var(--m-surface);
+  --wall: var(--m-surface-2);
+  --wall-2: var(--m-surface-2);
+  --floor: var(--m-surface-2);
+  --desk: var(--m-surface-3);
+  --desk-front: var(--m-surface-2);
+  --metal: var(--m-surface-3);
+  --screen: var(--m-bg);
+
+  /* 字体：系统栈；数字走 tabular */
+  --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC",
+             "Noto Sans SC", "Helvetica Neue", sans-serif;
+  --mono: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Mono",
+          "PingFang SC", "Noto Sans SC", ui-monospace, Menlo, sans-serif;
+  --cjk: -apple-system, "PingFang SC", "Noto Sans SC", "Helvetica Neue", sans-serif;
+
+  background: var(--m-bg) !important;
+  font-family: var(--mono);
+}
+
+/* 3.3 外框渐变 → 纯色 ---------------------------------------- */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .wrap {
+  background: var(--m-bg) !important;
+  background-image: none !important;
+}
+
+/* 画布不再有多余留白，让内容贴边呼吸 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .board { padding: 0 !important; row-gap: 12px !important; }
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .wrap { padding-block: 14px !important; }
+
+/* ══════════════════ 四、顶栏 ══════════════════ */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .hdr {
+  gap: 16px !important;
+  padding: 0 6px !important;
+  color: var(--m-text) !important;
+}
+
+/* 蛛形 logo —— MAC 极简不需要，删掉 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .logo { display: none !important; }
+
+/* 主标题：34px/900 → 26px/600，去掉字距 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .hdr h1 {
+  font-family: var(--display) !important;
+  font-size: 26px !important;
+  font-weight: 600 !important;
+  letter-spacing: -.015em !important;
+  color: var(--m-text) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .hdr h1 em {
+  opacity: .28 !important;
+  margin: 0 5px !important;
+  font-weight: 400 !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .hdr h1 .zh {
+  font-size: 22px !important;
+  font-weight: 400 !important;
+  letter-spacing: 0 !important;
+  color: var(--m-text-3) !important;
+  margin-left: 2px;
+}
+
+/* 副标题：全大写+宽字距的“科技味”收掉，改成说明文字 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .tagline {
+  letter-spacing: 0 !important;
+  font-weight: 400 !important;
+  font-size: 11px !important;
+  color: var(--m-text-4) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .tagline small {
+  letter-spacing: 0 !important;
+  font-size: 10.5px !important;
+  color: var(--m-text-4) !important;
+  opacity: 1 !important;
+}
+
+/* 运行指示灯：去掉辉光，只留小圆点 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .runled {
+  color: var(--m-text-3) !important;
+  font-size: 11px !important;
+  letter-spacing: 0 !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .runled i { box-shadow: none !important; }
+
+/* 今日盈亏：进度条从斜纹改细线 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .goal {
+  font-weight: 500 !important;
+  font-size: 12px !important;
+  color: var(--m-text-2) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .goal .gl small {
+  font-weight: 400 !important;
+  opacity: 1 !important;
+  color: var(--m-text-3) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .track {
+  width: 180px !important;
+  height: 6px !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: var(--m-surface-3) !important;
+  overflow: hidden;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .track i {
+  background: var(--m-accent) !important;
+  background-image: none !important;
+  border-radius: 999px !important;
+  transition: width .4s ease !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .gpct {
+  color: var(--m-text-3) !important;
+  font-weight: 500 !important;
+}
+
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .day {
+  color: var(--m-text-3) !important;
+  font-weight: 400 !important;
+  font-size: 12px !important;
+  letter-spacing: 0 !important;
+}
+
+/* 导航按钮：实心描边框 → 极简文字按钮，选中态用浅色胶囊 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .btns { gap: 2px !important; }
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .btn {
+  font-family: var(--mono) !important;
+  font-weight: 500 !important;
+  font-size: 12px !important;
+  letter-spacing: 0 !important;
+  color: var(--m-text-3) !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: var(--m-r-ctl) !important;
+  padding: 6px 11px !important;
+  transition: background .16s, color .16s !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .btn:hover {
+  background: var(--m-surface-2) !important;
+  color: var(--m-text) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .btn[aria-pressed="true"] {
+  background: var(--m-surface-2) !important;
+  color: var(--m-text) !important;
+  font-weight: 600 !important;
+}
+
+/* 时钟：黑底粉色数字 → 无底色、等宽数字 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .clock {
+  background: transparent !important;
+  color: var(--m-text-2) !important;
+  font-family: var(--mono) !important;
+  font-weight: 500 !important;
+  font-size: 15px !important;
+  letter-spacing: .01em !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ══════════════════ 五、持仓卡 ══════════════════ */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card {
+  background: var(--m-surface) !important;
+  border: 1px solid var(--m-line) !important;
+  border-radius: var(--m-r-card) !important;
+  box-shadow: var(--m-shadow-1) !important;
+  transition: border-color .2s, box-shadow .2s !important;
+}
+/* 触发态：蓝色细描边 + 一点点扩散，不发光 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card.hit {
+  border-color: var(--m-accent) !important;
+  box-shadow: 0 0 0 3px var(--m-accent-dim) !important;
+}
+
+/* 卡通头像 —— MAC 极简不要，收掉（留出空位由 gap 吸收） */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card .av { display: none !important; }
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card .c1 { gap: 0 !important; }
+
+/* 币种代码：17px/900 → 15px/600 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card .nm b {
+  font-family: var(--display) !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  line-height: 15px !important;
+  letter-spacing: 0 !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card .nm span {
+  font-size: 10px !important;
+  line-height: 12px !important;
+  color: var(--m-text-3) !important;
+}
+
+/* 标签：洋红描边小方块 → 浅灰胶囊 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card .tg {
+  color: var(--m-text-3) !important;
+  border: 1px solid var(--m-line-2) !important;
+  border-radius: var(--m-r-tag) !important;
+  background: var(--m-surface-2) !important;
+  font-size: 9px !important;
+  letter-spacing: .02em !important;
+  padding: 3px 6px !important;
+  font-weight: 500 !important;
+}
+
+/* 数值行 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card .c3 .k {
+  font-size: 10px !important;
+  color: var(--m-text-3) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card .c3 .v {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  font-variant-numeric: tabular-nums;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card .c4 { font-size: 10px !important; }
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card .c4 .q { color: var(--m-text-2) !important; }
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card .c4 .st {
+  color: var(--m-text-3) !important;
+  font-size: 9px !important;
+  letter-spacing: 0 !important;
+}
+
+/* 空卡：虚线框、无阴影，一眼区分「占位」和「在用」 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card.idle {
+  background: transparent !important;
+  border: 1px dashed var(--m-line-2) !important;
+  box-shadow: none !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card.idle .idle-big {
+  color: var(--m-text-4) !important;
+  letter-spacing: 0 !important;
+  font-weight: 400 !important;
+}
+
+/* ══════════════════ 六、面板 / 卡片框体 ══════════════════ */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .pnl,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .stage,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .qbox {
+  background: var(--m-surface) !important;
+  border: 1px solid var(--m-line) !important;
+  border-radius: 12px !important;
+  box-shadow: var(--m-shadow-1) !important;
+}
+
+/* 面板标题：全大写宽字距 → 正常字距 + 中字重 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .ph h2,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .fh h2 {
+  font-family: var(--display) !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0 !important;
+  color: var(--m-text) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .ph h2 i,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .fh h2 i {
+  font-family: var(--cjk) !important;
+  font-weight: 400 !important;
+  color: var(--m-text-3) !important;
+  letter-spacing: 0 !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .ph .r {
+  color: var(--m-text-3) !important;
+  letter-spacing: 0 !important;
+  font-weight: 400 !important;
+}
+
+/* 画布上的浮层文字：去掉那圈描边阴影 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .fh,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .fnote { text-shadow: none !important; }
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .fnote {
+  color: var(--m-text-4) !important;
+  letter-spacing: 0 !important;
+}
+
+/* 四角取景框：装饰，删 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .cn { display: none !important; }
+
+/* HUD 小块 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .big.fhud {
+  background: var(--m-surface) !important;
+  border: 1px solid var(--m-line) !important;
+  border-left: 1px solid var(--m-line) !important;
+  border-radius: var(--m-r-ctl) !important;
+  box-shadow: var(--m-shadow-1) !important;
+}
+
+/* 大数字：发光 → 纯色 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .big b {
+  text-shadow: none !important;
+  font-weight: 600 !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .big span { color: var(--m-text-3) !important; letter-spacing: 0 !important; }
+
+/* 提示气泡 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .tip {
+  background: var(--m-surface-2) !important;
+  border: 1px solid var(--m-line-2) !important;
+  border-radius: var(--m-r-ctl) !important;
+  box-shadow: var(--m-shadow-2) !important;
+}
+
+/* ══════════════════ 七、表格 / 列表 ══════════════════ */
+/* 表头不再有底色块，靠字重和细分隔线拉层级 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .rtab td {
+  border-top: 1px solid var(--m-line) !important;
+  color: var(--m-text-2) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .rtab td:first-child { color: var(--m-text-4) !important; }
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .rtab td:last-child { color: var(--m-text-3) !important; }
+
+/* 统计小块：去掉边框，用底色分层 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .stats div {
+  background: var(--m-surface-2) !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--m-r-tag) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .stats span { color: var(--m-text-3) !important; letter-spacing: 0 !important; }
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .stats b { font-variant-numeric: tabular-nums; }
+
+/* 质检列表 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .chk {
+  background: var(--m-surface-2) !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--m-r-ctl) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .verdict { border-radius: var(--m-r-ctl) !important; }
+
+/* chips */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .chip {
+  border: 1px solid var(--m-line-2) !important;
+  border-radius: var(--m-r-tag) !important;
+  color: var(--m-text-3) !important;
+  letter-spacing: 0 !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .chips span {
+  border: 1px solid var(--m-line-2) !important;
+  border-radius: var(--m-r-tag) !important;
+  color: var(--m-text-3) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .chips span.on {
+  background: var(--m-accent) !important;
+  border-color: var(--m-accent) !important;
+  color: #fff !important;
+  font-weight: 500 !important;
+}
+
+/* 信号流：行高与留白 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .feed { font-size: 10.5px !important; }
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .feed time { color: var(--m-text-4) !important; }
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .feed b { font-weight: 600 !important; letter-spacing: 0 !important; }
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .feed em,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .feed span { color: var(--m-text-2) !important; }
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .feed li.new { animation: none !important; }
+
+/* 调度规则行 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .rl .row.cur { background: var(--m-accent-dim) !important; }
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .rl .hd { color: var(--m-text) !important; }
+
+/* 代码块：去掉当前行高亮块，改左侧竖线 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .code .row.cur {
+  background: transparent !important;
+  box-shadow: inset 2px 0 0 var(--m-accent) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .code .kw { color: var(--m-accent) !important; font-weight: 600 !important; }
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .caret { background: var(--m-accent) !important; }
+
+/* 水印 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .wm { color: var(--m-text-4) !important; letter-spacing: .08em !important; }
+
+/* ══════════════════ 八、出场进度条（保留语义，换质感）══════════════════ */
+/* 轨道：细、圆、无色块感 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .bar.prog,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card .bar {
+  background: var(--m-surface-3) !important;
+  border-radius: 999px !important;
+  height: 4px !important;
+}
+
+/* 回撤区：斜纹+扫光 → 半调斜线（MAC 版保持可辨但不喧宾夺主） */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .dd-zone {
+  background:
+    repeating-linear-gradient(45deg,
+      var(--m-text-4) 0px, var(--m-text-4) 1px,
+      transparent 1px, transparent 5px) !important;
+  border-radius: 999px !important;
+  opacity: .85 !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .dd-zone::after { display: none !important; }
+
+/* 破均线小点：青色发光点 → 小实心点 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .ma-dots i,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .exit-mark i.dot {
+  box-shadow: none !important;
+}
+
+/* 出局三角：闪烁保留（它是「该走了」的信号，属于功能提示），去掉光晕 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .exit-mark .tri {
+  filter: none !important;
+  border-top-color: var(--m-up) !important;
+}
+
+/* ══════════════════ 九、antd 组件跟随 MAC ══════════════════ */
+html[data-theme^="mac-"] .ant-select-selector,
+html[data-theme^="mac-"] .ant-input,
+html[data-theme^="mac-"] .ant-input-number,
+html[data-theme^="mac-"] .ant-picker {
+  border-radius: var(--m-r-ctl) !important;
+}
+html[data-theme^="mac-"] .ant-card {
+  border-radius: var(--m-r-card) !important;
+  box-shadow: var(--m-shadow-1) !important;
+}
+html[data-theme^="mac-"] .ant-btn { border-radius: var(--m-r-ctl) !important; }
+html[data-theme^="mac-"] .ant-tag { border-radius: var(--m-r-tag) !important; }
+html[data-theme^="mac-"] .ant-modal-content { border-radius: 14px !important; }
+html[data-theme^="mac-"] .ant-select-dropdown { border-radius: 10px !important; }
+html[data-theme^="mac-"] .ant-table { font-variant-numeric: tabular-nums; }
+
+/* ══════════════════ 十、滚动条（MAC 风格细条）══════════════════ */
+html[data-theme^="mac-"] *::-webkit-scrollbar { width: 8px; height: 8px; }
+html[data-theme^="mac-"] *::-webkit-scrollbar-track { background: transparent; }
+html[data-theme^="mac-"] *::-webkit-scrollbar-thumb {
+  background: var(--m-line-2);
+  border-radius: 999px;
+}
+html[data-theme^="mac-"] *::-webkit-scrollbar-thumb:hover { background: var(--m-text-4); }
+
+/* ══════════════════ 十一、浅色主题专项修正 ══════════════════ */
+/* 深色下靠「亮一点的面板提亮」，浅色下靠「白面板 + 浅灰底」——阴影要更轻 */
+html[data-theme="mac-light"] .spider-root.spider-root.spider-root .card,
+html[data-theme="mac-light"] .spider-root.spider-root.spider-root .pnl,
+html[data-theme="mac-light"] .spider-root.spider-root.spider-root .stage {
+  background: #ffffff !important;
+}
+
+/* 浅色下空卡底色要能看出是「空」 */
+html[data-theme="mac-light"] .spider-root.spider-root.spider-root .card.idle {
+  background: rgba(0, 0, 0, .012) !important;
+}
+
+/* 浅色下破均线小点/出局标记的对比度 */
+html[data-theme="mac-light"] .spider-root.spider-root.spider-root .ma-dots i {
+  background: var(--m-accent) !important;
+}
+
+/* ══════════════════ 十二、表格表头（原来硬编码深蓝黑）══════════════════ */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .ant-table-thead > tr > th,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .op-table .ant-table-thead > tr > th {
+  background: var(--m-surface-2) !important;
+  color: var(--m-text-3) !important;
+  font-weight: 600 !important;
+  font-size: 10.5px !important;
+  letter-spacing: 0 !important;
+  border-bottom: 1px solid var(--m-line) !important;
+  padding: 7px 8px !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .ant-table-tbody > tr > td {
+  border-bottom: 1px solid var(--m-line) !important;
+  color: var(--m-text-2) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .ant-table-tbody > tr:hover > td {
+  background: var(--m-accent-dim) !important;
+}
+/* 空表占位文字 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .ant-empty-description {
+  color: var(--m-text-4) !important;
+}
+
+/* ══════════════════ 十三、删掉装饰性插画（用户授权：可删现有图标/视觉元素）══════════════════ */
+/* 卡通调度员、雷达、服务器机架 —— 都是 canvas 画的装饰插画，
+   MAC 极简里不需要。删掉后净值卡留白给大数字。 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .chief-wrap,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .radar-wrap,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .srv-wrap,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .wall-wrap {
+  display: none !important;
+}
+
+/* 净值卡：去掉插画后重排，让数字站在正中 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .sbig.equity {
+  justify-content: center !important;
+  align-items: flex-start !important;
+  padding-left: 26px !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .sbig .lb {
+  color: var(--m-text-3) !important;
+  letter-spacing: .06em !important;
+  font-weight: 500 !important;
+  font-size: 11px !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .sbig .val {
+  font-family: var(--display) !important;
+  font-weight: 600 !important;
+  letter-spacing: -.02em !important;
+  font-variant-numeric: tabular-nums;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .sbig .val small {
+  color: var(--m-text-4) !important;
+  font-weight: 400 !important;
+  margin-left: 4px !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .sbig .sub {
+  color: var(--m-text-4) !important;
+  letter-spacing: .04em !important;
+  font-size: 10px !important;
+}
+
+/* ══════════════════ 十四、行情跑马灯（原来黑底+青边+绿光字）══════════════════ */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .stage .ticker {
+  background: var(--m-surface-2) !important;
+  border-top: 1px solid var(--m-line) !important;
+  border-bottom: 1px solid var(--m-line) !important;
+  margin-top: 0 !important;
+  height: 22px !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .stage .ticker span {
+  color: var(--m-text-3) !important;
+  text-shadow: none !important;
+  font-family: var(--mono) !important;
+  font-weight: 500 !important;
+  letter-spacing: .02em !important;
+  font-size: 10.5px !important;
+  top: 4px !important;
+}
+
+/* ══════════════════ 十五、语义色收敛（去掉品牌青/洋红，只留红涨绿跌）══════════════════ */
+/* 原来一屏里有 青(#45e6f5) / 洋红(#ec4fae) / 红 / 绿 / 橙 五套颜色，
+   MAC 极简只允许：一个强调蓝 + 红涨绿跌 + 橙警告。其余全部转灰。 */
+
+/* 青色强调 → 系统蓝 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .stage .c-cyan,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .c-cyan {
+  color: var(--m-accent) !important;
+}
+
+/* 空卡（待进场）：洋红字 → 中性灰 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card.idle,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card.idle .idle-mid,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card.idle b,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card.idle span,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card.idle .tg {
+  color: var(--m-text-4) !important;
+  border-color: var(--m-line-2) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card.idle .idot {
+  color: var(--m-text-4) !important;
+  opacity: .7 !important;
+}
+
+/* antd 内置彩色 tag → 灰胶囊（红绿语义的保留） */
+html[data-theme^="mac-"] .ant-tag-cyan,
+html[data-theme^="mac-"] .ant-tag-blue,
+html[data-theme^="mac-"] .ant-tag-purple,
+html[data-theme^="mac-"] .ant-tag-magenta,
+html[data-theme^="mac-"] .ant-tag-geekblue,
+html[data-theme^="mac-"] .ant-tag-processing,
+html[data-theme^="mac-"] .ant-tag-default {
+  color: var(--m-text-3) !important;
+  background: var(--m-surface-2) !important;
+  border-color: var(--m-line-2) !important;
+}
+html[data-theme^="mac-"] .ant-tag-green,
+html[data-theme^="mac-"] .ant-tag-success {
+  color: var(--m-down) !important;
+  background: transparent !important;
+  border-color: color-mix(in srgb, var(--m-down) 35%, transparent) !important;
+}
+html[data-theme^="mac-"] .ant-tag-red,
+html[data-theme^="mac-"] .ant-tag-error,
+html[data-theme^="mac-"] .ant-tag-volcano {
+  color: var(--m-up) !important;
+  background: transparent !important;
+  border-color: color-mix(in srgb, var(--m-up) 35%, transparent) !important;
+}
+html[data-theme^="mac-"] .ant-tag-gold,
+html[data-theme^="mac-"] .ant-tag-orange,
+html[data-theme^="mac-"] .ant-tag-warning {
+  color: var(--m-warn) !important;
+  background: transparent !important;
+  border-color: color-mix(in srgb, var(--m-warn) 35%, transparent) !important;
+}
+
+/* Tabs：去掉底部粗条，选中态用蓝色细下划线 */
+html[data-theme^="mac-"] .ant-tabs-tab {
+  color: var(--m-text-3) !important;
+  font-weight: 500 !important;
+  padding: 6px 0 !important;
+}
+html[data-theme^="mac-"] .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--m-text) !important;
+  font-weight: 600 !important;
+}
+html[data-theme^="mac-"] .ant-tabs-ink-bar {
+  background: var(--m-accent) !important;
+  height: 2px !important;
+  border-radius: 2px !important;
+}
+html[data-theme^="mac-"] .ant-tabs-top > .ant-tabs-nav::before {
+  border-bottom: 1px solid var(--m-line) !important;
+}
+
+/* Segmented 分段控件：圆角胶囊 */
+html[data-theme^="mac-"] .ant-segmented {
+  background: var(--m-surface-2) !important;
+  border-radius: var(--m-r-ctl) !important;
+  padding: 2px !important;
+}
+html[data-theme^="mac-"] .ant-segmented-item {
+  border-radius: 6px !important;
+  color: var(--m-text-3) !important;
+  font-weight: 500 !important;
+}
+html[data-theme^="mac-"] .ant-segmented-item-selected {
+  background: var(--m-surface) !important;
+  color: var(--m-text) !important;
+  box-shadow: var(--m-shadow-1) !important;
+}
+
+/* Progress / 细进度条 */
+html[data-theme^="mac-"] .ant-progress-bg { border-radius: 999px !important; }

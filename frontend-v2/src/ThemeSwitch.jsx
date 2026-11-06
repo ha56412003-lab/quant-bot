@@ -1,14 +1,23 @@
 import React from 'react'
+import { Select } from 'antd'
 
 /**
- * 背景主题切换：玫红深色 ⇄ 纸面工程图
+ * 主题切换：4 套视觉
+ *   dark       玫红深色（原始战术大屏）
+ *   paper      纸面工程图
+ *   mac-dark   MAC 极简 · 深
+ *   mac-light  MAC 极简 · 浅
  *
- * 只切背景（方案 A）：页面底色、网格、扫描线、顶栏跟着换，
- * 卡片/面板/表格保持深色，形成"纸面上贴深色显示板"的效果。
- *
- * 选择记在 localStorage.theme，刷新后保持。
+ * 只换视觉，不影响任何功能。选择记在 localStorage.theme，刷新后保持。
  */
 const KEY = 'quantbot.theme'
+
+export const THEMES = [
+  { value: 'dark', label: '玫红深色' },
+  { value: 'paper', label: '纸面' },
+  { value: 'mac-dark', label: 'MAC 深色' },
+  { value: 'mac-light', label: 'MAC 浅色' },
+]
 
 export function getTheme() {
   try {
@@ -20,9 +29,9 @@ export function getTheme() {
 
 export function applyTheme(mode) {
   const root = document.documentElement
-  if (mode === 'paper') root.setAttribute('data-theme', 'paper')
-  else root.removeAttribute('data-theme')
-  try { localStorage.setItem(KEY, mode) } catch (e) { /* 隐私模式忽略 */ }
+  if (!mode || mode === 'dark') root.removeAttribute('data-theme')
+  else root.setAttribute('data-theme', mode)
+  try { localStorage.setItem(KEY, mode || 'dark') } catch (e) { /* 隐私模式忽略 */ }
 }
 
 /** 挂载时把上次的选择套回去 */
@@ -42,34 +51,16 @@ export function useThemeMode() {
 }
 
 export default function ThemeSwitch() {
-  const [mode, setMode] = React.useState(getTheme)
-
-  const toggle = () => {
-    const next = mode === 'paper' ? 'dark' : 'paper'
-    setMode(next)
-    applyTheme(next)
-  }
-
-  const isPaper = mode === 'paper'
-
+  const mode = useThemeMode()
   return (
-    <button
-      onClick={toggle}
-      title={isPaper ? '切换到玫红深色背景' : '切换到纸面工程图背景'}
-      style={{
-        padding: '5px 12px',
-        fontSize: 12,
-        cursor: 'pointer',
-        borderRadius: 3,
-        // 在深色顶栏和纸白顶栏下都要看得清，所以配色跟随当前主题
-        background: isPaper ? 'rgba(21,21,21,.06)' : 'rgba(180,47,128,.18)',
-        color: isPaper ? '#151515' : '#ff7fcb',
-        border: '1px solid ' + (isPaper ? '#c4c2ba' : '#ec4fae'),
-        letterSpacing: '.02em',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {isPaper ? '◐ 纸面' : '◑ 玫红'}
-    </button>
+    <Select
+      size="small"
+      value={mode}
+      onChange={applyTheme}
+      options={THEMES}
+      style={{ width: 104 }}
+      popupMatchSelectWidth={132}
+      aria-label="主题"
+    />
   )
 }

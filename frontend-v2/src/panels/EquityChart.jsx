@@ -9,15 +9,31 @@ const CARD_TITLE = {
   fontSize: 11.5, fontWeight: 700, color: '#45e6f5', letterSpacing: '0.06em',
 }
 
-// 按主题取色。纸面主题的卡片底是 #f6f5f1，亮荧光色在上面会发飘，所以整体压深一档。
-function palette(isPaper) {
-  return isPaper
-    ? { line: '#c22b3a', glow: 'rgba(194,43,58,.95)', dot: 'rgba(194,43,58,.70)',
-        bg: '#f6f5f1', label: '#8a8880', tipBg: 'rgba(251,250,247,.97)',
-        tipBorder: 'rgba(184,48,60,.35)', tipText: '#2a2a26' }
-    : { line: '#45e6f5', glow: 'rgba(69,230,245,.90)', dot: 'rgba(69,230,245,.55)',
-        bg: '#0b0c12', label: 'rgba(150,160,180,.75)', tipBg: 'rgba(8,10,16,.94)',
-        tipBorder: 'rgba(69,230,245,.35)', tipText: '#d8dde9' }
+// 按主题取色。纸面主题卡片底是 #f6f5f1，亮荧光色在上面会发飘，整体压深一档。
+// MAC 两套走「无发光极简」：细实线 + 极淡点阵，光晕/blur 全部归零。
+function palette(theme) {
+  if (theme === 'paper') {
+    return { line: '#c22b3a', glow: 'rgba(194,43,58,.95)', dot: 'rgba(194,43,58,.70)',
+             bg: '#f6f5f1', label: '#8a8880', tipBg: 'rgba(251,250,247,.97)',
+             tipBorder: 'rgba(184,48,60,.35)', tipText: '#2a2a26',
+             blur: 17, halo: 0.16, width: 1.7, dotR: 1.0, dotSize: 6 }
+  }
+  if (theme === 'mac-dark') {
+    return { line: '#0a84ff', glow: 'rgba(10,132,255,0)', dot: 'rgba(10,132,255,.26)',
+             bg: '#1c1c1e', label: '#8e8e93', tipBg: 'rgba(44,44,46,.98)',
+             tipBorder: 'rgba(255,255,255,.14)', tipText: '#f5f5f7',
+             blur: 0, halo: 0, width: 1.4, dotR: 0.85, dotSize: 7 }
+  }
+  if (theme === 'mac-light') {
+    return { line: '#007aff', glow: 'rgba(0,122,255,0)', dot: 'rgba(0,122,255,.16)',
+             bg: '#ffffff', label: '#8e8e93', tipBg: 'rgba(255,255,255,.99)',
+             tipBorder: 'rgba(0,0,0,.12)', tipText: '#1d1d1f',
+             blur: 0, halo: 0, width: 1.4, dotR: 0.85, dotSize: 7 }
+  }
+  return { line: '#45e6f5', glow: 'rgba(69,230,245,.90)', dot: 'rgba(69,230,245,.55)',
+           bg: '#0b0c12', label: 'rgba(150,160,180,.75)', tipBg: 'rgba(8,10,16,.94)',
+           tipBorder: 'rgba(69,230,245,.35)', tipText: '#d8dde9',
+           blur: 15, halo: 0.16, width: 1.7, dotR: 1.0, dotSize: 6 }
 }
 
 // 半调点阵 tile —— 参考图是线下铺一层规则小圆点，不是实色渐变
@@ -51,8 +67,10 @@ export default function EquityChart({ activeMode }) {
   const mode = view || activeMode || 'paper'
 
   // 主题跟着 <html data-theme> 走；每次渲染重读，切主题即时换色
-  const isPaper = typeof document !== 'undefined'
-    && document.documentElement.getAttribute('data-theme') === 'paper'
+  const theme = (typeof document !== 'undefined'
+    && document.documentElement.getAttribute('data-theme')) || 'dark'
+  const isPaper = theme === 'paper'
+  const isMac = theme.startsWith('mac')
 
   useEffect(() => {
     let alive = true
@@ -63,16 +81,20 @@ export default function EquityChart({ activeMode }) {
     return () => { alive = false; clearInterval(timer) }
   }, [mode])
 
+  const titleStyle = isMac
+    ? { fontSize: 12, fontWeight: 600, color: theme === 'mac-light' ? '#007aff' : '#0a84ff', letterSpacing: 0 }
+    : CARD_TITLE
+
   const last = series.length ? Number(series[series.length - 1].equity) : null
-  const P0 = palette(isPaper)
+  const P0 = palette(theme)
 
   const option = useMemo(() => {
-    const P = palette(isPaper)
+    const P = palette(theme)
     const ts = series.map((r) => new Date(r.ts * 1000).toLocaleString(
       lang === 'en' ? 'en-US' : 'zh-CN',
       { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }))
     const eq = series.map((r) => Number(r.equity.toFixed(2)))
-    const tile = dotTile(P.dot)
+    const tile = dotTile(P.dot, P.dotSize, P.dotR)
 
     return {
       // 贴边：参考图没有留白，线和点阵一直顶到画布边缘
@@ -116,8 +138,8 @@ export default function EquityChart({ activeMode }) {
           name: '_halo', type: 'line', data: eq, showSymbol: false,
           smooth: 0.15, z: 4, silent: true,
           lineStyle: {
-            color: P.line, width: 5, opacity: 0.16,
-            shadowColor: P.glow, shadowBlur: 24, shadowOffsetY: 0,
+            color: P.line, width: 5, opacity: P.halo,
+            shadowColor: P.glow, shadowBlur: P.blur > 0 ? 24 : 0, shadowOffsetY: 0,
           },
         },
         // ④ 折线：细芯 + 外发光 = 参考图那种霓虹感
@@ -125,8 +147,8 @@ export default function EquityChart({ activeMode }) {
           name: t('dash.equityName'), type: 'line', data: eq, showSymbol: false,
           smooth: 0.15, z: 5,
           lineStyle: {
-            color: P.line, width: 1.7,
-            shadowColor: P.glow, shadowBlur: isPaper ? 17 : 15, shadowOffsetY: 0,
+            color: P.line, width: P.width,
+            shadowColor: P.glow, shadowBlur: P.blur, shadowOffsetY: 0,
           },
           emphasis: { lineStyle: { width: 2.2 } },
           tooltip: {
@@ -136,11 +158,11 @@ export default function EquityChart({ activeMode }) {
         },
       ],
     }
-  }, [series, lang, t, isPaper])
+  }, [series, lang, t, theme])
 
   return (
     <Card size="small"
-          title={<span style={CARD_TITLE}>{t('dash.equityCurve')}</span>}
+          title={<span style={titleStyle}>{t('dash.equityCurve')}</span>}
           extra={(
             <Segmented size="small" value={mode} onChange={setView}
                        options={[{ label: t('hdr.paper'), value: 'paper' },
@@ -149,7 +171,7 @@ export default function EquityChart({ activeMode }) {
           style={{
             height: '100%', display: 'flex', flexDirection: 'column',
             background: 'var(--panel)', border: '1px solid var(--line)',
-            borderRadius: 5, overflow: 'hidden',
+            borderRadius: isMac ? 12 : 5, overflow: 'hidden',
           }}
           styles={{
             header: {
@@ -163,8 +185,12 @@ export default function EquityChart({ activeMode }) {
       {last !== null && (
         <div style={{
           position: 'absolute', top: 8, left: 10, zIndex: 3, pointerEvents: 'none',
-          fontFamily: 'Cascadia Mono, Consolas, monospace',
-          fontSize: isPaper ? 15 : 14, fontWeight: 500,
+          fontFamily: isMac
+            ? '-apple-system, BlinkMacSystemFont, SF Pro Text, PingFang SC, sans-serif'
+            : 'Cascadia Mono, Consolas, monospace',
+          fontSize: isPaper ? 15 : (isMac ? 17 : 14),
+          fontWeight: isMac ? 600 : 500,
+          fontVariantNumeric: 'tabular-nums',
           color: P0.label, letterSpacing: '0.01em',
         }}>
           {last.toLocaleString('en-US', { maximumFractionDigits: 1 })} U
