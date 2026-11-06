@@ -1,154 +1,186 @@
 //@version=5
 // ============================================================
-//  S15 · Chandelier Exit + ZLSMA（趋势跟踪 · 优化版）
+//  S15 · Chandelier Exit + ZLSMA + BBW（趋势跟踪 · 实盘对齐版）
 // ------------------------------------------------------------
-//  本脚本来自一套实盘级量化系统的核心策略，用于 TradingView 快速验证。
+//  本脚本对应一套自托管量化系统的实际生产参数，用于在
+//  TradingView 上快速验证出入场逻辑。
 //
-//  入场逻辑（两根条件同时成立）：
-//    做多 = Chandelier Exit 处于多头状态  +  上一根是「收在 ZLSMA 上方的阳线」
-//    做空 = Chandelier Exit 处于空头状态  +  上一根是「收在 ZLSMA 下方的阴线」
+//  入场（三道闸门全部通过才开仓）：
+//    ① CE 方向翻转 —— 本根 dir ≠ 上一根 dir
+//    ② HA 关键K线 —— HA 阳线站上 ZLSMA（多）/ 阴线跌破（空）
+//    ③ BBW 分位   —— 布林带宽度近 100 根分位 > 70%
 //
-//  出场逻辑（两种模式可切换）：
-//    ① 原版   = 关键K线高低点止损 + 收盘穿越 ZLSMA 止盈
-//    ② 优化   = ATR 倍数止损 + 固定 R 倍数止盈   ← 默认
+//  出场（四条并列，谁先满足谁全平）：
+//    ① 止损   = 20 根阶段低点（多）/ 最高点（空）
+//    ② 止盈   = 入场价 ± 风险 × 1.2
+//    ③ 趋势反转 = 收盘破 ZLSMA 且从峰顶回撤 >= 0.8R，连续 2 根确认
+//    ④ 时间止损 = 持仓满 16 小时仍未到 1.2R
 //
 //  指标公式严格对齐作者原版：
-//    CE   : useClose 极值 + 棘轮(只朝有利方向移动) + dir 状态机
-//    ZLSMA: lsma + (lsma - lsma2)   即零滞后 SMMA
+//    CE   : 极值 +/- ATR倍数 + 棘轮(只朝有利方向移动) + dir 状态机
+//    ZLSMA: lsma1 + (lsma1 - lsma2)   即零滞后均线
+//
+//  ⚠ 说明：TradingView 回测的成交假设（滑点/手续费/资金费）与本项目
+//     的 Python 回测不同，两边数字不可直接比较，只用来验证形态判断。
 // ============================================================
-strategy("S15 · CE + ZLSMA 优化版", shorttitle = "S15_CE_ZL", overlay = true,
+strategy("S15 · CE + ZLSMA + BBW", shorttitle = "S15", overlay = true,
      initial_capital = 10000,
      default_qty_type = strategy.percent_of_equity, default_qty_value = 10,
-     commission_type = strategy.commission.percent, commission_value = 0.05,
-     slippage = 2, pyramiding = 0, calc_on_every_tick = false,
+     commission_type = strategy.commission.percent, commission_value = 0.02,
+     slippage = 0, pyramiding = 0, calc_on_every_tick = false,
      margin_long = 100, margin_short = 100,
      process_orders_on_close = false)
 
 // ---------------- 参数 ----------------
-grpCE    = "Chandelier Exit (everget)"
-grpZL    = "ZLSMA (veryfid)"
+grpCE    = "Chandelier Exit"
+grpZL    = "ZLSMA"
+grpBBW   = "波动率过滤 (BBW)"
 grpExit  = "出场规则"
-grpEntry = "入场过滤"
+grpTime  = "时间止损"
 
-ceLen    = input.int(22, "ATR 周期 / 极值窗口", group = grpCE, minval = 2)
-ceMult   = input.float(3.0, "ATR 倍数", step = 0.1, group = grpCE, minval = 0.5)
-useClose = input.bool(true, "用收盘价算极值（everget 默认 true）", group = grpCE)
+ceLen    = input.int(1, "ATR 周期 / 极值窗口", group = grpCE, minval = 1)
+ceMult   = input.float(2.0, "ATR 倍数", step = 0.1, group = grpCE, minval = 0.5)
+useClose = input.bool(true, "用收盘价算极值", group = grpCE)
 
 zLen     = input.int(50, "ZLSMA 长度", group = grpZL, minval = 2)
 
-exitMode = input.string("优化: ATR止损 + R倍止盈", "出场方式",
-     options = ["优化: ATR止损 + R倍止盈", "原版: 关键K线止损 + 均线止盈"], group = grpExit)
-slAtrMult = input.float(5.0, "止损 ATR 倍数", step = 0.1, group = grpExit, minval = 0.5)
-rrRatio   = input.float(1.5, "止盈 R 倍数（1.5 = 赚1.5倍亏损）", step = 0.1, group = grpExit, minval = 0.5)
+bbwLen   = input.int(20, "布林带长度", group = grpBBW, minval = 2)
+bbwMult  = input.float(2.0, "布林带倍数", step = 0.1, group = grpBBW)
+bbwRankN = input.int(100, "分位回溯根数", group = grpBBW, minval = 10)
+bbwMin   = input.float(70.0, "BBW 分位门槛 (%)", group = grpBBW, minval = 0, maxval = 100)
 
-entryMode = input.string("状态（同原版）", "入场方式",
-     options = ["状态（同原版）", "翻转当根（更严格）"], group = grpEntry)
-useTrend  = input.bool(false, "EMA200 顺势过滤", group = grpEntry)
-cooldown  = input.int(0, "平仓后冷却根数", minval = 0, group = grpEntry)
+swingLen = input.int(20, "止损回溯根数（阶段低点）", group = grpExit, minval = 2)
+rrRatio  = input.float(1.2, "止盈 R 倍数", step = 0.1, group = grpExit, minval = 0.1)
+trailR   = input.float(0.8, "破均线回撤门槛 (R)", step = 0.1, group = grpExit, minval = 0)
+confirmN = input.int(2, "破均线连续确认根数", group = grpExit, minval = 1)
+maxRisk  = input.float(30.0, "止损距离上限 (%)", step = 1.0, group = grpExit, minval = 1)
+
+maxHoldH = input.int(16, "最长持仓（小时）", group = grpTime, minval = 1)
+
+// ---------------- Heikin Ashi 序列 ----------------
+haT      = ticker.heikinashi(syminfo.tickerid)
+haOpen   = request.security(haT, timeframe.period, open)
+haHigh   = request.security(haT, timeframe.period, high)
+haLow    = request.security(haT, timeframe.period, low)
+haClose  = request.security(haT, timeframe.period, close)
+
+// ---------------- Chandelier Exit ----------------
+atr      = ta.atr(ceLen) * ceMult
+
+longRaw  = ta.highest(haHigh, ceLen) - atr
+shortRaw = ta.lowest(haLow, ceLen) + atr
+
+longStopPrev  = nz(longStop[1], longRaw)
+shortStopPrev = nz(shortStop[1], shortRaw)
+
+longStop  = useClose and haClose[1] > longStopPrev  ? math.max(longRaw,  longStopPrev)  : longRaw
+shortStop = useClose and haClose[1] < shortStopPrev ? math.min(shortRaw, shortStopPrev) : shortRaw
+
+var int dir = 1
+dir := haClose > shortStopPrev ? 1 : haClose < longStopPrev ? -1 : dir
+
+dirFlip = dir != dir[1]
 
 // ---------------- ZLSMA ----------------
-lsma1 = ta.linreg(close, zLen, 0)
+lsma1 = ta.linreg(haClose, zLen, 0)
 lsma2 = ta.linreg(lsma1, zLen, 0)
 zlsma = lsma1 + (lsma1 - lsma2)
 
-// ---------------- Chandelier Exit（everget 原版公式） ----------------
-atr     = ceMult * ta.atr(ceLen)
-longRaw  = (useClose ? ta.highest(close, ceLen) : ta.highest(high, ceLen)) - atr
-shortRaw = (useClose ? ta.lowest(close, ceLen)  : ta.lowest(low, ceLen))  + atr
-
-var float longStop = na
-var float shortStop = na
-longStopPrev  = nz(longStop[1], longRaw)
-shortStopPrev = nz(shortStop[1], shortRaw)
-// 棘轮：多头止损只上移、空头止损只下移
-longStop  := close[1] > longStopPrev  ? math.max(longRaw,  longStopPrev)  : longRaw
-shortStop := close[1] < shortStopPrev ? math.min(shortRaw, shortStopPrev) : shortRaw
-
-var int ceDir = 1
-ceDir := close > shortStopPrev ? 1 : close < longStopPrev ? -1 : ceDir
-
-// ---------------- 入场信号 ----------------
-stateLong  = ceDir[1] == 1
-stateShort = ceDir[1] == -1
-flipLong   = ceDir[1] == 1  and ceDir[2] == -1
-flipShort  = ceDir[1] == -1 and ceDir[2] == 1
-
-ceLongOk  = entryMode == "翻转当根（更严格）" ? flipLong  : stateLong
-ceShortOk = entryMode == "翻转当根（更严格）" ? flipShort : stateShort
-
-// 关键K线（只看已收完的上一根）
-keyLong  = close[1] > zlsma[1] and close[1] > open[1]
-keyShort = close[1] < zlsma[1] and close[1] < open[1]
-
-ema200 = ta.ema(close, 200)
-trendLongOk  = not useTrend or close[1] > ema200[1]
-trendShortOk = not useTrend or close[1] < ema200[1]
-
-var int lastExitBar = -100000
-coolOk = cooldown == 0 or (bar_index - lastExitBar) >= cooldown
-
-// ---------------- 止损 / 止盈价位 ----------------
-var float stopPrice = na
-var float tpPrice   = na
-
-isOptimized = exitMode == "优化: ATR止损 + R倍止盈"
-
-atrRaw = ta.atr(ceLen)   // 先赋值才能取历史值，Pine 不允许 ta.atr(x)[1]
-longStopCalc  = isOptimized ? close[1] - atrRaw[1] * slAtrMult : low[1]
-shortStopCalc = isOptimized ? close[1] + atrRaw[1] * slAtrMult : high[1]
-
-// ---------------- 开仓 ----------------
-longEntry  = ceLongOk  and keyLong  and trendLongOk  and coolOk and strategy.position_size == 0
-shortEntry = ceShortOk and keyShort and trendShortOk and coolOk and strategy.position_size == 0
-
-if longEntry
-    stopPrice := longStopCalc
-    tpPrice   := close[1] + (close[1] - stopPrice) * rrRatio
-    strategy.entry("L", strategy.long, comment = "多: CE多头 + 阳线站上ZLSMA")
-
-if shortEntry
-    stopPrice := shortStopCalc
-    tpPrice   := close[1] - (stopPrice - close[1]) * rrRatio
-    strategy.entry("S", strategy.short, comment = "空: CE空头 + 阴线跌破ZLSMA")
-
-// ---------------- 平仓 ----------------
-if strategy.position_size > 0
-    if isOptimized
-        strategy.exit("LX", "L", stop = stopPrice, limit = tpPrice,
-             comment_profit = "止盈R倍", comment_loss = "止损")
-    else
-        strategy.exit("LX", "L", stop = stopPrice, comment_loss = "止损")
-        if close[1] < zlsma[1]
-            strategy.close("L", comment = "止盈: 收盘下穿ZLSMA")
-        if strategy.position_size == 0
-            lastExitBar := bar_index
-
-if strategy.position_size < 0
-    if isOptimized
-        strategy.exit("SX", "S", stop = stopPrice, limit = tpPrice,
-             comment_profit = "止盈R倍", comment_loss = "止损")
-    else
-        strategy.exit("SX", "S", stop = stopPrice, comment_loss = "止损")
-        if close[1] > zlsma[1]
-            strategy.close("S", comment = "止盈: 收盘上穿ZLSMA")
-        if strategy.position_size == 0
-            lastExitBar := bar_index
-
-// 冷却期：记录仓位归零的那一根（两种模式都记）
-if strategy.position_size == 0 and strategy.position_size[1] != 0
-    lastExitBar := bar_index
-
-// ---------------- 画图 ----------------
 plot(zlsma, "ZLSMA", color = color.new(color.orange, 0), linewidth = 2)
-plot(longStop,  "CE 多头止损", color = color.new(color.green, 0), style = plot.style_linebr)
-plot(shortStop, "CE 空头止损", color = color.new(color.red, 0),   style = plot.style_linebr)
-plot(useTrend ? ema200 : na, "EMA200", color = color.new(color.gray, 40))
 
-plotshape(longEntry,  "做多", shape.triangleup,   location.belowbar, color.new(color.green, 0), size = size.small)
-plotshape(shortEntry, "做空", shape.triangledown, location.abovebar, color.new(color.red, 0),   size = size.small)
+// ---------------- BBW 分位 ----------------
+bbBasis = ta.sma(haClose, bbwLen)
+bbDev   = bbwMult * ta.stdev(haClose, bbwLen)
+bbw     = bbBasis > 0 ? (2 * bbDev) / bbBasis * 100 : 0.0
+bbwPct  = ta.percentrank(bbw, bbwRankN)
 
-// 实时显示当前状态
-if barstate.islast
-    lbl = "出场: " + (isOptimized ? "ATR×" + str.tostring(slAtrMult) + " + " + str.tostring(rrRatio) + "R" : "原版") + "\n入场: " + entryMode
-    label.new(bar_index, high, lbl, style = label.style_label_down,
-         color = color.new(color.gray, 20), textcolor = color.white, size = size.small)
+bbwOk = bbwPct > bbwMin
+
+// ---------------- 入场条件 ----------------
+keyLong  = haClose[1] > zlsma[1] and haClose[1] > haOpen[1]
+keyShort = haClose[1] < zlsma[1] and haClose[1] < haOpen[1]
+
+longEntry  = dirFlip and dir == 1  and keyLong  and bbwOk
+shortEntry = dirFlip and dir == -1 and keyShort and bbwOk
+
+// ---------------- 仓位与止损价（固定风险法）----------------
+swingLow  = ta.lowest(low, swingLen)
+swingHigh = ta.highest(high, swingLen)
+
+longStopPx  = swingLow
+shortStopPx = swingHigh
+
+longRiskPct  = close > 0 ? (close - longStopPx)  / close * 100 : na
+shortRiskPct = close > 0 ? (shortStopPx - close) / close * 100 : na
+
+longValid  = longEntry  and longRiskPct  > 0 and longRiskPct  <= maxRisk
+shortValid = shortEntry and shortRiskPct > 0 and shortRiskPct <= maxRisk
+
+// ---------------- 持仓状态跟踪 ----------------
+var float entryPx  = na
+var float stopPx   = na
+var float riskUnit = na
+var float tpPx     = na
+var float peakR    = na
+var int   breakCnt = 0
+var int   entryBar = na
+
+if longValid and strategy.position_size == 0
+    entryPx  := close
+    stopPx   := longStopPx
+    riskUnit := entryPx - stopPx
+    tpPx     := entryPx + riskUnit * rrRatio
+    peakR    := 0.0
+    breakCnt := 0
+    entryBar := bar_index
+    strategy.entry("L", strategy.long, comment = "多")
+
+if shortValid and strategy.position_size == 0
+    entryPx  := close
+    stopPx   := shortStopPx
+    riskUnit := stopPx - entryPx
+    tpPx     := entryPx - riskUnit * rrRatio
+    peakR    := 0.0
+    breakCnt := 0
+    entryBar := bar_index
+    strategy.entry("S", strategy.short, comment = "空")
+
+// ---------------- 出场 ----------------
+isLong  = strategy.position_size > 0
+isShort = strategy.position_size < 0
+
+if isLong or isShort
+    curR = isLong ? (close - entryPx) / riskUnit : (entryPx - close) / riskUnit
+    peakR := math.max(nz(peakR, 0.0), curR)
+
+    brokeMa  = isLong ? (close < zlsma) : (close > zlsma)
+    breakCnt := brokeMa ? breakCnt + 1 : 0
+
+    // ① 止损
+    if isLong and low <= stopPx
+        strategy.close("L", comment = "止损")
+    if isShort and high >= stopPx
+        strategy.close("S", comment = "止损")
+
+    // ② 止盈
+    if isLong and high >= tpPx
+        strategy.close("L", comment = "止盈")
+    if isShort and low <= tpPx
+        strategy.close("S", comment = "止盈")
+
+    // ③ 破均线 + 从峰顶回撤
+    drawdown = peakR - curR
+    if breakCnt >= confirmN and drawdown >= trailR
+        strategy.close_all(comment = "均线出场")
+
+    // ④ 时间止损
+    heldHours = (bar_index - entryBar) * (timeframe.multiplier / 60.0)
+    if heldHours >= maxHoldH and curR < rrRatio
+        strategy.close_all(comment = "超时出场")
+
+// ---------------- 可视化 ----------------
+plotshape(longValid,  "多头信号", shape.triangleup,   location.belowbar, color.new(color.green, 0), size = size.small)
+plotshape(shortValid, "空头信号", shape.triangledown, location.abovebar, color.new(color.red,   0), size = size.small)
+
+plot(strategy.position_size != 0 ? stopPx : na, "止损线", color.new(color.red,   30), style = plot.style_linebr, linewidth = 1)
+plot(strategy.position_size != 0 ? tpPx   : na, "止盈线", color.new(color.green, 30), style = plot.style_linebr, linewidth = 1)
