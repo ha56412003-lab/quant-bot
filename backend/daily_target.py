@@ -10,13 +10,14 @@
 """
 from __future__ import annotations
 
+import asyncio
 import datetime
 import json
 import logging
 import time
 import urllib.request
 
-from . import db
+from . import config, db
 
 log = logging.getLogger(__name__)
 
@@ -89,11 +90,22 @@ def state() -> dict:
 
 
 def blocked() -> bool:
-    """是否应阻止开新仓（达到日目标后）。"""
+    """是否应阻止开新仓（达到日目标后）。
+
+    ⚠ 2026-11-06 修：`pause_new` 这个开关以前是死的 —— DEFAULTS 里有、
+    前端能写、全仓库没人读，用户在前端关掉"达标后暂停开新仓"行为完全不变。
+    现在真正读它：pause_new=False 时只提醒不拦单。
+    """
     st = state()
     if st["day"] != _today():
         return False
-    return st["state"] in ("alerted", "done")
+    if st["state"] not in ("alerted", "done"):
+        return False
+    try:
+        c = cfg(config.load_strategies().get("global", {}))
+        return bool(c.get("pause_new", True))
+    except Exception:  # noqa: BLE001
+        return True          # 读配置失败时保持原行为（安全默认：拦）
 
 
 # ── 飞书推送 ────────────────────────────────────────────────
@@ -121,7 +133,8 @@ def _feishu_targets():
         return None
 
 
-def _push(text: str) -> bool:
+def _push_sync(text: str) -> bool:
+    """真正干活的同步实现（urllib 阻塞，最长 10s × 接收人数）。"""
     t = _feishu_targets()
     if not t:
         log.warning("飞书未配置，跳过推送")
@@ -152,6 +165,17 @@ def _push(text: str) -> bool:
     except Exception as exc:  # noqa: BLE001
         log.warning("飞书推送异常: %s", exc)
         return False
+
+
+async def _push(text: str) -> bool:
+    """异步包装。
+
+    ⚠ 2026-11-06 修：原来 _push 直接在 tick()（async）里同步调用，
+    urllib 的 timeout=10 会卡死整个 asyncio 事件循环 —— 偏偏是在"日目标达成、
+    有大额浮盈、正需要盯止损"的时刻，position_loop 的止损/止盈整整停摆 10~N 秒。
+    现在丢到线程池执行，事件循环照常跑。
+    """
+    return await asyncio.to_thread(_push_sync, text)
 
 
 # ── 主循环 ──────────────────────────────────────────────────
@@ -205,9 +229,17 @@ async def tick(equity: float, day_start_equity: float, close_all_cb, c: dict):
             _s("pnl_at_alert", round(pnl, 2))
             log.info("日目标确认达标 %.2f，已提醒", pnl)
             if c["notify"]:
-                mins = (c["auto_close_sec"] // 60) if c["auto_close_sec"] else 0
-                tail = (f"\n{mins} 分钟内未平仓将自动全平。" if mins else "")
-                _push("【量化系统 · 日目标达成】\n"
+                # 原来是 auto_close_sec // 60，配成 5 秒时算出 0 → 提示整句消失，
+                # 用户看到"请确认一键全平"，5 秒后仓位已经被自动平掉了。
+                _acs = int(c["auto_close_sec"] or 0)
+                if _acs >= 60:
+                    when = f"{_acs // 60} 分钟"
+                elif _acs > 0:
+                    when = f"{_acs} 秒"
+                else:
+                    when = ""
+                tail = f"\n{when}内未平仓将自动全平。" if when else ""
+                await _push("【量化系统 · 日目标达成】\n"
                       f"今日盈亏 +${pnl:.2f}（目标 ${target:.0f}）\n"
                       f"当前净值 ${equity:.2f}\n"
                       f"已提醒落袋：请打开控制台确认一键全平。{tail}")
@@ -221,17 +253,29 @@ async def tick(equity: float, day_start_equity: float, close_all_cb, c: dict):
             _s("state", "done")
             log.info("日目标：已无持仓，视为落袋完成（%.2f）", pnl)
             if c["notify"]:
-                _push(f"【量化系统】日目标已落袋。\n今日盈亏 +${pnl:.2f}")
+                await _push(f"【量化系统】日目标已落袋。\n今日盈亏 +${pnl:.2f}")
             return
         if c["auto_close_sec"] and now - st["alert_ts"] >= c["auto_close_sec"]:
             log.warning("日目标提醒超时 %.0f 分钟，自动全平", (now - st["alert_ts"]) / 60)
             try:
-                await close_all_cb()
-                _s("state", "done")
-                if c["notify"]:
-                    _push(f"【量化系统】日目标提醒超时，已自动全平落袋。\n今日盈亏 +${pnl:.2f}")
+                closed, failed = await close_all_cb()
             except Exception as exc:  # noqa: BLE001
-                log.warning("自动全平失败: %s", exc)
+                log.warning("自动全平异常: %s", exc)
+                return
+            if failed:
+                # ⚠ 2026-11-06 修：以前完全不看 close_all 的返回值。close_all 从不
+                # 抛异常，失败只体现在返回值里 → 仓位还在，状态却已置 done，
+                # blocked() 当天封死开仓，飞书还谎报"已全平落袋"，仓位实际裸奔。
+                _s("alert_ts", now)          # 重置计时窗口，稍后重试
+                log.error("日目标自动全平未全部成功：成功 %d 失败 %d，下个窗口重试",
+                          closed, failed)
+                if c["notify"]:
+                    await _push(f"【量化系统】日目标自动全平部分失败："
+                                f"成功 {closed} 笔 / 失败 {failed} 笔，系统将重试。")
+                return
+            _s("state", "done")
+            if c["notify"]:
+                await _push(f"【量化系统】日目标提醒超时，已自动全平落袋。\n今日盈亏 +${pnl:.2f}")
         return
 
 
