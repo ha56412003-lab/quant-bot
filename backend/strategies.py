@@ -626,24 +626,35 @@ _S15_POS_STATE = {}
 class S15CeZlsma(Base):
     sid = "S15_CE_ZLSMA"
     FACTORS = []                 # 不需要任何 Clawby 因子，不消耗额度
-    DEFAULT_INTERVAL = 1800      # 1h K线，每 30 分钟检查一次
+    DEFAULT_INTERVAL = 900       # 15m K线，每 15 分钟检查一次
     META = {
-        "name": "CE+ZLSMA 趋势跟随", "type": "趋势跟随 / 中线", "direction": "双向",
-        "logic": "Chandelier Exit 用 ATR 画一条只朝有利方向移动的止损线来判定大方向；"
-                 "ZLSMA 是零延迟线性回归均线，用来等回调结束的那根关键K线。"
-                 "大方向对 + 关键K线出现 = 顺势进场，用 ATR 倍数止损、固定 R 倍数止盈。",
-        "entry": "做多 = CE 处于多头状态 且 上一根为收盘站上 ZLSMA 的阳线；做空镜像。",
-        "exit": "止损 = 入场价 - ATR×倍数；止盈 = 止损距离 × R 倍数；另有最长持仓时间兜底。",
-        "factors": "1h K线（自算 ZLSMA32 / ATR22 / Chandelier 棘轮）",
-        "risk": "震荡市会被反复止损；1h 以下周期手续费占比过高，回测显示 5m/15m 均为负期望。",
+        "name": "CE+ZLSMA 趋势跟随", "type": "趋势跟随 / 短线", "direction": "双向",
+        "logic": "Chandelier Exit 用 ATR 画一条只朝有利方向移动的止损线来判定大方向，"
+                 "方向翻转那一刻就是信号；ZLSMA(50) 零延迟均线用来确认趋势站没站稳；"
+                 "布林带宽度分位衡量波动是否扩张，只在市场真的在动的时候才出手。"
+                 "入场用真实收盘价算钱，用 HA 合成价判方向。",
+        "entry": "三道闸全过才开仓：① CE 方向翻转 ② HA 出现关键K线（阳线站上 ZLSMA / 阴线跌破）"
+                 " ③ 布林带宽度近 100 根分位 > 70%",
+        "exit": "四条并列，谁先满足谁全平：① 时间止损 16 小时 ② 止损 = 20 根阶段低点"
+                " ③ 止盈 = 1.2R ④ 破 ZLSMA 且连续 2 根且从峰顶回撤 ≥ 0.8R",
+        "factors": "15m K线（自算 CE(1×2) / ZLSMA50 / ATR / 布林带宽度分位）",
+        "risk": "震荡市 CE 会频繁翻转，所以必须有 BBW 分位这道环境闸——"
+                "去掉它回测从 +36.66R 掉到 −85.20R。费率口径敏感："
+                "maker 0.02% 赚，市价 0.05% 亏。",
         "name_en": "CE + ZLSMA Trend Follow",
-        "logic_en": "Chandelier Exit draws a one-way ratcheting ATR stop that defines the regime; "
-                    "ZLSMA (zero-lag linreg average) times the pullback-end key bar. "
-                    "Right regime + key bar = trend entry, ATR-multiple stop and fixed-R target.",
-        "entry_en": "Long = CE in long state AND last closed bar is a bullish bar closing above ZLSMA; short mirrored.",
-        "exit_en": "SL = entry - ATR x mult; TP = stop distance x R; max-hold as backstop.",
-        "factors_en": "1h klines (self-computed ZLSMA32 / ATR22 / ratcheting Chandelier)",
-        "risk_en": "Choppy markets stop you out repeatedly; below 1h the fee drag makes expectancy negative.",
+        "logic_en": "Chandelier Exit ratchets an ATR stop that defines the regime; a flip is the signal. "
+                    "ZLSMA(50) confirms price is on the right side; Bollinger-band width percentile "
+                    "gates entries to expanding-volatility regimes. Directions use HA prices, "
+                    "money uses real closes.",
+        "entry_en": "All three gates: (1) CE direction flip (2) HTF key bar (bull close above ZLSMA / "
+                    "bear close below) (3) BBW percentile over last 100 bars > 70%",
+        "exit_en": "Four parallel exits, first hit wins: 16h time stop / stop at 20-bar swing "
+                   "extreme / take profit 1.2R / close beyond ZLSMA with 2-bar confirmation "
+                   "and 0.8R drawdown from peak.",
+        "factors_en": "15m klines (self-computed CE 1x2 / ZLSMA50 / ATR / Bollinger width percentile)",
+        "risk_en": "CE flips constantly in chop, hence the BBW regime gate — removing it drops "
+                   "backtest from +36.66R to -85.20R. Fee-sensitive: maker 0.02% profits, "
+                   "taker 0.05% loses.",
     }
 
     def _p(self, key, default):
@@ -751,17 +762,20 @@ class S15CeZlsma(Base):
                 if min_atr_pct > 0 and atr_pct < min_atr_pct:
                     continue
 
-                # ③ 布林带宽度分位门槛 —— 同上，已搬到池子（1h 分位 >70%），默认关闭
-                bp = bbw_pct[i]
-                if bbw_pct_min > 0 and (bp is None or bp < bbw_pct_min):
-                    continue
-
-                # ④ 关键 K 线（HA 阳线站上均线 / 阴线跌破均线）
+                # ③ 关键 K 线（HA 阳线站上均线 / 阴线跌破均线）
+                #    2026-11-06 核对后调整：HA 形态必须在 BBW 之前判断。
+                #    顺序定为 CE → HA → BBW，与「三道光闸」诊断表、与浩哥的理解一致。
+                #    两种顺序不影响开不开仓（都是 continue），但会影响诊断显示「卡在哪道」。
                 key_long = c > z and c > o
                 key_short = c < z and c < o
                 if d_now == 1 and not key_long:
                     continue
                 if d_now == -1 and not key_short:
+                    continue
+
+                # ④ 布林带宽度分位门槛 —— 2026-11-06 定：必须留在策略层，且必须 15 分钟
+                bp = bbw_pct[i]
+                if bbw_pct_min > 0 and (bp is None or bp < bbw_pct_min):
                     continue
 
                 # 委托价用「真实收盘价」，不用 HA 合成价。
