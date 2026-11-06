@@ -204,6 +204,9 @@ async def close_position(pos, price, reason, fraction=1.0):
         remain = full_qty - qty
         old_extra = float(pos["extra_margin"] or 0)
         db.update_position(pos["id"], qty=remain, extra_margin=old_extra * (1 - frac))
+        # 部分平仓的盈亏必须累加进 positions.pnl。之前只写 trades 流水，
+        # 等剩余仓位全平时被 close_position 覆盖 → 熔断低估亏损、页面显示反了。
+        db.add_realized_pnl(pos["id"], pnl)
         db.log_trade(pos["strategy"], pos["symbol"],
                      "sell" if side == "long" else "buy", qty, fill, fee,
                      "partial_close", pos["id"], pnl, mode())
@@ -213,7 +216,16 @@ async def close_position(pos, price, reason, fraction=1.0):
         db.log("info", f"部分平仓 [{pos['strategy']}] {pos['symbol']} {frac*100:.0f}% "
                        f"pnl={pnl:+.2f} 剩余={remain:.6g} — {reason}")
     else:
-        db.close_position(pos["id"], fill, pnl, reason)
+        # 幂等：仓位可能已被另一条路径平掉（引擎 manage_positions / 手动 /
+        # 日目标全平之间都有 await 让步点）。close_position 带 status='open' 条件，
+        # 返回 False 表示没平成功 —— 此时必须撤销本轮的余额调整，否则会多记一次盈亏。
+        closed_ok = db.close_position(pos["id"], fill, pnl, reason)
+        if not closed_ok:
+            if mode() != "live":
+                _adjust_paper_balance(-pnl)
+            db.log("warn", f"平仓跳过（仓位已平或已在处理中）[{pos['strategy']}] "
+                           f"{pos['symbol']} — {reason}")
+            return False
         db.log_trade(pos["strategy"], pos["symbol"],
                      "sell" if side == "long" else "buy", qty, fill, fee,
                      "close", pos["id"], pnl, mode())

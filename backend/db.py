@@ -319,17 +319,55 @@ def open_positions(strategy=None, symbol=None, mode="auto"):
     return [dict(r) for r in rows]
 
 
+# 允许通过 update_position 改的列。该函数用 f-string 拼列名进 SQL，
+# 之前没有任何白名单 —— 虽然现有调用点都是硬编码键名、当前不可注入，
+# 但它是模块里唯一没护栏的写入口，任何新调用方传 **payload 就能改 status 等任意列。
+_POSITION_WRITABLE = {
+    "strategy", "symbol", "side", "qty", "entry_price", "stop_price",
+    "take_profit", "trail_atr", "opened_at", "max_hold_sec", "time_exit_at",
+    "extreme", "status", "closed_at", "close_price", "pnl", "close_reason",
+    "mfe_pct", "mae_pct", "entry_factors", "reason", "mode", "leverage",
+    "extra_margin", "fee_rate", "slip_pct",
+}
+
+
 def update_position(pid, **fields):
+    bad = set(fields) - _POSITION_WRITABLE
+    if bad:
+        raise ValueError(f"update_position 非法列名: {sorted(bad)}")
     sets = ", ".join(f"{k}=?" for k in fields)
     with _lock, _conn:
         _conn.execute(f"UPDATE positions SET {sets} WHERE id=?", (*fields.values(), pid))
 
 
-def close_position(pid, price, pnl, reason):
+def add_realized_pnl(pid, delta):
+    """把一次部分平仓的盈亏累加进 positions.pnl（仓位仍 open）。
+
+    2026-11-06 修：之前部分平仓只写 trades 流水、不碰 positions.pnl，
+    等剩下的仓位全平时 close_position 直接 SET pnl=? 把前面那笔覆盖掉。
+    实测仓位 #19 POLUSDT：流水 −17.05 与 +15.86 两笔，positions.pnl 只剩
+    +15.86，真实亏损 −1.19 被抹成盈利。而熔断读的正是 positions.pnl → 低估亏损。
+    """
     with _lock, _conn:
         _conn.execute(
-            "UPDATE positions SET status='closed', closed_at=?, close_price=?, pnl=?, "
-            "close_reason=? WHERE id=?", (int(time.time()), price, pnl, reason, pid))
+            "UPDATE positions SET pnl = COALESCE(pnl, 0) + ? WHERE id=?", (delta, pid))
+
+
+def close_position(pid, price, pnl, reason):
+    """pnl 是**本次**平仓的增量，累加进已有 pnl 总额（可能已含部分平仓的盈亏）。
+
+    加 status='open' 是幂等保护：引擎的 manage_positions 与手动/日目标全平
+    可能同时对同一个仓位触发（中间有 await 让步点），没有这个条件会把同一
+    仓位平两次、盈亏双记、纸面余额被加减两次。
+    """
+    with _lock, _conn:
+        cur = _conn.execute(
+            "UPDATE positions SET status='closed', closed_at=?, close_price=?, "
+            "pnl=COALESCE(pnl, 0) + ?, close_reason=? WHERE id=? AND status='open'",
+            (int(time.time()), price, pnl, reason, pid))
+        # ⚠ 这里绝对不能再调 db.log()：它内部也 with _lock，而 _lock 是普通
+        # Lock（不可重入），持锁时再调 = 直接死锁。返回值交给调用方判断。
+        return cur.rowcount > 0
 
 
 def log_trade(strategy, symbol, side, qty, price, fee, kind, position_id, pnl, mode):
