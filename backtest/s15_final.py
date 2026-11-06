@@ -209,7 +209,8 @@ def simulate(sym, ks, ind, swing_lookback=20, min_atr_pct=2.5, min_adx=25.0,
              # ── 分段回撤（峰顶未到 trail_pct_max_r 时改用「浮盈回撤百分比」）──
              trail_pct=0.0, trail_pct_max_r=2.0, ma_bars_lt=None,
              trail_pct_cap=0.0, dd_force_mult=0.0,
-             half_tp_r=0.0, half_dd_pct=0.0, half_dd_r=0.0):
+             half_tp_r=0.0, half_dd_pct=0.0, half_dd_r=0.0,
+             half_fresh=False):
     """浩哥定稿规则。返回 (trades, missed)。
 
     trail_pct: 0=关闭。设为 0.5 表示峰顶不足 trail_pct_max_r 时，
@@ -359,12 +360,18 @@ def simulate(sym, ks, ind, swing_lookback=20, min_atr_pct=2.5, min_adx=25.0,
                 break
             # 峰顶浮盈（用当根最高/最低）
             peak_r = max(peak_r, ((h_ - entry) if want == "long" else (entry - l_)) / risk)
+            if half_done:
+                peak_r_half = max(peak_r_half, cur_r - half_base_r)
             cur_r = ((c_ - entry) if want == "long" else (entry - c_)) / risk
             # ② 到 1.5R
             if peak_r >= rr_target and not half_done:
                 if half_at_rr:
                     half_done = True
                     half_pnl = rr_target * 0.5 * risk
+                    # 半仓账本的 0 点 = 平半那一刻的 R；峰顶和破线计数从零开始
+                    half_base_r = cur_r
+                    peak_r_half = 0.0
+                    ma_break_cnt_half = 0
                 else:
                     exit_px = entry + sign * rr_target * risk
                     exit_reason, exit_i = "1.5R止盈", j
@@ -383,7 +390,8 @@ def simulate(sym, ks, ind, swing_lookback=20, min_atr_pct=2.5, min_adx=25.0,
                 if half_dd_r > 0 and (peak_r - cur_r) >= half_dd_r:
                     exit_px, exit_reason, exit_i = c_, "半仓回撤0.8R", j
                     break
-                if half_tp_r > 0 and _extra_cur >= half_tp_r:
+                _ht_cur = (cur_r - half_base_r) if half_fresh else _extra_cur
+                if half_tp_r > 0 and _ht_cur >= half_tp_r:
                     exit_px, exit_reason, exit_i = c_, "半仓再满2R", j
                     break
 
@@ -397,25 +405,41 @@ def simulate(sym, ks, ind, swing_lookback=20, min_atr_pct=2.5, min_adx=25.0,
                 reversed_ = (c_ < zl[j]) if want == "long" else (c_ > zl[j])
                 if reversed_:
                     ma_break_cnt += 1
+                    if half_done:
+                        ma_break_cnt_half += 1
                 else:
                     ma_break_cnt = 0
-                # peak_r<=0.05 时按比例算出的门槛是 0，会让亏损仓位被乱砍；
-                # 与实盘 strategies.py 保持同一条护栏
-                use_pct = trail_pct > 0 and 0.05 < peak_r < trail_pct_max_r
+                    if half_done:
+                        ma_break_cnt_half = 0
+                # ── 半仓按「全新的一张票」跑：用半仓自己的峰顶和破线计数 ──
+                # 平半那一刻半仓账本清零，之后完全独立：
+                #   半仓峰顶 < 2R → 回到段A（5 根 + 回撤浮盈 50%）
+                #   半仓峰顶 ≥ 2R → 段B（2 根 + 回撤 0.8R）
+                # 不这样分开的话，平半时峰顶已经是 2R+，半仓永远走段B，
+                # 等于半仓拿到一张「天生就在高位」的票，规则跟新开的票不一样。
+                _fresh = half_fresh and half_done
+                if _fresh:
+                    pk = peak_r_half
+                    cr = cur_r - half_base_r
+                else:
+                    pk = peak_r
+                    cr = cur_r
+                use_pct = trail_pct > 0 and 0.05 < pk < trail_pct_max_r
                 need_bars = (ma_bars_lt if (use_pct and ma_bars_lt is not None)
                              else ma_confirm_bars)
                 if use_pct:
-                    need_dd = peak_r * trail_pct
+                    need_dd = pk * trail_pct
                     if trail_pct_cap > 0:
                         need_dd = min(need_dd, trail_pct_cap)
                 else:
                     need_dd = trail_r
-                _dd = peak_r - cur_r
+                _dd = pk - cr
                 # 回撤严重超标时不等穿线根数（dd_force_mult=0 关闭）。
                 # 动机：5 根确认要慢一根 15m K，遇到一根长阴线会出现
                 # 「浮盈全吐光还倒亏，但还差一根不肯走」。
                 _force = dd_force_mult > 0 and _dd >= need_dd * dd_force_mult
-                if ((ma_break_cnt >= need_bars or _force) and _dd >= need_dd):
+                _cnt = ma_break_cnt_half if _fresh else ma_break_cnt
+                if ((_cnt >= need_bars or _force) and _dd >= need_dd):
                     exit_px, exit_reason, exit_i = c_, "均线破+回撤", j
                     break
             else:
