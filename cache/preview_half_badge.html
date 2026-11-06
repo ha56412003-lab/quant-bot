@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+body{background:#0b0c12;color:#c9d1d9;font:13px/1.5 -apple-system,"Segoe UI",sans-serif;margin:24px;padding:0}
+h3{color:#8b949e;font-weight:600;font-size:12px;letter-spacing:.1em;margin:0 0 10px}
+table{border-collapse:collapse;width:900px;margin-bottom:28px}
+th{text-align:left;font-size:11px;color:#6e7681;font-weight:500;padding:6px 8px;border-bottom:1px solid #21262d}
+td{padding:7px 8px;border-bottom:1px solid #151824;font-variant-numeric:tabular-nums}
+.note{color:#6e7681;font-size:12px;margin:-16px 0 28px}
+.badge{margin-left:5px;font-size:10px;line-height:14px;padding:1px 4px;border-radius:3px;
+       background:rgba(255,193,7,.16);color:#ffc107;font-weight:700;
+       border:1px solid rgba(255,193,7,.35);vertical-align:middle}
+.long{color:#ff4d5e}.short{color:#35e08a}
+.up{color:#c4182c}.dn{color:#0f7a3d}
+</style></head><body>
+
+<h3>平仓前（普通持仓）</h3>
+<table>
+<tr><th>币种</th><th>方向</th><th>杠杆</th><th>策略</th><th>开仓价</th><th>现价</th><th>数量</th><th>浮盈</th></tr>
+<tr><td style="font-weight:700">HYPE</td><td class="long">多</td><td>3x</td><td>S15</td>
+    <td>78.705</td><td>85.49</td><td>0.6346</td><td class="up">+4.31</td></tr>
+</table>
+<div class="note">↑ 到 2R 之前，方向列只有「多」，数量是完整仓位</div>
+
+<h3>到 2R 平掉一半之后 ★</h3>
+<table>
+<tr><th>币种</th><th>方向</th><th>杠杆</th><th>策略</th><th>开仓价</th><th>现价</th><th>数量</th><th>浮盈</th></tr>
+<tr><td style="font-weight:700">HYPE</td>
+    <td class="long">多<span class="badge" title="已到 2R 平掉一半，剩下一半继续跑（数量列是剩余量）">½</span></td>
+    <td>3x</td><td>S15</td>
+    <td>78.705</td><td>92.14</td><td>0.3173</td><td class="up">+4.26</td></tr>
+</table>
+<div class="note">↑ 方向列多了一个黄色「½」标记 &nbsp;·&nbsp; 数量减半（0.6346 → 0.3173）&nbsp;·&nbsp; 鼠标悬停有说明</div>
+
+<h3>空单同理（绿色「空」）</h3>
+<table>
+<tr><th>币种</th><th>方向</th><th>杠杆</th><th>策略</th><th>开仓价</th><th>现价</th><th>数量</th><th>浮盈</th></tr>
+<tr><td style="font-weight:700">ZEC</td>
+    <td class="short">空<span class="badge">½</span></td>
+    <td>3x</td><td>S15</td>
+    <td>142.8</td><td>131.5</td><td>0.2085</td><td class="up">+1.18</td></tr>
+</table>
+
+</body></html>

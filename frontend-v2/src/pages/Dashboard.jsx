@@ -208,6 +208,19 @@ export default function Dashboard({ status }) {
                       </td>
                       <td style={{ padding: '7px 8px', color: long ? '#ff4d5e' : '#35e08a' }}>
                         {long ? '多' : '空'}
+                        {p.half_closed ? (
+                          <span
+                            title="已到 2R 平掉一半，剩下一半继续跑（数量列是剩余量）"
+                            style={{
+                              marginLeft: 5, fontSize: 10, lineHeight: '14px',
+                              padding: '1px 4px', borderRadius: 3,
+                              background: 'rgba(255,193,7,.16)',
+                              color: '#ffc107', fontWeight: 700,
+                              border: '1px solid rgba(255,193,7,.35)',
+                              verticalAlign: 'middle',
+                            }}
+                          >½</span>
+                        ) : null}
                       </td>
                       <td style={{ padding: '7px 8px' }}>
                         <span style={{ display: 'inline-flex', gap: 2 }}>
