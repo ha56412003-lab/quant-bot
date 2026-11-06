@@ -107,7 +107,12 @@ async def manage_positions(ctx, strategies):
             pos["mae_pct"] = exc_pct
         reason = None
         if now - pos["opened_at"] >= pos["max_hold_sec"]:
-            reason = "达到最长持仓时限"
+            # ⚠ 到过 2R（half_closed=1）的单子豁免时间止损。
+            # 不然「让利润奔跑」会被 16 小时硬砍 —— 回测里时间止损的条件是
+            # peak_r < rr_target，也就是没到过止盈价的才按时间撤。
+            # 实盘原来是无条件平，和回测口径不一致，会把正在走的趋势单砍掉。
+            if not int(pos.get("half_closed") or 0):
+                reason = "达到最长持仓时限"
         elif pos["time_exit_at"] and now >= pos["time_exit_at"]:
             reason = "策略时间出场"
         if not reason and pos["trail_atr"]:
@@ -145,12 +150,23 @@ async def manage_positions(ctx, strategies):
             # （第一次可能其实成交了、只是回执超时 → 反复砸单）。
             if time.time() < _CLOSE_BACKOFF.get(pid, 0):
                 continue
-            ok = await executor.close_position(pos, price, reason)
+            # 策略层用 "HALF:" 前缀表示「只平一半，剩下继续持有」。
+            # executor.close_position 早就支持 fraction，这里只需要分流。
+            frac, label = 1.0, reason
+            if reason.startswith("HALF:"):
+                frac, label = 0.5, reason[5:]
+            ok = await executor.close_position(pos, price, label, fraction=frac)
             if ok:
                 _CLOSE_BACKOFF.pop(pid, None)
+                if frac < 1.0:
+                    # 落库标记，重启后靠它防止再平一次（否则仓被砍成 1/4）
+                    db.update_position(pid, half_closed=1)
+                    db.log("info", f"平一半 [{pos['strategy']}] {pos['symbol']} "
+                                   f"{pos['side']} 剩余 qty={pos['qty'] * (1 - frac):.6g} "
+                                   f"— {label}")
             else:
                 _CLOSE_BACKOFF[pid] = time.time() + _CLOSE_RETRY_SEC
-                db.log("warn", f"平仓未成功（{reason}）{pos['symbol']}，"
+                db.log("warn", f"平仓未成功（{label}）{pos['symbol']}，"
                                f"{_CLOSE_RETRY_SEC}s 后重试")
 
 

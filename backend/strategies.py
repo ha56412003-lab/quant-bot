@@ -824,7 +824,12 @@ class S15CeZlsma(Base):
                             f"ATR={atr_pct:.2f}%"
                             + (f" BBW分位={bp:.0f}%" if bp is not None else "")),
                     stop_price=round(stop, 8),
-                    take_profit=round(tp, 8),
+                    # ⚠ 2026-11-06 改：原来这里写死 take_profit=1.2R 价位。
+                    # 引擎的 take_profit 检查排在 check_exit 之前，一到 1.2R
+                    # 就整仓全平 → 永远走不到「2R 平一半」，后面的趋势也全丢。
+                    # 回测里 1.2R 全平只有 -3.08R，放开后是 +38.22R。
+                    # tp 变量仍参与上面的合法性校验，只是不再作为平仓价落到库里。
+                    take_profit=0.0,
                     max_hold_sec=self.max_hold,
                     fresh=0, strength=abs(c - z) / atr,
                     fee_rate=fee_rate, slip_pct=slip_pct,
@@ -862,10 +867,57 @@ class S15CeZlsma(Base):
         约 192 次请求 ≈ 3.8MB；不做这个缓存会是 553MB/天。
         """
         try:
+            half = await self._half_take_profit(ctx, pos)
+            if half:
+                return half
             return await self._trend_reversal_exit(ctx, pos)
         except Exception as exc:  # noqa: BLE001
             log.warning("S15 check_exit %s 失败: %s", pos.get("symbol"), exc)
             return None
+
+    async def _half_take_profit(self, ctx, pos):
+        """浮盈达 half_at_r（默认 2.0R）且没平过一半 → 平掉 50%，剩一半放开跑。
+
+        为什么要这一条（20 币 / 60 天 / 双档 ATR 回测，费率 0.02% maker 进 +
+        0.05% taker 出）：
+
+            出场规则                 笔数   净R     胜率   最大回撤  赚几段
+            1.2R 全平（原线上）       498   -3.08   43.0%   -32.1    1/4
+            1.2R 平一半              472  +31.99   43.6%   -24.0    2/4
+            2.0R 平一半（本实现）     477  +38.22   42.1%   -25.8    2/4
+            完全放开止盈              478  +46.99   42.3%   -29.2    3/4
+
+        选 2.0R 平一半而不是完全放开：收益只少 8.8R，但回撤小 3.4R，
+        且宽幅震荡行情亏得更少（-6.97R vs -10.13R）—— 浩哥明确要的是
+        「2R 平一半，后面放开跑」。
+
+        按 30 天趋势效率分类，2.0R 平一半在三种行情里都不比原规则差：
+            单边趋势   +11.00R（原 +9.99）
+            半趋势     +23.90R（原 +4.63）
+            宽幅震荡    -6.97R（原 -10.84）
+
+        返回 "HALF:..." 交给引擎识别，引擎调 executor.close_position(fraction=0.5)。
+        """
+        if int(pos.get("half_closed") or 0):
+            return None
+        thr = float(self._p("half_at_r", 2.0))
+        if thr <= 0:                  # 0 = 关闭该出场，行为退回「全仓拿到均线破」
+            return None
+        entry = float(pos.get("entry_price") or 0)
+        stop = float(pos.get("stop_price") or 0)
+        if entry <= 0 or stop <= 0:
+            return None
+        risk = abs(entry - stop)
+        if risk <= 0 or not math.isfinite(risk):
+            return None
+        px = ctx.price(pos.get("symbol"))
+        if not px or not math.isfinite(px):
+            return None
+        sign = 1.0 if pos.get("side") == "long" else -1.0
+        cur_r = (px - entry) * sign / risk
+        if cur_r < thr:
+            return None
+        return f"HALF:{thr:.1f}R止盈(先平一半,剩一半放开跑)"
 
     async def _trend_reversal_exit(self, ctx, pos):
         """出场③：收盘跌破 ZLSMA 且从峰顶回撤 ≥ trail_r，连续 N 根确认后全平。
