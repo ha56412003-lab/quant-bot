@@ -37,8 +37,25 @@ def cfg(global_cfg) -> dict:
     raw = (global_cfg or {}).get("daily_target") or {}
     out = dict(DEFAULTS)
     for k, v in raw.items():
-        if k in out and v is not None:
-            out[k] = type(DEFAULTS[k])(v) if not isinstance(v, bool) else bool(v)
+        if k not in out or v is None:
+            continue
+        d = DEFAULTS[k]
+        try:
+            if isinstance(d, bool):
+                # ⚠ bool("false") == True。前端/手拼 JSON 传字符串时，
+                # 以前会把 daily_target.enabled 意外打开（连带自动全平），
+                # 用户以为"关了"其实开着。
+                out[k] = v if isinstance(v, bool) else \
+                    str(v).strip().lower() in ("1", "true", "yes", "on")
+            elif isinstance(d, float):
+                out[k] = float(v)
+            else:
+                out[k] = int(float(v))
+        except (TypeError, ValueError):
+            # 以前非法值直接抛进 engine 的除错分支被 log.debug 吞掉，
+            # 表现为"日目标整天不工作且界面无任何提示"。现在留痕 + 退回默认。
+            log.warning("daily_target 配置项 %s=%r 非法，改用默认 %r", k, v, d)
+            out[k] = d
     return out
 
 
@@ -266,12 +283,22 @@ async def tick(equity: float, day_start_equity: float, close_all_cb, c: dict):
                 # ⚠ 2026-11-06 修：以前完全不看 close_all 的返回值。close_all 从不
                 # 抛异常，失败只体现在返回值里 → 仓位还在，状态却已置 done，
                 # blocked() 当天封死开仓，飞书还谎报"已全平落袋"，仓位实际裸奔。
-                _s("alert_ts", now)          # 重置计时窗口，稍后重试
-                log.error("日目标自动全平未全部成功：成功 %d 失败 %d，下个窗口重试",
-                          closed, failed)
-                if c["notify"]:
+                #
+                # ⚠ 同轮补丁：第一版只是简单 _s("alert_ts", now) 重试，遇到
+                # 「这个币永远拿不到价 → 永远平不掉」会每 auto_close_sec 秒
+                # 全平一轮 + 推一条飞书，无限循环（前端最小能填 5 秒）。
+                # 现在按次数指数退避，且只在第 1/3/10 次推送。
+                n = int(st.get("autoclose_fail_n") or 0) + 1
+                _s("autoclose_fail_n", n)
+                backoff = min(60 * n, 1800)          # 1,2,3… 分钟，封顶 30 分钟
+                _s("alert_ts", now + backoff)        # 推迟到 backoff 秒后再试
+                log.error("日目标自动全平未全部成功（第 %d 次）：成功 %s 失败 %s，"
+                          "%d 秒后重试", n, closed, failed, backoff)
+                if c["notify"] and n in (1, 3, 10):
                     await _push(f"【量化系统】日目标自动全平部分失败："
-                                f"成功 {closed} 笔 / 失败 {failed} 笔，系统将重试。")
+                                f"成功 {closed} 笔 / 失败 {failed} 笔，"
+                                f"系统将于 {backoff // 60} 分钟后重试（第 {n} 次）。"
+                                f"若持续失败请手动处理。")
                 return
             _s("state", "done")
             if c["notify"]:

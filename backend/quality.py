@@ -407,8 +407,16 @@ def recompute(universe) -> list[str]:
         atr = r.get("atr_pct")
         # 档位缺失时按当前 ATR 推断，别无条件默认 "lo" ——
         # 高档币被当成低档判断会被硬底线瞬间踢出。
-        band = _band_of.get(sym) or _band_new(atr) or "lo"
-        _band_of[sym] = band
+        # ⚠ 只有推算成功才回写：atr is None（本轮 ATR 刷新失败）时不能把
+        # 猜出来的 "lo" 永久钉进 _band_of，否则一个 hi 档币会被 ATR_LO_EXIT
+        # 硬底线反复踢出又放进，来回震荡。
+        band = _band_of.get(sym)
+        if band is None:
+            band = _band_new(atr)
+            if band is not None:
+                _band_of[sym] = band
+            else:
+                band = "lo"            # 本轮临时按低档放行，但不固化
         if _band_force_exit(atr, band):
             continue                       # 硬底线，立刻踢
         if _band_keep(atr, band) or now - _in_since[sym] < MIN_DWELL_SEC:
