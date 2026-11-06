@@ -593,7 +593,7 @@ async def api_pool():
             "symbol": sym,
             "price": factors.mark_price_of(sym),
             "qv": q.get("qv"), "atr_pct": q.get("atr_pct"), "spike": q.get("spike"),
-            "bbw_pct": q.get("bbw_pct"), "band": q.get("band"),
+            "bbw_pct": q.get("bbw_pct"),
             "ok": q.get("ok"), "why": q.get("why", ""),
             "in_monitor": sym in monitor,
             "in_candidate": sym in config.UNIVERSE,
