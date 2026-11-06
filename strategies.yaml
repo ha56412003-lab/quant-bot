@@ -188,6 +188,12 @@ pools:
     # ATR 仍然照常采集（atr_interval 保留），只是不再决定进出池。
     # 删除的参数：atr_band_lo_max / atr_band_hi_min / atr_lo_hold /
     #            atr_lo_exit / atr_hi_hold / atr_hi_exit
+    # ── ATR 准入门槛（2026-11-06 晚 浩哥定）──
+    #   进池：5m ATR > 1.20% 才进监控池
+    #   出池：进池满 30 分钟 + 没被选进持仓池 + ATR < 0.80% → 移除
+    #   已进持仓池的币不受 ATR 影响（出场交给策略层）
+    atr_enter_min: 1.20       # 进池线（%，5m ATR 严格大于）
+    atr_exit_max: 0.80        # 清退线（%）：满 30 分钟且未持仓时跌破就移除
     min_dwell_sec: 1800       # 进池后最短停留 30 分钟
     atr_interval: 5m          # ATR 用 5 分钟（只采集，不再参与准入）
     # BBW 门槛已从池子移除（2026-11-06 回测证伪）：

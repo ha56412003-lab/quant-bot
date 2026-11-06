@@ -1,4 +1,4 @@
-"""监控池（三层池的第 2 层）—— 双档 ATR 多周期共振。
+"""监控池（三层池的第 2 层）—— 高波动准入（5m ATR > 1.20%）。
 
 2026-11-06 架构改造（浩哥定稿，见 docs/架构_S15三模块.md）：
 
@@ -24,10 +24,11 @@
   日线插针               每天
   24h 成交额             每轮（走 ticker）
 
-【缓冲带（防池子抖动）】
-  低档：进 <0.33%，留 <0.40%，踢 >=0.45%
-  高档：进 >=1.20%，留 >=1.10%，踢 <1.00%
-  进池后 30 分钟内不因「变差」被踢（跌穿硬底线除外）
+【ATR 准入门槛（2026-11-06 晚 浩哥定）】
+  进池：5m ATR > 1.20%
+  出池：进池满 30 分钟 + 期间没被选进持仓池 + ATR < 0.80% → 移除
+  已进持仓池的币不受 ATR 影响（出场交给策略层）
+  另外成交额 <1000万 或 插针 >4.0 也会被清退（与进池同一把尺子）
 """
 from __future__ import annotations
 
@@ -53,8 +54,12 @@ MONITOR_SIZE = 200      # 监控池容量（最多，不凑数）
 # （INIT / LIT / FLUID / FOGO 四个正在翻转却被挡在门外）。
 # 代价：15m 扫描的 K 线流量 51MB/天 → 160MB/天（+109MB）。
 
-# 双档 ATR（5 分钟口径）
-# ATR 双档阈值已删除（2026-11-06 晚）—— 池子准入只用成交额 + 插针
+# ATR 准入门槛（2026-11-06 晚 浩哥定）
+#   进池：5m ATR > 1.20%  才进监控池
+#   出池：进池满 30 分钟 + 期间没被选进持仓池 + ATR < 0.80% → 移除
+# 已进持仓池的币不受 ATR 影响（策略层自己有出场规则，池子不干预）
+ATR_ENTER_MIN = 1.20    # 进池线（%）
+ATR_EXIT_MAX = 0.80     # 清退线（%）：满 30 分钟且未持仓时，跌到这条线以下就移除
 MIN_DWELL_SEC = 1800    # 进池后最短停留 30 分钟
 
 ATR_INTERVAL = "5m"     # ATR 周期
@@ -90,7 +95,7 @@ _ts = 0.0            # 监控池上次重算
 def configure(cfg: dict | None = None) -> None:
     """从 strategies.yaml 的 pools.monitor 段热更新阈值（缺项保留原值）。"""
     global MIN_QUOTE_VOL, MAX_SPIKE, MONITOR_SIZE
-    global MIN_DWELL_SEC, BBW_PCT_MIN
+    global MIN_DWELL_SEC, ATR_ENTER_MIN, ATR_EXIT_MAX, BBW_PCT_MIN
     global REFRESH_SEC, SCAN_SEC, BBW_REFRESH_SEC, DAILY_REFRESH_SEC, TICK_SEC
     cfg = cfg or {}
 
@@ -104,6 +109,8 @@ def configure(cfg: dict | None = None) -> None:
     MAX_SPIKE = _f("max_spike", MAX_SPIKE)
     MONITOR_SIZE = _i("size", MONITOR_SIZE)
     MIN_DWELL_SEC = _i("min_dwell_sec", MIN_DWELL_SEC)
+    ATR_ENTER_MIN = _f("atr_enter_min", ATR_ENTER_MIN)
+    ATR_EXIT_MAX = _f("atr_exit_max", ATR_EXIT_MAX)
     BBW_PCT_MIN = _f("bbw_pct_min", BBW_PCT_MIN)
     REFRESH_SEC = _i("refresh_sec", REFRESH_SEC)
     SCAN_SEC = _i("scan_sec", SCAN_SEC)
@@ -356,13 +363,24 @@ async def _refresh_daily(universe) -> int:
 
 # ── 池子重算（双档 + 缓冲带 + 容量）─────────────────────────
 
+def _held_symbols() -> set:
+    """当前持仓池里的币。拿不到就当空集（fail-open：不因读库失败而误踢）。"""
+    try:
+        from . import db
+        return {p["symbol"] for p in db.open_positions()}
+    except Exception as exc:  # noqa: BLE001
+        log.debug("quality: 读取持仓失败，按空集处理: %s", exc)
+        return set()
+
+
 def recompute(universe) -> list[str]:
     """根据当前数据重算监控池名单。返回新名单。"""
     global _monitor, _ts
     now = time.time()
     now_set = set(universe)
 
-    # ① 已在池的：按缓冲带判断留不留
+    # ① 已在池的：判断留不留
+    held = _held_symbols()                 # 当前持仓池里的币
     kept: list[str] = []
     for sym in _monitor:
         if sym not in now_set:
@@ -370,13 +388,25 @@ def recompute(universe) -> list[str]:
         # 缺失进池时间时按「现在」补上：否则 now - 0 是个巨大值，
         # 最短停留保护会反向失效（刚进池就被踢，3 分钟级反复进出）。
         _in_since.setdefault(sym, now)
+        # 已被选进持仓池 → 池子不干预（出场规则交给策略层）
+        if sym in held:
+            kept.append(sym)
+            continue
+        # 进池未满 30 分钟 → 保护期内不因「变差」被踢
+        if now - _in_since[sym] < MIN_DWELL_SEC:
+            kept.append(sym)
+            continue
+        # —— 满 30 分钟且没被选进持仓池，才做清退判断 ——
         r = _rows.get(sym) or {}
         atr = r.get("atr_pct")
-        # 出池判断：成交额 / 插针不达标就踢（满最短停留后才踢，避免刚进就出）
-        ok, _why = _judge(sym)
-        if not ok and now - _in_since[sym] > MIN_DWELL_SEC:
+        # 浩哥定的清退规则：ATR 掉到 0.80% 以下 → 移除
+        if atr is not None and atr < ATR_EXIT_MAX:
             continue
-        kept.append(sym)                   # 达标 or 还在最短停留保护期内
+        # 成交额 / 插针不达标 → 移除
+        ok, _why = _judge(sym)
+        if not ok:
+            continue
+        kept.append(sym)
 
     # 容量下调时 kept 也要截断，否则 size 从 23 改成 20 后
     # 页面会出现 monitor_n=23 / monitor_size=20 的自相矛盾。
@@ -384,13 +414,16 @@ def recompute(universe) -> list[str]:
         log.info("quality: 监控池容量下调 %d → %d，裁掉末位", len(kept), MONITOR_SIZE)
         kept = kept[:MONITOR_SIZE]
 
-    # ② 未在池的：过了 _judge 就能进，按成交额降序（流动性最好的优先）
+    # ② 未在池的：必须 5m ATR > 1.20%（浩哥定）+ 过 _judge，按成交额降序
     fresh: list[tuple[str, float]] = []
     in_pool = set(kept)
     for sym in universe:
         if sym in in_pool:
             continue
         r = _rows.get(sym) or {}
+        atr = r.get("atr_pct")
+        if atr is None or atr <= ATR_ENTER_MIN:
+            continue                       # 没数据、或波动不够 → 不进池
         ok, _why = _judge(sym)
         if not ok:
             continue
