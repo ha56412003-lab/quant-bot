@@ -6,6 +6,7 @@ connector wraps); keys stay local, nothing routes through Clawby.
 import hashlib
 import hmac
 import logging
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
 import math
 import time
 import urllib.parse
@@ -204,7 +205,24 @@ async def qty_step(symbol):
 
 
 def round_step(qty, step):
+    """按交易所的 stepSize 向下取整。
+
+    ⚠ 2026-11-06 修：原实现用 len(str(step).split(".")[-1]) 推小数位。
+    但交易所返回的 stepSize 可能是科学计数法字符串 —— str(1e-05) = "1e-05"，
+    里面根本没有 "."，于是 precision=0 → round(qty, 0) 直接取整。
+    实测 round_step(0.5, 1e-05) → 0.0（下单量变 0 被拒），
+    round_step(12345.6, 1e-05) → 12346.0（名义金额错 N 倍）。
+    改用 Decimal 做精确的整除，不依赖任何字符串格式推断。
+    """
     if step <= 0:
         return qty
-    precision = max(0, len(str(step).rstrip("0").split(".")[-1])) if "." in str(step) else 0
-    return round((qty // step) * step, precision)
+    try:
+        d_step = Decimal(str(step))
+        d_qty = Decimal(str(qty))
+        if d_step <= 0:
+            return qty
+        n = (d_qty / d_step).to_integral_value(rounding=ROUND_DOWN) * d_step
+        return float(n.normalize())
+    except (InvalidOperation, ValueError, TypeError):
+        # 兜底：退回原来的整数运算（至少不会抛异常打断下单）
+        return (qty // step) * step

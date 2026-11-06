@@ -730,6 +730,19 @@ async def collect_due():
 
 _kline_cache = {}   # (symbol, interval, limit) -> (fetched_at, data)
 _KLINE_TTL = 5      # seconds; keeps 1s strategy scans within Binance weight limits
+# ⚠ 2026-11-06 修：这个 dict 原来既不过期也不限容。key 里带 limit，候选池
+# 每天换 ~200 只币，老 key 永远不删 → 单个条目 60~200 根 K 线（几十 KB），
+# 跑一个月能到 GB 级。现在超过容量就先清过期、再按插入顺序淘汰最老的。
+_KLINE_CACHE_MAX = 800
+
+
+def _kline_cache_trim(now):
+    if len(_kline_cache) <= _KLINE_CACHE_MAX:
+        return
+    for k in [k for k, (t, _) in _kline_cache.items() if now - t >= _KLINE_TTL * 12]:
+        _kline_cache.pop(k, None)
+    while len(_kline_cache) > _KLINE_CACHE_MAX:
+        _kline_cache.pop(next(iter(_kline_cache)), None)
 
 
 async def get_klines(symbol, interval="1h", limit=100):
@@ -738,7 +751,9 @@ async def get_klines(symbol, interval="1h", limit=100):
     if hit and time.time() - hit[0] < _KLINE_TTL:
         return hit[1]
     data = await binance.klines(symbol, interval, limit)
-    _kline_cache[key] = (time.time(), data)
+    now = time.time()
+    _kline_cache[key] = (now, data)
+    _kline_cache_trim(now)
     return data
 
 

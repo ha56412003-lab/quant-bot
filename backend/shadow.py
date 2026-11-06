@@ -88,7 +88,11 @@ def record(sig, px, stop, tp, acted: bool):
     db.shadow_insert(
         ts=int(time.time()), strategy=sig.strategy, symbol=sig.symbol,
         side=sig.side, strength=float(getattr(sig, "strength", 0) or 0),
-        fresh=int(getattr(sig, "fresh", 999) or 999),
+        # ⚠ 2026-11-06 修：原来写 `int(getattr(sig,"fresh",999) or 999)`。
+        # strategies.py 里 S15 显式传 fresh=0（= 本根 K 线刚出信号，最新鲜），
+        # 而 0 是 falsy → 被 `or 999` 改写成 999（最不新鲜）。影子系统存在的
+        # 唯一目的就是按新鲜度看胜率，这一条把整张统计表搞反了。
+        fresh=999 if getattr(sig, "fresh", None) is None else int(sig.fresh),
         px=float(px), stop=float(stop), tp=float(tp),
         funding=j["funding"], taker=j["taker"], lsr=j["lsr"], cvd=j["cvd"],
         r1=int(j["r1_block"]), r1_why=j["r1_why"],
