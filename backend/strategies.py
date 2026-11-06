@@ -637,6 +637,15 @@ class S15CeZlsma(Base):
         if trail_r <= 0:              # 0 = 关闭该出场，只剩止损/止盈/超时
             return None
         ma_confirm = max(1, int(self._p("ma_confirm_bars", 2)))
+        # ── 分段回撤（K5 方案）──
+        # 峰顶还没到 trail_pct_max_r（默认 2R）时，改用「回撤浮盈的 trail_pct」：
+        #   峰顶 0.6R 回撤 50% → 在 +0.3R 走，永远留住一半，不会倒亏。
+        # 满 2R 之后退回固定 trail_r（0.8R），让大赢家继续放开跑。
+        # trail_pct = 0 时整段关闭，行为与旧版完全一致。
+        trail_pct = float(self._p("trail_pct", 0.0))
+        trail_pct_max_r = float(self._p("trail_pct_max_r", 2.0))
+        trail_pct_cap = float(self._p("trail_pct_cap", 0.0))
+        ma_bars_lt = int(self._p("ma_bars_lt", ma_confirm))
         ce_len = int(self._p("ce_len", 1))
         ce_mult = float(self._p("ce_mult", 2.0))
         z_len = int(self._p("zlsma_len", 50))
@@ -664,12 +673,25 @@ class S15CeZlsma(Base):
             for k in [k for k, v in _S15_POS_STATE.items()
                       if now_ts - v.get("seen", now_ts) > 7 * 86400]:
                 _S15_POS_STATE.pop(k, None)
-            st = {"peak": 0.0, "bar_ts": None,
+            # peak 初始化三重兜底：库里存的 peak_r、mfe_pct 反推、当前浮盈。
+            # mfe_pct 由引擎每轮刷新，比 peak_r 更新得勤；只取 peak_r 会偏低，
+            # 偏低就会把「回撤门槛」算小 → 提前出场。
+            _peak_db = float(pos.get("peak_r") or 0.0)
+            _peak_mfe = abs(float(pos.get("mfe_pct") or 0.0)) / 100 * entry / risk
+            _peak_init = max(_peak_db, _peak_mfe, max(0.0, cur_r))
+            st = {"peak": _peak_init,
+                  "peak_db": _peak_db,
+                  "bar_ts": None,
                   "cnt": int(pos.get("ma_break_cnt") or 0)}   # 重启后从库里接着数
             _S15_POS_STATE[st_key] = st
         st["seen"] = time.time()
         if cur_r > st["peak"]:
             st["peak"] = cur_r
+            # 峰顶落库（节流：每抬高 0.05R 才写一次）。
+            # 不节流的话 check_exit 每 0.5 秒跑一次，8 个仓位就是每天几十万次写库。
+            if cur_r - st.get("peak_db", 0.0) >= 0.05:
+                st["peak_db"] = cur_r
+                db.update_position(pos["id"], peak_r=cur_r)
 
         # ── bar 边界缓存 ──
         bar_secs = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400}
@@ -712,14 +734,30 @@ class S15CeZlsma(Base):
                 # 落库：重启后能接着数，卡片上也能显示 N/2
                 db.update_position(pos["id"], ma_break_cnt=new_cnt)
 
-        if st["cnt"] < ma_confirm:
+        # ── 出场判定：峰顶不足 2R 走「比例回撤」，满 2R 走「固定 0.8R」──
+        peak = st["peak"]
+        # peak <= 0 说明内存态还没重建（进程刚起来、仓位刚被访问），
+        # 此时按比例算出来的门槛是 0 → 任何回撤都会触发，等于提前乱砍仓。
+        # 这种情况必须退回固定 trail_r。
+        use_pct = trail_pct > 0 and 0.05 < peak < trail_pct_max_r
+        need_bars = ma_bars_lt if use_pct else ma_confirm
+        if use_pct:
+            need_dd = peak * trail_pct
+            if trail_pct_cap > 0:
+                need_dd = min(need_dd, trail_pct_cap)
+        else:
+            need_dd = trail_r
+
+        if st["cnt"] < need_bars:
             return None
-        drawdown = st["peak"] - cur_r
-        if drawdown < trail_r:
+        drawdown = peak - cur_r
+        if drawdown < need_dd:
             return None
 
+        mode_txt = (f"浮盈{trail_pct*100:.0f}%={need_dd:.2f}R" if use_pct
+                    else f"固定{need_dd:.2f}R")
         return (f"破均线回撤出场(连续{st['cnt']}根确认, "
-                f"峰顶{st['peak']:.2f}R 回撤{drawdown:.2f}R)")
+                f"峰顶{peak:.2f}R 回撤{drawdown:.2f}R/{mode_txt})")
 
 
 

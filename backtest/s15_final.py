@@ -205,8 +205,16 @@ def simulate(sym, ks, ind, swing_lookback=20, min_atr_pct=2.5, min_adx=25.0,
              adx_min_level=0.0, bbw_min=0.0, bbw_pct_min=0.0,
              er_min=0.0, er_len=20,
              time_stop_bars=0, ma_confirm_bars=1, breakeven_r=0.0,
-             stop_atr_mult=0.0):
-    """浩哥定稿规则。返回 (trades, missed)。"""
+             stop_atr_mult=0.0,
+             # ── 分段回撤（峰顶未到 trail_pct_max_r 时改用「浮盈回撤百分比」）──
+             trail_pct=0.0, trail_pct_max_r=2.0, ma_bars_lt=None,
+             trail_pct_cap=0.0):
+    """浩哥定稿规则。返回 (trades, missed)。
+
+    trail_pct: 0=关闭。设为 0.5 表示峰顶不足 trail_pct_max_r 时，
+               自峰顶回撤「浮盈的 50%」就走 —— 永远留住一半利润。
+    ma_bars_lt: 走比例回撤时要求的连续破均线根数（None = 沿用 ma_confirm_bars）。
+    """
     ho, hh, hl, hc = ind["ho"], ind["hh"], ind["hl"], ind["hc"]
     zl, dirs, atr, adx = ind["zlsma"], ind["dir"], ind["atr"], ind["adx"]
     n = len(hc)
@@ -363,15 +371,27 @@ def simulate(sym, ks, ind, swing_lookback=20, min_atr_pct=2.5, min_adx=25.0,
             # ④ 保本止损：浮盈达 breakeven_r 后，止损上移到成本价
             if breakeven_r > 0 and peak_r >= breakeven_r:
                 cur_stop = entry if sign > 0 else entry
-            # ③ 破均线 + 从峰顶回撤 ≥ trail_r → 全平（可要求连续 N 根确认）
+            # ③ 破均线 + 回撤达标 → 全平
+            #    峰顶还没到 trail_pct_max_r 时（默认 2R），改用「回撤浮盈的 trail_pct」：
+            #    峰顶 0.6R 回撤 50% → 在 +0.3R 走，永远留住一半，不会倒亏。
             if zl[j] is not None:
                 reversed_ = (c_ < zl[j]) if want == "long" else (c_ > zl[j])
                 if reversed_:
                     ma_break_cnt += 1
                 else:
                     ma_break_cnt = 0
-                if (ma_break_cnt >= ma_confirm_bars
-                        and (peak_r - cur_r) >= trail_r):
+                # peak_r<=0.05 时按比例算出的门槛是 0，会让亏损仓位被乱砍；
+                # 与实盘 strategies.py 保持同一条护栏
+                use_pct = trail_pct > 0 and 0.05 < peak_r < trail_pct_max_r
+                need_bars = (ma_bars_lt if (use_pct and ma_bars_lt is not None)
+                             else ma_confirm_bars)
+                if use_pct:
+                    need_dd = peak_r * trail_pct
+                    if trail_pct_cap > 0:
+                        need_dd = min(need_dd, trail_pct_cap)
+                else:
+                    need_dd = trail_r
+                if (ma_break_cnt >= need_bars and (peak_r - cur_r) >= need_dd):
                     exit_px, exit_reason, exit_i = c_, "均线破+回撤", j
                     break
             else:

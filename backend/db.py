@@ -105,6 +105,10 @@ def init():
             # 这个计数原本只在 _S15_POS_STATE 内存里 → 重启归零，
             # 卡片上也看不到。落库后重启能接着数，前端也能显示 N/2。
             "ALTER TABLE positions ADD COLUMN ma_break_cnt INTEGER NOT NULL DEFAULT 0",
+            # 「持仓期最高浮盈 R」：新出场规则用它算「回撤浮盈的 50%」，
+            # 峰顶不准 → 出局点就画错、也可能提前或拖后出场。
+            # 原本只在 _S15_POS_STATE 内存里，重启归零后要重新爬。
+            "ALTER TABLE positions ADD COLUMN peak_r REAL NOT NULL DEFAULT 0",
             "ALTER TABLE equity_curve ADD COLUMN mode TEXT NOT NULL DEFAULT 'paper'",
         ):
             try:
@@ -336,6 +340,7 @@ _POSITION_WRITABLE = {
     "extreme", "status", "closed_at", "close_price", "pnl", "close_reason",
     "mfe_pct", "mae_pct", "entry_factors", "reason", "mode", "leverage",
     "extra_margin", "fee_rate", "slip_pct", "half_closed", "ma_break_cnt",
+    "peak_r",
 }
 
 

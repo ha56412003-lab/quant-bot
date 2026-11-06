@@ -72,7 +72,7 @@ function PosCard({ p, avatar }) {
      标记层（从下往上）：
        ① 主填充   已走完的路（亏损=已亏 / 冲刺=距2R / 平半后=红满+橙黄）
        ② 回撤区   当前价 → 峰顶，虚点像素填充
-       ③ 出局线   峰顶往左 0.8R，跌破即出场
+       ③ 出局线   峰顶往左「当前回撤门槛」，跌破即出场（未满 2R = 浮盈50%，满 2R = 0.8R）
        ④ 游标     当前价（青）+ 峰顶（白）
   */
   const risk = (entry && sl) ? Math.abs(entry - sl) : 0     // 1R 的价格距离
@@ -91,11 +91,20 @@ function PosCard({ p, avatar }) {
   const phase = curR < 0 ? 'loss' : (halfDone || curR >= 2) ? 'free' : 'run'
   const stopPct = (px && sl) ? Math.abs(px - sl) / px * 100 : 0
   const drawdownR = Math.max(0, peakR - curR)               // 距峰顶回撤了多少 R
-  const ddNear = drawdownR >= 0.6                           // 逼近 0.8R 触发线
+  // 当前要求的回撤门槛：峰顶不足 2R 时是「浮盈的 50%」（后端算好），满 2R 后是 0.8R。
+  // 前端只负责显示，不再硬编码 0.8。
+  const trailTarget = Math.max(0.01, Number(p.trail_target_r) || 0.8)
+  const ddNear = drawdownR >= trailTarget * 0.75           // 逼近触发线
   const stopNear = phase === 'loss' && Math.abs(curR) >= 0.7
 
   // ── 统一刻度 ──
-  const axisLo = phase === 'loss' ? -1 : 0
+  // 出局线的位置 = 峰顶 - 当前回撤门槛。峰顶不足门槛时这条线会落在开仓价左边（负 R），
+  // 但它【依然存在】—— 意即「跌破这里就该走」，不是「不存在」。
+  // 所以轴下限必须让到这条线，否则它会画到轨道外面、根本没渲染。
+  const exitR = peakR - trailTarget
+  const axisLo = phase === 'loss'
+    ? Math.min(-1, exitR)            // 亏损态：左端是止损（-1R），出局线若更左就再让
+    : Math.min(0, exitR)             // 盈利态：左端是开仓（0R），出局线更左就让到那
   const axisHi = phase === 'loss'
     ? Math.max(0.05, peakR)          // 亏损：右端延伸到峰顶（先赚后亏也要画得出来）
     : Math.max(2, peakR)             // 盈利：右端到 2R 或峰顶（防止冲到 2.3R 后回落时越界）
@@ -106,8 +115,8 @@ function PosCard({ p, avatar }) {
   const peakPct = pctOf(peakR)
   const zeroPct = pctOf(0)                                 // 开仓位置
   const twoPct = pctOf(2)                                  // 2R 位置
-  const exitPct = pctOf(peakR - 0.8)                       // 0.8R 回撤出局线
-  const showExit = peakR >= 0.8 && (peakR - 0.8) > axisLo  // 轴外不画
+  const exitPct = pctOf(exitR)                             // 回撤出局线
+  const showExit = exitR > axisLo - 1e-9 && exitR < axisHi // 只要落在轴内就画
   const showPeak = peakPct - curPct > 0.4                  // 回撤区太窄就不画了
 
   const maCnt = Number(p.ma_break_cnt) || 0
@@ -181,31 +190,33 @@ function PosCard({ p, avatar }) {
         )}
 
         {/* ③ 出局标记：红色倒三角（闪烁）+ 两个小圆点
-              亮一个 = 已经触碰过一次 0.8R 出局线；亮两个 = 该出场了
-              峰顶不足 0.8R 时这条线不存在（位置是负数），所以整组不显示 */}
+              亮一个 = 已经触碰过一次出局线；亮两个 = 该出场了
+              峰顶不足门槛时这条线落在负 R 区（意味着认亏离场），同样要画出来 */}
         {showExit && (
-          <span className="exit-mark" style={{ left: `${exitPct}%` }}>
+          <span className="exit-mark" style={{ left: `${Math.max(exitPct, 1.6)}%` }}>
             <i className="tri" />
-            <i className={`dot${maCnt >= 1 ? ' on' : ''}`} />
-            <i className={`dot${maCnt >= 2 ? ' on' : ''}`} />
+            {Array.from({ length: maReq }, (_, k) => (
+              <i key={k} className={`dot${maCnt > k ? ' on' : ''}`} />
+            ))}
           </span>
         )}
 
-        {/* 破均线计数点：独立于出局线。峰顶还没到 0.8R 时出局线不存在，
+        {/* 破均线计数点：独立于出局线。峰顶还没到门槛时出局线落在负 R 区，
             但「已经连续几根破均线」这个信息照样要能看见 ——
             贴在峰顶箭头右边，不抢出局标记的位置 */}
         {maCnt > 0 && (
           <span className={`ma-dots${peakPct > 88 ? ' flip' : ''}`} style={{ left: `${Math.min(peakPct, 100)}%` }}>
-            <i className={`dot${maCnt >= 1 ? ' on' : ''}`} />
-            <i className={`dot${maCnt >= 2 ? ' on' : ''}`} />
+            {Array.from({ length: maReq }, (_, k) => (
+              <i key={k} className={`dot${maCnt > k ? ' on' : ''}`} />
+            ))}
           </span>
         )}
 
         {/* ④ 峰顶：轨道上方绿色倒三角 */}
-        {showPeak && <span className="peak-arrow" style={{ left: `${peakPct}%` }} />}
+        {showPeak && <span className="peak-arrow" style={{ left: `${Math.min(Math.max(peakPct, 1.6), 98.4)}%` }} />}
 
         {/* ④ 当前价：轨道下方橙黄正三角，尖端压进轨道 */}
-        <b className="cur-arrow" style={{ left: `${curPct}%` }} />
+        <b className="cur-arrow" style={{ left: `${Math.min(Math.max(curPct, 1.6), 98.4)}%` }} />
         {phase === 'loss' && <span className="stop-anchor" />}
       </div>
 
@@ -222,8 +233,8 @@ function PosCard({ p, avatar }) {
           )}
         </span>
         <span className={`c4-mid${maCnt >= maReq ? ' hot' : ''}`}
-              title={`连续 ${maCnt} 根收盘破 ZLSMA50（需 ${maReq} 根）+ 从峰顶回撤 ${drawdownR.toFixed(2)}R（需 0.80R）`}>
-          破均线 {maCnt}/{maReq} · 回撤 {drawdownR.toFixed(2)}/0.80R
+              title={`连续 ${maCnt} 根收盘破 ZLSMA50（需 ${maReq} 根）+ 从峰顶回撤 ${drawdownR.toFixed(2)}R（需 ${trailTarget.toFixed(2)}R${p.trail_is_pct ? '，按浮盈50%算' : ''}）`}>
+          破均线 {Math.min(maCnt, maReq)}/{maReq} · 回撤 {drawdownR.toFixed(2)}/{trailTarget.toFixed(2)}R
         </span>
         <span className="c4-time">{ageH.toFixed(1)}h/{maxH.toFixed(0)}h</span>
       </div>

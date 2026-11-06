@@ -74,6 +74,16 @@ strategies:
       half_at_r: 2.0
       trail_r: 0.8
       ma_confirm_bars: 2
+      # ── K5 分段回撤（2026-11-06 浩哥定）──
+      # 峰顶还没到 2R 的仓位：连续 5 根收盘破 ZLSMA50 + 从峰顶回撤「浮盈的 50%」才走。
+      # 比例而不是固定 0.8R 的原因：峰顶 0.6R 时回撤 0.8R 会倒亏，
+      # 改成 50% 就永远留住一半（在 +0.3R 走）。
+      # cap 0.8 是上限：峰顶 1.8R 时 50%=0.9R 比原来宽松，卡回 0.8R。
+      # 满 2R 之后完全不变，仍是 2 根 + 固定 trail_r，让大赢家放开跑。
+      trail_pct: 0.5
+      trail_pct_max_r: 2.0
+      trail_pct_cap: 0.8
+      ma_bars_lt: 5
       fee_rate: 0.0002
       slip_pct: 0.0
 pools:
