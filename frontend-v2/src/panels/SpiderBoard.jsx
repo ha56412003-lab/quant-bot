@@ -204,7 +204,7 @@ function PosCard({ p, avatar }) {
         {/* 破均线计数点：独立于出局线。峰顶还没到门槛时出局线落在负 R 区，
             但「已经连续几根破均线」这个信息照样要能看见 ——
             贴在峰顶箭头右边，不抢出局标记的位置 */}
-        {maCnt > 0 && (
+        {!showExit && maCnt > 0 && (
           <span className={`ma-dots${peakPct > 88 ? ' flip' : ''}`} style={{ left: `${Math.min(peakPct, 100)}%` }}>
             {Array.from({ length: maReq }, (_, k) => (
               <i key={k} className={`dot${maCnt > k ? ' on' : ''}`} />

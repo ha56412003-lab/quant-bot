@@ -208,7 +208,7 @@ def simulate(sym, ks, ind, swing_lookback=20, min_atr_pct=2.5, min_adx=25.0,
              stop_atr_mult=0.0,
              # ── 分段回撤（峰顶未到 trail_pct_max_r 时改用「浮盈回撤百分比」）──
              trail_pct=0.0, trail_pct_max_r=2.0, ma_bars_lt=None,
-             trail_pct_cap=0.0):
+             trail_pct_cap=0.0, dd_force_mult=0.0):
     """浩哥定稿规则。返回 (trades, missed)。
 
     trail_pct: 0=关闭。设为 0.5 表示峰顶不足 trail_pct_max_r 时，
@@ -391,7 +391,12 @@ def simulate(sym, ks, ind, swing_lookback=20, min_atr_pct=2.5, min_adx=25.0,
                         need_dd = min(need_dd, trail_pct_cap)
                 else:
                     need_dd = trail_r
-                if (ma_break_cnt >= need_bars and (peak_r - cur_r) >= need_dd):
+                _dd = peak_r - cur_r
+                # 回撤严重超标时不等穿线根数（dd_force_mult=0 关闭）。
+                # 动机：5 根确认要慢一根 15m K，遇到一根长阴线会出现
+                # 「浮盈全吐光还倒亏，但还差一根不肯走」。
+                _force = dd_force_mult > 0 and _dd >= need_dd * dd_force_mult
+                if ((ma_break_cnt >= need_bars or _force) and _dd >= need_dd):
                     exit_px, exit_reason, exit_i = c_, "均线破+回撤", j
                     break
             else:

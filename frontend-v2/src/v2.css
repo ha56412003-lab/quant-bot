@@ -980,12 +980,16 @@ html, body, #root {
   border-left: 5px solid transparent !important;
   border-right: 5px solid transparent !important;
   border-top: 8px solid #ff4d5e !important;
+  /* 底部这条是别的规则带进来的浅色边，不清掉三角下面会挂一条灰线 */
+  border-bottom: 0 solid transparent !important;
   filter: drop-shadow(0 0 5px rgba(255, 77, 94, 1));
   animation: triBlink .62s ease-in-out infinite;
 }
+/* 暗相位只降到 .55：原来降到 .22 时有一半时间几乎看不见，
+   截图/肉眼都会以为"箭头没出现"。闪烁靠 scale + 外发光表达，不靠消失。 */
 @keyframes triBlink {
-  0%, 100% { opacity: 1;   transform: scale(1); }
-  50%      { opacity: .22; transform: scale(.78); }
+  0%, 100% { opacity: 1;   transform: scale(1);    filter: drop-shadow(0 0 6px rgba(255,77,94,1)) brightness(1.15); }
+  50%      { opacity: .55; transform: scale(.86);  filter: drop-shadow(0 0 2px rgba(255,77,94,.5))  brightness(.9); }
 }
 .spider-root .cards .card .bar.prog .exit-mark .dot {
   width: 6px !important; height: 6px !important;
