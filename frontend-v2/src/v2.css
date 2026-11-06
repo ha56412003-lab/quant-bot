@@ -841,6 +841,158 @@ html, body, #root {
   border-radius: 3px !important;
 }
 
+/* ═══ 出场进度条（2026-11-06 重做）══════════════════════════════
+   旧条用 take_profit 当终点，改成「2R 平一半」后 take_profit=0，
+   条永远空着。现在按新出场规则分三态，终点随状态走：
+     loss → 止损   run → 2R   free → 峰顶跑道
+   条加高到 12px（原来是 7px，太细看不出填充和游标）。 */
+.spider-root .cards .card .bar.prog {
+  position: relative !important;
+  height: 16px !important;
+  border-radius: 8px !important;
+  background: rgba(255, 255, 255, .09) !important;  /* 提亮：.06 在深色卡上几乎看不出轨道 */
+  overflow: visible !important;   /* 游标上下各溢出 2px，不能被裁 */
+  transition: box-shadow .4s;
+}
+.spider-root .cards .card .bar.prog i {
+  position: absolute !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  border-radius: 8px !important;
+  transition: width .55s cubic-bezier(.4, 0, .2, 1),
+              left  .55s cubic-bezier(.4, 0, .2, 1),
+              background .3s !important;
+}
+
+/* 亏损态：绿色（往左填，越满越接近止损） */
+.spider-root .cards .card .bar.prog.loss i {
+  background: linear-gradient(90deg, rgba(53,224,138,.35), #35e08a) !important;
+}
+/* 亏损态左端 = 止损位置（红色锚点，明确「填到头就是止损」） */
+.spider-root .cards .card .bar.prog.loss .stop-anchor {
+  position: absolute;
+  left: 0; top: -3px; bottom: -3px;
+  width: 3px;
+  border-radius: 2px;
+  background: #ff4d5e;
+  box-shadow: 0 0 6px rgba(255, 77, 94, .8);
+}
+/* 冲刺 2R：红色（往右填） */
+.spider-root .cards .card .bar.prog.run i {
+  background: linear-gradient(90deg, rgba(255,77,94,.35), #ff4d5e) !important;
+  box-shadow: 0 0 8px rgba(255, 77, 94, .45);
+}
+/* 跑道：整条是「2R 之后的空间」底色；进入跑道时闪一下提示「已平半、开始放开跑」 */
+.spider-root .cards .card .bar.prog.free .track-all {
+  position: absolute;
+  left: 0; right: 0; top: 0; bottom: 0;
+  width: auto !important;   /* 必须显式：spider.css 的 .bar i 有 width:0，会压过 inset 自动撑开 */
+  height: auto !important;
+  border-radius: 8px;
+  background: linear-gradient(90deg,
+    #ff4d5e 0%, rgba(255,77,94,.55) 55%, rgba(255,77,94,.22) 100%);
+  animation: freeIn .7s ease-out;
+}
+@keyframes freeIn {
+  0%   { filter: brightness(2.2); }
+  100% { filter: brightness(1); }
+}
+/* 跑道游标：当前价在「2R → 峰顶」之间的位置 */
+.spider-root .cards .card .bar.prog.free .cursor {
+  position: absolute; top: -2px; bottom: -2px; width: 3px;
+  margin-left: -1.5px;
+  background: #45e6f5;
+  border-radius: 2px;
+  box-shadow: 0 0 7px rgba(69, 230, 245, .95);
+  transition: left .55s cubic-bezier(.4, 0, .2, 1);
+  z-index: 2;
+}
+/* 跑道右端 = 峰顶标记 */
+.spider-root .cards .card .bar.prog.free .peak-mark {
+  position: absolute; right: 0; top: 0; bottom: 0; width: 2px;
+  background: rgba(255, 255, 255, .5);
+}
+
+/* 逼近触发线（止损 0.7R / 回撤 0.6R）→ 呼吸警告 */
+.spider-root .cards .card .bar.prog.near {
+  animation: progPulse 1.5s ease-in-out infinite;
+}
+@keyframes progPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 77, 94, 0); }
+  50%      { box-shadow: 0 0 10px 2px rgba(255, 77, 94, .55); }
+}
+
+/* 行4 三块：状态数字（主）/ 峰谷（次）/ 时间（次） */
+.spider-root .cards .card .c4 {
+  display: flex !important;
+  align-items: baseline !important;
+  justify-content: space-between !important;
+  gap: 6px !important;
+  font-size: 10px !important;
+  min-width: 0;
+}
+.spider-root .cards .card .c4 .prog-txt {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+.spider-root .cards .card .c4 .prog-txt.loss { color: #35e08a; }
+.spider-root .cards .card .c4 .prog-txt.run  { color: #ff4d5e; }
+.spider-root .cards .card .c4 .prog-txt.free { color: #ff8a95; }
+.spider-root .cards .card .c4 .prog-txt b {
+  font-size: 11.5px;
+  font-weight: 900;
+}
+.spider-root .cards .card .c4 .prog-txt.danger { color: #ff4d5e !important; }
+.spider-root .cards .card .c4 .prog-txt.danger b { color: #ff4d5e; }
+/* ½ 已平仓标记 */
+.spider-root .cards .card .c4 .half-tag {
+  display: inline-block;
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+  padding: 1.5px 3.5px;
+  margin-right: 4px;
+  border-radius: 3px;
+  color: #1a1206;
+  background: #d4a95e;
+  vertical-align: 1px;
+  animation: halfGlow 2.4s ease-in-out infinite;
+}
+@keyframes halfGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(212, 169, 94, 0); }
+  50%      { box-shadow: 0 0 7px 1px rgba(212, 169, 94, .65); }
+}
+.spider-root .cards .card .c4 .dd {
+  color: #8b90a6;
+  font-weight: 400;
+  font-size: 9.5px;
+  margin-left: 5px;
+}
+.spider-root .cards .card .c4 .c4-mid {
+  color: #73788e;
+  font-size: 9.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.spider-root .cards .card .c4 .c4-time {
+  color: #45e6f5;
+  font-size: 9.5px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 尊重系统「减少动效」设置 */
+@media (prefers-reduced-motion: reduce) {
+  .spider-root .cards .card .bar.prog,
+  .spider-root .cards .card .bar.prog i,
+  .spider-root .cards .card .bar.prog.free .cursor,
+  .spider-root .cards .card .c4 .half-tag { animation: none !important; transition: none !important; }
+}
+
 /* ③ 浮盈数字：加大 + 拨轮跳动 */
 .spider-root .cards .card .pnl-num {
   font-size: 20px !important;

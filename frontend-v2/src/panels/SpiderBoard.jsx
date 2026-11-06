@@ -43,31 +43,51 @@ function emptyAvatar(k, usedCount) {
   return avatars[(usedCount + k) % avatars.length]
 }
 
-/* ── 持仓卡：严格照抄原版 .card 四行结构 ── */
+/* ── 持仓卡：四行结构 ── */
 function PosCard({ p, avatar }) {
   const long = p.side === 'long'
   const entry = p.entry_price
   const px = p.mark_price
   const sl = p.stop_price
-  const tp = p.take_profit
   const upnl = p.unrealized_pnl || 0
   const win = upnl >= 0
   const sym = (p.symbol || '').replace('USDT', '')
 
-  let prog = 0
-  let isWin = win
-  if (entry && px && sl && tp) {
-    const wMax = long ? tp - entry : entry - tp
-    const lMax = long ? entry - sl : sl - entry
-    const gain = long ? px - entry : entry - px
-    if (wMax > 0 && lMax > 0) {
-      prog = Math.max(0, Math.min(1, gain >= 0 ? gain / wMax : -gain / lMax))
-      isWin = gain >= 0
-    }
-  }
+  /* ── 出场进度（2026-11-06 重做）────────────────────────────────
+     旧版拿 take_profit 当终点算进度：wMax = tp - entry。
+     出场规则改成「2R 平一半、剩一半放开跑」后 take_profit = 0，
+     wMax 变成负数，`wMax > 0` 不成立 → prog 恒为 0，条永远是空的。
+
+     现在按新规则分三态，条的「终点」跟着状态走：
+       loss  亏损中     → 终点是止损，看「还有多远爆仓」
+       run   +0~2R      → 终点是 2R，看「离平半还差多少」
+       free  ≥2R/已平半  → 跑道，看「峰顶跑多远 + 回撤离 0.8R 多远」
+  */
+  const risk = (entry && sl) ? Math.abs(entry - sl) : 0     // 1R 的价格距离
+  const gain = (entry && px) ? (long ? px - entry : entry - px) : 0
+  const curR = risk > 0 ? gain / risk : 0
+
+  // 峰顶 R：mfe_pct 是最大有利偏移百分比，反推价格距离再除以 1R
+  const mfePct = Math.abs(p.mfe_pct || 0)
+  const peakR = (risk > 0 && entry) ? (mfePct / 100 * entry) / risk : 0
+
+  const halfDone = !!p.half_closed
+  const phase = curR < 0 ? 'loss' : (halfDone || curR >= 2) ? 'free' : 'run'
+  const stopPct = (px && sl) ? Math.abs(px - sl) / px * 100 : 0
+  const drawdownR = Math.max(0, peakR - curR)               // 距峰顶回撤了多少 R
+  const ddNear = phase === 'free' && drawdownR >= 0.6       // 逼近 0.8R 触发线
+  const stopNear = phase === 'loss' && Math.abs(curR) >= 0.7 // 逼近止损
+
+  // 亏损：从右往左填，右侧是开仓位
+  const lossFill = Math.min(1, Math.abs(curR))
+  // 冲刺 2R：从左往右填
+  const runFill = Math.min(1, curR / 2)
+  // 跑道：条代表「2R → 峰顶」这一段，游标是当前价
+  const runSpan = Math.max(0.01, peakR - 2)
+  const freeCursor = Math.max(0, Math.min(1, (curR - 2) / runSpan))
+
   const ageH = (p.age_sec || 0) / 3600
   const maxH = (p.max_hold_sec || 1) / 3600
-
   const retPct = entry ? ((long ? px - entry : entry - px) / entry) * 100 : 0
 
   return (
@@ -103,32 +123,44 @@ function PosCard({ p, avatar }) {
         </span>
       </div>
 
-      {/* 行3：止盈止损条 —— 中心起点，亏向左绿、赢向右红 */}
-      <div className="bar" style={{ position: 'relative' }}>
-        {/* 中线刻度 */}
-        <span style={{
-          position: 'absolute', left: '50%', top: -1, bottom: -1, width: 2,
-          background: '#45e6f5', transform: 'translateX(-1px)', zIndex: 3,
-          boxShadow: '0 0 6px rgba(69,230,245,.9)',
-        }} />
-        <i style={{
-          position: 'absolute', top: 0, bottom: 0,
-          left: isWin ? '50%' : `${50 - prog * 50}%`,
-          width: `${prog * 50}%`,
-          background: isWin ? '#ff4d5e' : '#35e08a',
-          transition: 'width .45s ease-out, left .45s ease-out',
-        }} />
+      {/* 行3：出场进度条 —— 终点随状态变（止损 / 2R / 峰顶跑道） */}
+      <div className={`bar prog ${phase}${stopNear ? ' near' : ''}${ddNear ? ' near' : ''}`}>
+        {/* 亏损：左侧留空，右侧填满到开仓位；左端画止损锚点 */}
+        {phase === 'loss' && (
+          <>
+            <i style={{ left: `${(1 - lossFill) * 100}%`, width: `${lossFill * 100}%` }} />
+            <span className="stop-anchor" />
+          </>
+        )}
+        {/* 冲刺 2R：从左往右 */}
+        {phase === 'run' && (
+          <i style={{ left: 0, width: `${runFill * 100}%` }} />
+        )}
+        {/* 跑道：整条填满底色，中间一根游标表示当前价在 2R↑峰顶 之间的位置 */}
+        {phase === 'free' && (
+          <>
+            <i className="track-all" />
+            <b className="cursor" style={{ left: `${freeCursor * 100}%` }} />
+            <span className="peak-mark" />
+          </>
+        )}
       </div>
 
-      {/* 行4：峰值谷值 + 持仓时间 */}
-      <div className="c4" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <span style={{ color: '#73788e', whiteSpace: 'nowrap', fontSize: 10.5 }}>
-          峰<b style={{ color: '#ff4d5e' }}>+{(p.mfe_pct || 0).toFixed(1)}%</b>
-          {'  '}谷<b style={{ color: '#35e08a' }}>{(p.mae_pct || 0).toFixed(1)}%</b>
+      {/* 行4：状态数字（主位）+ 峰谷 + 持仓时间 */}
+      <div className="c4">
+        <span className={`prog-txt ${phase}${stopNear || ddNear ? ' danger' : ''}`}>
+          {phase === 'loss' && <>距止损 <b>{stopPct.toFixed(1)}%</b></>}
+          {phase === 'run' && <><b>+{curR.toFixed(2)}R</b> / 2.0R</>}
+          {phase === 'free' && (
+            <>
+              <em className="half-tag">½</em>
+              <b>+{curR.toFixed(2)}R</b>
+              <span className="dd">回撤 {drawdownR.toFixed(2)}/0.80R</span>
+            </>
+          )}
         </span>
-        <span style={{ color: '#45e6f5', whiteSpace: 'nowrap', fontSize: 10.5, fontVariantNumeric: 'tabular-nums' }}>
-          {ageH.toFixed(1)}h / {maxH.toFixed(0)}h
-        </span>
+        <span className="c4-mid">峰+{mfePct.toFixed(1)} 谷{(p.mae_pct || 0).toFixed(1)}</span>
+        <span className="c4-time">{ageH.toFixed(1)}h/{maxH.toFixed(0)}h</span>
       </div>
     </article>
   )
