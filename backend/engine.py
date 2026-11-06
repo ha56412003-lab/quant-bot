@@ -18,6 +18,9 @@ log = logging.getLogger("engine")
 
 LOOP_SEC = 0.5
 _READY_WARNED = [False]   # 监控池未就绪的告警只打一次
+# 平仓失败的退避表 {position_id: 下次允许尝试的时间戳}
+_CLOSE_BACKOFF: dict = {}
+_CLOSE_RETRY_SEC = 30
 
 _INTERVALS = {"1s": 1, "5s": 5, "15s": 15, "30s": 30, "1m": 60, "5m": 300,
               "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400}
@@ -137,7 +140,18 @@ async def manage_positions(ctx, strategies):
                 except Exception as exc:  # noqa: BLE001
                     log.warning("check_exit %s failed: %s", pos["strategy"], exc)
         if reason:
-            await executor.close_position(pos, price, reason)
+            pid = pos["id"]
+            # 退避：平仓失败后 0.5 秒又会被扫到，live 下会疯狂重复下单
+            # （第一次可能其实成交了、只是回执超时 → 反复砸单）。
+            if time.time() < _CLOSE_BACKOFF.get(pid, 0):
+                continue
+            ok = await executor.close_position(pos, price, reason)
+            if ok:
+                _CLOSE_BACKOFF.pop(pid, None)
+            else:
+                _CLOSE_BACKOFF[pid] = time.time() + _CLOSE_RETRY_SEC
+                db.log("warn", f"平仓未成功（{reason}）{pos['symbol']}，"
+                               f"{_CLOSE_RETRY_SEC}s 后重试")
 
 
 async def position_loop():
@@ -166,6 +180,7 @@ async def scan_loop():
         try:
             cfg = config.load_strategies()
             cfg_global = cfg["global"]
+            _eq_ok = True          # 本轮权益读取是否可信（决定能不能清空 last_error）
 
             n = await factors.collect_due()
             if n:
@@ -174,17 +189,29 @@ async def scan_loop():
             # bookkeeping ~10s: equity snapshot + halt check
             if time.time() - last_book >= 10:
                 eq, bal, upnl = await executor.equity()
-                equity_cache = eq
-                db.record_equity(eq, bal, upnl)
-                risk.check_daily_halt(eq, cfg_global)
-                # 日目标（落袋）状态机
-                try:
-                    _dse = db.day_start_equity()
-                    _dtc = daily_target.cfg(cfg_global)
-                    if _dse > 0:
-                        await daily_target.tick(eq, _dse, executor.close_all, _dtc)
-                except Exception as _exc:  # noqa: BLE001
-                    log.debug("daily_target tick failed: %s", _exc)
+                # ⚠ 2026-11-06 修：live 取数失败时 equity() 返回 0，以前这个 0
+                # 会被写进 equity_curve 当成「今日开盘净值」→ day_start_equity()=0
+                # → 下面 _dse > 0 不成立 → 日目标/落袋/超时全平整天一次都不跑，
+                # 而且不报错。现在：拿不到有效权益就整轮跳过记账，并把开仓停掉。
+                if eq and eq > 0:
+                    equity_cache = eq
+                    db.record_equity(eq, bal, upnl)
+                    risk.check_daily_halt(eq, cfg_global)
+                    # 日目标（落袋）状态机
+                    try:
+                        _dse = db.day_start_equity()
+                        _dtc = daily_target.cfg(cfg_global)
+                        if _dse > 0:
+                            await daily_target.tick(eq, _dse, executor.close_all, _dtc)
+                    except Exception as _exc:  # noqa: BLE001
+                        log.debug("daily_target tick failed: %s", _exc)
+                else:
+                    _eq_ok = False
+                    equity_cache = 0
+                    msg = f"{int(time.time())}: 权益读取失败(eq={eq})，暂停开仓"
+                    db.set_meta("last_error", msg)
+                    db.log("warn", msg)
+                    log.warning(msg)
                 last_book = time.time()
 
             # 池子还没算完就先别扫策略 —— 否则 monitor_list() 为空，
@@ -199,8 +226,6 @@ async def scan_loop():
                     _READY_WARNED[0] = True
 
             strategies = _strategies(cfg) if equity_cache > 0 else {}
-            if equity_cache <= 0:
-                db.set_meta("last_error", f"{int(time.time())}: 权益读取失败，暂停开仓")
             ctx = Ctx(config.UNIVERSE, quality.monitor_list())
             for sid, scfg in cfg.get("strategies", {}).items():
                 if not scfg.get("enabled") or sid not in strategies:
@@ -247,7 +272,10 @@ async def scan_loop():
             except Exception as _exc:  # noqa: BLE001
                 log.debug("shadow settle failed: %s", _exc)
             db.set_meta("last_tick_ts", int(time.time()))
-            db.set_meta("last_error", "")
+            # 只在权益可信时清错误。以前无条件清空，导致本 tick 前面刚写的
+            # 「权益读取失败，暂停开仓」在同一轮就被抹掉，界面永远看不到原因。
+            if _eq_ok:
+                db.set_meta("last_error", "")
         except Exception as exc:  # noqa: BLE001
             log.exception("scan loop tick failed")
             db.set_meta("last_error", f"{int(time.time())}: {exc}")

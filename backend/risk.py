@@ -108,7 +108,21 @@ def allow_entry(sig, scfg, equity, cfg_global):
     if same >= max_same:
         side_cn = "多" if sig.side == "long" else "空"
         return False, f"{side_cn}头方向已达上限({max_same})", 0
-    gross = sum(abs(p["qty"] * factors.mark_price_of(p["symbol"])) for p in open_pos)
+    # 总敞口闸门。
+    # ⚠ 2026-11-06 修：以前是 sum(qty * mark_price_of(...))，而 mark_price_of
+    # 在拿不到行情时返回 0.0（不是 None）→ 断线时所有仓位都算出「0 敞口」，
+    # 这道闸门连同下面策略资金闸门一起静默消失，可以一路开满仓。
+    # 现在：任一在仓币取不到有效价格 → 无法核算总敞口 → 拒绝开新仓（fail-closed）。
+    missing, gross = [], 0.0
+    for p in open_pos:
+        px = factors.mark_price_of(p["symbol"])
+        if not px or px <= 0:
+            missing.append(p["symbol"])
+            continue
+        gross += abs(p["qty"] * px)
+    if missing:
+        return False, (f"有在仓币取不到行情({','.join(missing[:3])})，"
+                       f"总敞口无法核算，暂停开仓"), 0
     if equity > 0 and gross / equity >= cfg_global["max_gross_leverage"]:
         return False, "总敞口已达杠杆上限", 0
     capital, leverage, _max_pos, used = _strategy_capacity(sig, scfg, equity, cfg_global)
@@ -124,7 +138,13 @@ def position_qty(sig, scfg, equity, cfg_global, price):
     capital×leverage capacity, and the global per-coin exposure limit."""
     if price <= 0:
         return 0
-    stop_dist = abs(price - sig.stop_price) if sig.stop_price else price * 0.01
+    # ⚠ 2026-11-06 修：以前没有止损价时按 price*1% 当「假想止损」算仓位，
+    # 但 executor 存的是 stop_price=None → DB 里 NULL → 引擎的止损分支永不执行。
+    # 结果：仓位没有止损，却按 1% 的风险预算放大了 10 倍敞口。
+    # 现在直接拒绝开仓（宁可不开，不能裸奔）。
+    if not sig.stop_price or sig.stop_price <= 0:
+        return 0
+    stop_dist = abs(price - sig.stop_price)
     if stop_dist <= 0:
         return 0
     risk = scfg.get("risk") or {}
