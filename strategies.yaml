@@ -144,7 +144,7 @@ strategies:
       slip_pct: 0.0
 pools:
   candidate:
-    size: 100
+    size: 200                 # 100 → 200（2026-11-06 定：扩容让高波动小币有机会进池）
     refresh_hour: 3
     min_amp_pct: 10.0
     max_amp_pct: 300.0
@@ -153,11 +153,20 @@ pools:
     - BTCUSDT
     - ETHUSDT
   monitor:
-    size: 30
-    refresh_sec: 3600
+    size: 20                  # 30 → 20（宁缺毋滥，超容量按 ATR 从大到小取）
+    refresh_sec: 3600         # ⚠ 暂不改 180：当前代码每轮拉 100 根 1h，改 3 分钟会多 190MB/天
     min_quote_vol: 10000000
     max_spike: 4.0
-    min_atr_pct: 0.6
+    min_atr_pct: 1.0          # ⚠ 待代码切到 5m ATR 后生效。1h 口径下 1.0% 等效 5m 的 ~0.2%
+    # ── 以下为 2026-11-06 架构改造目标配置，代码尚未读取（待实现）──
+    scan_sec: 900             # 池外币 15 分钟扫一次（池内币仍按 refresh_sec）
+    atr_interval: 5m          # ATR 用 5 分钟周期
+    bbw_interval: 1h          # 布林带宽度用 1 小时周期
+    bbw_pct_min: 70.0         # BBW 近 100 根分位门槛
+    hold_atr_pct: 0.8         # 已进池的币，ATR 掉到这以上不踢（缓冲带）
+    exit_atr_pct: 0.6         # ATR 跌穿这条立刻踢，不管待多久
+    min_dwell_sec: 1800       # 进池后最短停留 30 分钟
+    sort_by: atr              # 超容量时按 ATR 从大到小取前 N
   position:
     max_concurrent: 8
     scan_interval: 2m
