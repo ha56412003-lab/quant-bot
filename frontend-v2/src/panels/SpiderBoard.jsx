@@ -195,7 +195,7 @@ export default function SpiderBoard({ status, positions = [], nav, activeNav, on
                 <h1>AGENT OPS<em>+</em><span className="zh">控制台</span></h1>
                 <div className="tagline">
                   TREND FOLLOWS · RISK FIRST · AGENTS EXECUTE
-                  <small>实时策略 · {positions.length} 个持仓 · {status?.universe?.length || 30} 个监控标的</small>
+                  <small>实时策略 · {positions.length} 个持仓 · {status?.monitor_n ?? 0} 个监控标的</small>
                 </div>
               </div>
 
@@ -211,7 +211,7 @@ export default function SpiderBoard({ status, positions = [], nav, activeNav, on
               </span>
 
               <div className="goal">
-                <span className="gl">今日盈<small>{pnl >= 0 ? '+' : ''}${pnl.toFixed(0)} / {target.toFixed(0)}</small></span>
+                <span className="gl">今日盈亏<small>{pnl >= 0 ? '+' : ''}${pnl.toFixed(0)} / {target.toFixed(0)}</small></span>
                 <span className="track"><i style={{ width: `${Math.min(100, pct)}%` }} /></span>
                 <span className="gpct">{pct.toFixed(0)}%</span>
               </div>

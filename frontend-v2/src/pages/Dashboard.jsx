@@ -137,11 +137,13 @@ export default function Dashboard({ status }) {
           <div className="ticker">
             <span>
               {(pos.length ? pos.map(p => `${(p.symbol||'').replace('USDT','')} ${p.side === 'long' ? '多' : '空'} ${(p.unrealized_pnl||0) >= 0 ? '+' : ''}${(p.unrealized_pnl||0).toFixed(2)}`).join('  ·  ') : '等待开仓')}
-              &nbsp;&nbsp;·&nbsp;&nbsp; S15_CE_ZLSMA 运行中 &nbsp;·&nbsp; 扫描间隔 2m &nbsp;·&nbsp; 15m K线
+              &nbsp;&nbsp;·&nbsp;&nbsp; S15_CE_ZLSMA 运行中 &nbsp;·&nbsp; 扫描间隔 15m &nbsp;·&nbsp; 15m K线
               &nbsp;&nbsp;·&nbsp;&nbsp; 引擎心跳正常 &nbsp;·&nbsp; 下一轮扫描 {(() => {
-                const base = status?.last_tick_ts || 0
+                // 扫描周期 = strategies.DEFAULT_INTERVAL = 900s（15m K线）
+                const SCAN_SEC = 900
+                const base = status?.last_scan_ts || status?.last_tick_ts || 0
                 const elapsed = Math.floor(Date.now() / 1000) - base
-                const left = Math.max(0, 120 - (elapsed % 120))
+                const left = Math.max(0, SCAN_SEC - (elapsed % SCAN_SEC))
                 return left
               })()}s &nbsp;·&nbsp; 请勿关机
             </span>
