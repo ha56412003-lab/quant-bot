@@ -103,7 +103,9 @@ strategies:
     symbols: []
     risk:
       capital_usd: 0
-      leverage: 3
+      leverage: 6                     # 3→6：必须跟 global.max_gross_leverage 一致。
+                                      # engine.py:281 是「策略级优先、全局兜底」，这里留 3 会把全局的 6x
+                                      # 覆盖掉 —— 总敞口按 6x 放行、每仓按 3x 记保证金，实盘会保证金不足
       max_position_usd: 0
       risk_per_trade_pct: 0
     # 时间止损：持仓满 16 小时还没到 1.2R 就平（出场④）。
