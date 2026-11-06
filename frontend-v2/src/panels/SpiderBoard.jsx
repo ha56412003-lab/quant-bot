@@ -63,28 +63,55 @@ function PosCard({ p, avatar }) {
        run   +0~2R      → 终点是 2R，看「离平半还差多少」
        free  ≥2R/已平半  → 跑道，看「峰顶跑多远 + 回撤离 0.8R 多远」
   */
+  /* ── 出场进度（2026-11-06 第三版）────────────────────────────────
+     一条刻度尺 + 四层叠加标记，三种状态共用同一套坐标：
+
+       轴下限 axisLo = 亏损时 -1R（止损），盈利时 0（开仓）
+       轴上限 axisHi = 亏损时 峰顶（往右延伸），盈利时 max(2R, 峰顶)
+
+     标记层（从下往上）：
+       ① 主填充   已走完的路（亏损=已亏 / 冲刺=距2R / 平半后=红满+橙黄）
+       ② 回撤区   当前价 → 峰顶，虚点像素填充
+       ③ 出局线   峰顶往左 0.8R，跌破即出场
+       ④ 游标     当前价（青）+ 峰顶（白）
+  */
   const risk = (entry && sl) ? Math.abs(entry - sl) : 0     // 1R 的价格距离
   const gain = (entry && px) ? (long ? px - entry : entry - px) : 0
   const curR = risk > 0 ? gain / risk : 0
 
-  // 峰顶 R：mfe_pct 是最大有利偏移百分比，反推价格距离再除以 1R
+  // 峰顶 R：内存态和后端 mfe_pct 反推取【最大】。
+  // 两个来源更新频率不同（engine 每轮刷 mfe_pct，check_exit 才刷 peak），
+  // 单取任一个都会让峰顶偏低 → 回撤区画小 → 出局线位置骗人。
   const mfePct = Math.abs(p.mfe_pct || 0)
-  const peakR = (risk > 0 && entry) ? (mfePct / 100 * entry) / risk : 0
+  const peakFromMfe = (risk > 0 && entry) ? (mfePct / 100 * entry) / risk : 0
+  const peakFromMem = Number(p.peak_r_mem) || 0
+  const peakR = Math.max(peakFromMfe, peakFromMem, curR)
 
   const halfDone = !!p.half_closed
   const phase = curR < 0 ? 'loss' : (halfDone || curR >= 2) ? 'free' : 'run'
   const stopPct = (px && sl) ? Math.abs(px - sl) / px * 100 : 0
   const drawdownR = Math.max(0, peakR - curR)               // 距峰顶回撤了多少 R
-  const ddNear = phase === 'free' && drawdownR >= 0.6       // 逼近 0.8R 触发线
-  const stopNear = phase === 'loss' && Math.abs(curR) >= 0.7 // 逼近止损
+  const ddNear = drawdownR >= 0.6                           // 逼近 0.8R 触发线
+  const stopNear = phase === 'loss' && Math.abs(curR) >= 0.7
 
-  // 亏损：从右往左填，右侧是开仓位
-  const lossFill = Math.min(1, Math.abs(curR))
-  // 冲刺 2R：从左往右填
-  const runFill = Math.min(1, curR / 2)
-  // 跑道：条代表「2R → 峰顶」这一段，游标是当前价
-  const runSpan = Math.max(0.01, peakR - 2)
-  const freeCursor = Math.max(0, Math.min(1, (curR - 2) / runSpan))
+  // ── 统一刻度 ──
+  const axisLo = phase === 'loss' ? -1 : 0
+  const axisHi = phase === 'loss'
+    ? Math.max(0.05, peakR)          // 亏损：右端延伸到峰顶（先赚后亏也要画得出来）
+    : Math.max(2, peakR)             // 盈利：右端到 2R 或峰顶（防止冲到 2.3R 后回落时越界）
+  const axisSpan = Math.max(0.01, axisHi - axisLo)
+  const pctOf = (r) => Math.max(0, Math.min(100, ((r - axisLo) / axisSpan) * 100))
+
+  const curPct = pctOf(curR)
+  const peakPct = pctOf(peakR)
+  const zeroPct = pctOf(0)                                 // 开仓位置
+  const twoPct = pctOf(2)                                  // 2R 位置
+  const exitPct = pctOf(peakR - 0.8)                       // 0.8R 回撤出局线
+  const showExit = peakR >= 0.8 && (peakR - 0.8) > axisLo  // 轴外不画
+  const showPeak = peakPct - curPct > 0.4                  // 回撤区太窄就不画了
+
+  const maCnt = Number(p.ma_break_cnt) || 0
+  const maReq = Math.max(1, Number(p.ma_confirm_bars) || 2)
 
   const ageH = (p.age_sec || 0) / 3600
   const maxH = (p.max_hold_sec || 1) / 3600
@@ -123,30 +150,41 @@ function PosCard({ p, avatar }) {
         </span>
       </div>
 
-      {/* 行3：出场进度条 —— 终点随状态变（止损 / 2R / 峰顶跑道） */}
-      <div className={`bar prog ${phase}${stopNear ? ' near' : ''}${ddNear ? ' near' : ''}`}>
-        {/* 亏损：左侧留空，右侧填满到开仓位；左端画止损锚点 */}
+      {/* 行3：出场进度 —— 统一 R 轴 + 四层标记 */}
+      <div className={`bar prog ${phase}${stopNear || ddNear ? ' near' : ''}`}>
+        {/* ① 主填充 */}
         {phase === 'loss' && (
-          <>
-            <i style={{ left: `${(1 - lossFill) * 100}%`, width: `${lossFill * 100}%` }} />
-            <span className="stop-anchor" />
-          </>
+          <i style={{ left: `${curPct}%`, width: `${Math.max(0, zeroPct - curPct)}%` }} />
         )}
-        {/* 冲刺 2R：从左往右 */}
         {phase === 'run' && (
-          <i style={{ left: 0, width: `${runFill * 100}%` }} />
+          <i style={{ left: `${zeroPct}%`, width: `${Math.max(0, curPct - zeroPct)}%` }} />
         )}
-        {/* 跑道：整条填满底色，中间一根游标表示当前价在 2R↑峰顶 之间的位置 */}
         {phase === 'free' && (
           <>
-            <i className="track-all" />
-            <b className="cursor" style={{ left: `${freeCursor * 100}%` }} />
-            <span className="peak-mark" />
+            {/* 红条：0 → 2R，填满表示已达成平半 */}
+            <i className="base2r" style={{ left: `${zeroPct}%`, width: `${twoPct - zeroPct}%` }} />
+            {/* 橙黄层：2R → 当前价，压在红条之上（z-index 更高） */}
+            <i className="halflayer" style={{ left: `${twoPct}%`, width: `${Math.max(0, curPct - twoPct)}%` }} />
           </>
         )}
+
+        {/* ② 回撤区：当前价 → 峰顶，虚点像素填充 */}
+        {showPeak && (
+          <span className="dd-zone" style={{
+            left: `${curPct}%`, width: `${peakPct - curPct}%`,
+          }} />
+        )}
+
+        {/* ③ 0.8R 回撤出局线：峰顶往左 0.8R，跌破即出场 */}
+        {showExit && <span className="exit-line" style={{ left: `${exitPct}%` }} />}
+
+        {/* ④ 峰顶 + 当前价游标 */}
+        {showPeak && <span className="peak-mark" style={{ left: `${peakPct}%` }} />}
+        <b className="cursor" style={{ left: `${curPct}%` }} />
+        {phase === 'loss' && <span className="stop-anchor" />}
       </div>
 
-      {/* 行4：状态数字（主位）+ 峰谷 + 持仓时间 */}
+      {/* 行4：状态数字（主位）+ 出场条件 + 持仓时间 */}
       <div className="c4">
         <span className={`prog-txt ${phase}${stopNear || ddNear ? ' danger' : ''}`}>
           {phase === 'loss' && <>距止损 <b>{stopPct.toFixed(1)}%</b></>}
@@ -155,11 +193,13 @@ function PosCard({ p, avatar }) {
             <>
               <em className="half-tag">½</em>
               <b>+{curR.toFixed(2)}R</b>
-              <span className="dd">回撤 {drawdownR.toFixed(2)}/0.80R</span>
             </>
           )}
         </span>
-        <span className="c4-mid">峰+{mfePct.toFixed(1)} 谷{(p.mae_pct || 0).toFixed(1)}</span>
+        <span className={`c4-mid${maCnt >= maReq ? ' hot' : ''}`}
+              title={`连续 ${maCnt} 根收盘破 ZLSMA50（需 ${maReq} 根）+ 从峰顶回撤 ${drawdownR.toFixed(2)}R（需 0.80R）`}>
+          破均线 {maCnt}/{maReq} · 回撤 {drawdownR.toFixed(2)}/0.80R
+        </span>
         <span className="c4-time">{ageH.toFixed(1)}h/{maxH.toFixed(0)}h</span>
       </div>
     </article>

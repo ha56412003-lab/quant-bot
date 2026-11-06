@@ -664,7 +664,8 @@ class S15CeZlsma(Base):
             for k in [k for k, v in _S15_POS_STATE.items()
                       if now_ts - v.get("seen", now_ts) > 7 * 86400]:
                 _S15_POS_STATE.pop(k, None)
-            st = {"peak": 0.0, "bar_ts": None, "cnt": 0}
+            st = {"peak": 0.0, "bar_ts": None,
+                  "cnt": int(pos.get("ma_break_cnt") or 0)}   # 重启后从库里接着数
             _S15_POS_STATE[st_key] = st
         st["seen"] = time.time()
         if cur_r > st["peak"]:
@@ -698,9 +699,18 @@ class S15CeZlsma(Base):
 
         # ── 破均线判断：用 HA 收盘价，和回测口径一致 ──
         broke = (ha_close < z_now) if side == "long" else (ha_close > z_now)
-        if st["bar_ts"] != bar_ts:        # 跨到新的一根 K 线才更新计数
+        if st["bar_ts"] is None:
+            # 进程刚起来（或该仓位第一次被访问）：内存里没有上一根的信息。
+            # 只对齐 bar_ts，不重复计数 —— 否则库里 cnt=1 的仓位会立刻被算成 2，
+            # 凭空打出一张提前出场的单子。真正的更新留给下一根 K 线。
             st["bar_ts"] = bar_ts
-            st["cnt"] = st["cnt"] + 1 if broke else 0
+        elif st["bar_ts"] != bar_ts:      # 跨到新的一根 K 线才更新计数
+            st["bar_ts"] = bar_ts
+            new_cnt = st["cnt"] + 1 if broke else 0
+            if new_cnt != st["cnt"]:
+                st["cnt"] = new_cnt
+                # 落库：重启后能接着数，卡片上也能显示 N/2
+                db.update_position(pos["id"], ma_break_cnt=new_cnt)
 
         if st["cnt"] < ma_confirm:
             return None

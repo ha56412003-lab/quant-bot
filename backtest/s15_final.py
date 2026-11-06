@@ -400,6 +400,8 @@ def simulate(sym, ks, ind, swing_lookback=20, min_atr_pct=2.5, min_adx=25.0,
             "net": net, "r": net / risk, "why": exit_reason,
             "ts": ks[exit_i]["ts"], "bars": exit_i - i - 1, "atr_pct": cur_atr_pct,
             "adx": adx[i], "entry_i": i,
+            "peak_r": peak_r,          # 持仓期间达到过的最大浮盈（R 倍数），用于统计到达率
+            "half_done": half_done,
         })
         i = exit_i + 1
     return trades, missed

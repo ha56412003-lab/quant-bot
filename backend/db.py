@@ -101,6 +101,10 @@ def init():
             # 必须落库而不是只放内存 —— 重启后内存状态丢失 → 会再平一次一半，
             # 直接把仓位砍成 1/4。
             "ALTER TABLE positions ADD COLUMN half_closed INTEGER NOT NULL DEFAULT 0",
+            # 「连续几根收盘破 ZLSMA50」计数：出场条件之一是连续 2 根破位，
+            # 这个计数原本只在 _S15_POS_STATE 内存里 → 重启归零，
+            # 卡片上也看不到。落库后重启能接着数，前端也能显示 N/2。
+            "ALTER TABLE positions ADD COLUMN ma_break_cnt INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE equity_curve ADD COLUMN mode TEXT NOT NULL DEFAULT 'paper'",
         ):
             try:
@@ -331,7 +335,7 @@ _POSITION_WRITABLE = {
     "take_profit", "trail_atr", "opened_at", "max_hold_sec", "time_exit_at",
     "extreme", "status", "closed_at", "close_price", "pnl", "close_reason",
     "mfe_pct", "mae_pct", "entry_factors", "reason", "mode", "leverage",
-    "extra_margin", "fee_rate", "slip_pct", "half_closed",
+    "extra_margin", "fee_rate", "slip_pct", "half_closed", "ma_break_cnt",
 }
 
 

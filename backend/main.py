@@ -328,10 +328,29 @@ async def api_positions():
             liq_dist = (liq - price) / price * 100 if price else 0.0
         stop = p.get("stop_price") or 0.0
         stop_dist = (abs(price - stop) / price * 100) if (price and stop) else 0.0
+
+        # ── S15 出场状态：连续破均线计数 / 峰顶 R ──
+        # 这两样原来是 check_exit 的私有内存态（_S15_POS_STATE），卡片看不到。
+        # 现在透出来，前端才能画「破均线 N/2」和「从峰顶回撤 X/0.80R」。
+        # 注意：cnt / peak 都是内存态，服务重启后归零重数（不影响出场判断本身）。
+        st = strategies._S15_POS_STATE.get(
+            (p["symbol"], p["side"], p.get("opened_at"))) or {}
+        ma_confirm = max(1, int((scfg.get("ma_confirm_bars") or 2)))
+        ma_break_cnt = int(st.get("cnt") or 0)
+        peak_r_mem = st.get("peak")
+        risk_abs = abs(p["entry_price"] - stop) if (p["entry_price"] and stop) else 0.0
+        drawdown_r = (float(peak_r_mem) - ((price - p["entry_price"]) *
+                      sign / risk_abs)) if (peak_r_mem is not None and risk_abs > 0) else None
+
         out.append({**p, "mark_price": price, "unrealized_pnl": upnl,
                     "notional": abs(p["qty"] * price),
                     "leverage": lev, "liq_price": liq, "liq_dist_pct": liq_dist,
                     "stop_dist_pct": stop_dist,
+                    # 出场条件可视化用（内存态，None 表示本轮尚未算过）
+                    "ma_break_cnt": ma_break_cnt,
+                    "ma_confirm_bars": ma_confirm,
+                    "peak_r_mem": float(peak_r_mem) if peak_r_mem is not None else None,
+                    "drawdown_r": drawdown_r,
                     # 占用保证金按【当前价】计算，与币安口径一致（仓位价值随价格浮动）
                     "margin": abs(p["qty"] * price) / lev + extra,
                     "margin_at_entry": abs(p["qty"] * entry) / lev + extra,
