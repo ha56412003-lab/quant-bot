@@ -17,6 +17,7 @@ from .strategies import REGISTRY, Ctx
 log = logging.getLogger("engine")
 
 LOOP_SEC = 0.5
+_READY_WARNED = [False]   # 监控池未就绪的告警只打一次
 
 _INTERVALS = {"1s": 1, "5s": 5, "15s": 15, "30s": 30, "1m": 60, "5m": 300,
               "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400}
@@ -159,6 +160,7 @@ async def scan_loop():
     db.set_meta("started_at", int(time.time()))
     last_book = 0.0
     equity_cache = config.PAPER_START_BALANCE
+    _t0 = time.time()
     while True:
         started = time.monotonic()
         try:
@@ -184,6 +186,17 @@ async def scan_loop():
                 except Exception as _exc:  # noqa: BLE001
                     log.debug("daily_target tick failed: %s", _exc)
                 last_book = time.time()
+
+            # 池子还没算完就先别扫策略 —— 否则 monitor_list() 为空，
+            # syms() 会回落到全量候选池 200 个币，既浪费流量又灌噪音信号。
+            # 5 分钟后仍没就绪则放行（宁可回到老行为，也不能一直不交易）。
+            if not quality.READY.is_set():
+                if time.time() - _t0 < 300:
+                    await asyncio.sleep(3)
+                    continue
+                if not _READY_WARNED[0]:
+                    log.warning("监控池 5 分钟仍未就绪，放行全量扫描")
+                    _READY_WARNED[0] = True
 
             strategies = _strategies(cfg) if equity_cache > 0 else {}
             if equity_cache <= 0:

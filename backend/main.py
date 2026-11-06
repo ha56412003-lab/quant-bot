@@ -539,6 +539,7 @@ async def api_pool():
             "symbol": sym,
             "price": factors.mark_price_of(sym),
             "qv": q.get("qv"), "atr_pct": q.get("atr_pct"), "spike": q.get("spike"),
+            "bbw_pct": q.get("bbw_pct"), "band": q.get("band"),
             "ok": q.get("ok"), "why": q.get("why", ""),
             "in_monitor": sym in monitor,
             "in_candidate": sym in config.UNIVERSE,
@@ -553,7 +554,13 @@ async def api_pool():
     rows.sort(key=lambda r: -(r["qv"] or 0))
     pool_snap = pool.snapshot()
     return {"ts": snap["ts"], "min_quote_vol": snap["min_quote_vol"],
-            "max_spike": snap["max_spike"], "min_atr_pct": snap.get("min_atr_pct"),
+            "max_spike": snap["max_spike"],
+            "atr_band_lo_max": snap.get("atr_band_lo_max"),
+            "atr_band_hi_min": snap.get("atr_band_hi_min"),
+            "bbw_pct_min": snap.get("bbw_pct_min"),
+            "atr_interval": snap.get("atr_interval"),
+            "bbw_interval": snap.get("bbw_interval"),
+            "scan_sec": snap.get("scan_sec"),
             "refresh_sec": snap.get("refresh_sec"), "rows": rows,
             "pass_n": sum(1 for r in rows if r["ok"]),
             # 三层池规模

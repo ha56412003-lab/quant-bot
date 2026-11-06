@@ -1,176 +1,532 @@
-"""监控池（三层池的第 2 层）—— 从候选池 100 只里筛出可交易的 30 只。
+"""监控池（三层池的第 2 层）—— 双档 ATR 多周期共振。
 
-三道门（波动小不是缺点，反而让止损更窄、仓位自动放大）：
-  1. 24h 成交额   < 1000 万 U  → 流动性差，滑点吃人
-  2. 插针比       > 4.0        → 单根 K 线振幅超过 4 倍 ATR，止损容易被扫
-  3. ATR%         < 0.6%       → 死水币，止损窄到没有意义
+2026-11-06 架构改造（浩哥定稿，见 docs/架构_S15三模块.md）：
 
-刷新：每 1 小时（与 1h K 线粒度对齐，不重复计算）
-排序：三道门全过的币，按 24h 成交额降序取前 MONITOR_SIZE 个进监控池
-退出：持仓中的币不受监控池进出影响（池子只管能不能开新仓）
+【为什么改】
+  旧版用 1h ATR > 0.6% 单一门槛，选出来的全是大币慢币；
+  而 S15 策略要 15m ATR > 2.5%，两套门槛打架 → 8 小时只出 1 个信号。
+  实测（120天/14币/1150笔）发现 ATR 与收益不是线性关系：
+      0~1.0%(15m)  赚钱（大币靠趋势，止损窄但胜率高）
+      1.25~3.0%    亏钱（死亡区：波动够打穿止损，不够走到止盈）
+      3.0~4.5%     大赚（野币靠波段）
+  双档筛选（<1.0% 或 >=3.0%）净 +31.74R，且是唯一「前半段不亏」的方案。
+
+【四个门槛各看什么周期】
+  成交额      日线口径（走全市场 ticker，零额外成本）
+  插针        日线口径（96 根 1h 内最大振幅 ÷ ATR）
+  ATR         5 分钟（小一级，提前发现波动）
+  布林带分位  1 小时（大一级，判断趋势环境成不成立）
+
+【分级刷新（约 99MB/天；全量 3 分钟刷新是 288MB）】
+  5m ATR  · 池内         每 3 分钟
+  5m ATR  · 池外         每 15 分钟
+  1h BBW                 每小时（只算 ATR 已过双档的币）
+  日线插针               每天
+  24h 成交额             每轮（走 ticker）
+
+【缓冲带（防池子抖动）】
+  低档：进 <0.33%，留 <0.40%，踢 >=0.45%
+  高档：进 >=1.20%，留 >=1.10%，踢 <1.00%
+  进池后 30 分钟内不因「变差」被踢（跌穿硬底线除外）
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 
 from . import binance
 
 log = logging.getLogger(__name__)
 
-MIN_QUOTE_VOL = 1e7   # 24h 成交额下限：1000 万 U
-MAX_SPIKE = 4.0       # 单根最大振幅 / ATR 上限（用 1h K线算，见下方说明）
-# 2026-11-05 由 3.5 放宽到 4.0：插针比 = 最大单根振幅 / ATR，对低波动大市值币系统性偏高
-#   （BTC ATR 仅 0.64%，分母小 → 比值天然高，实测 3.70 被误判；ETH 3.48 擦边）。
-#   放宽到 4.0 后 BTC 放行，TRX(8.53) 等真正易插针的币仍被拦。
-MIN_ATR_PCT = 0.6     # ATR 占价格比例下限：低于此值说明是"死水"币，止损过窄（1h 口径）
-REFRESH_SEC = 3600    # 1 小时刷新（2026-11-05 由 5 分钟改，数据源是 1h K 线，对齐粒度）
-MONITOR_SIZE = 30     # 监控池规模：三道门全过的币按成交额降序取前 30
-FETCH_CONCURRENCY = 8 # 并发拉 K 线的协程数（串行 100 币要 80 秒，并发约 10 秒）
+# 首次池子算完之前，扫描循环不该开工 —— 否则 monitor_list() 为空，
+# 策略会回落到全量候选池 200 个币，白拉一堆 K 线还灌噪音信号。
+READY = threading.Event()
 
-# 2026-11-05 算法变更（原用 15m K线）：
-#   15m K线噪音太大 —— 96 根里每根都可能是十字星，29 个币的 max振幅/ATR 全落在 4~8.4，
-#   导致 28/30 个币被判"易插针"，监控池实际只剩 INJUSDT 一个可用。
-#   改用 1h K线（96 根 = 4 天窗口）后，噪音被平滑，插针值分布 2.08~8.33，区分度正常。
-#   MIN_ATR_PCT 因口径从 15m 换到 1h（ATR 约大 2 倍），同步由 0.3 调为 0.6。
+# ── 默认值（可被 strategies.yaml 的 pools.monitor 段覆盖）──────
+MIN_QUOTE_VOL = 1e7     # 24h 成交额下限：1000 万 U
+MAX_SPIKE = 4.0         # 单根最大振幅 ÷ ATR 上限
+MONITOR_SIZE = 23       # 监控池容量（最多，不凑数）
 
-_cache: dict[str, dict] = {}
-_monitor: list[str] = []   # 通过三道门且成交额前 MONITOR_SIZE 的币
-_ts: float = 0.0
+# 双档 ATR（5 分钟口径）
+ATR_LO_MAX = 0.33       # 低档上界
+ATR_HI_MIN = 1.20       # 高档下界
+ATR_LO_HOLD = 0.40      # 低档留池缓冲
+ATR_LO_EXIT = 0.45      # 低档硬踢线
+ATR_HI_HOLD = 1.10      # 高档留池缓冲
+ATR_HI_EXIT = 1.00      # 高档硬踢线
+MIN_DWELL_SEC = 1800    # 进池后最短停留 30 分钟
+
+ATR_INTERVAL = "5m"     # ATR 周期
+ATR_N = 14              # ATR 回看根数
+BBW_INTERVAL = "1h"     # 布林带周期
+BBW_LEN = 20            # 布林带长度
+BBW_MULT = 2.0          # 布林带倍数
+BBW_LOOKBACK = 100      # 分位回看根数
+BBW_PCT_MIN = 70.0      # 分位门槛
+
+# 分级刷新
+REFRESH_SEC = 180          # 池内 5m ATR：3 分钟
+SCAN_SEC = 900             # 池外 5m ATR：15 分钟
+BBW_REFRESH_SEC = 3600     # 1h 布林带：每小时
+DAILY_REFRESH_SEC = 86400  # 日线插针：每天
+TICK_SEC = 60              # 主循环节拍
+
+FETCH_CONCURRENCY = 8   # 并发数（200 币串行要 200 秒，并发 8 约 25 秒）
+
+# ── 状态 ────────────────────────────────────────────────────
+_rows: dict[str, dict] = {}       # sym -> {atr_pct, bbw_pct, spike, qv, ts_*}
+_monitor: list[str] = []          # 当前监控池
+_band_of: dict[str, str] = {}     # sym -> "lo" / "hi"（进池时属于哪一档）
+_in_since: dict[str, float] = {}  # sym -> 进池时间戳
+
+_ts_atr_pool = 0.0   # 池内 ATR 上次刷新
+_ts_atr_scan = 0.0   # 池外 ATR 上次扫描
+_ts_bbw = 0.0        # BBW 上次刷新
+_ts_daily = 0.0      # 日线上次刷新
+_ts = 0.0            # 监控池上次重算
 
 
 def configure(cfg: dict | None = None) -> None:
     """从 strategies.yaml 的 pools.monitor 段热更新阈值（缺项保留原值）。"""
-    global MIN_QUOTE_VOL, MAX_SPIKE, MIN_ATR_PCT, REFRESH_SEC, MONITOR_SIZE
+    global MIN_QUOTE_VOL, MAX_SPIKE, MONITOR_SIZE
+    global ATR_LO_MAX, ATR_HI_MIN, ATR_LO_HOLD, ATR_LO_EXIT, ATR_HI_HOLD, ATR_HI_EXIT
+    global MIN_DWELL_SEC, BBW_PCT_MIN
+    global REFRESH_SEC, SCAN_SEC, BBW_REFRESH_SEC, DAILY_REFRESH_SEC, TICK_SEC
     cfg = cfg or {}
-    if "min_quote_vol" in cfg:
-        MIN_QUOTE_VOL = float(cfg["min_quote_vol"])
-    if "max_spike" in cfg:
-        MAX_SPIKE = float(cfg["max_spike"])
-    if "min_atr_pct" in cfg:
-        MIN_ATR_PCT = float(cfg["min_atr_pct"])
-    if "refresh_sec" in cfg:
-        REFRESH_SEC = int(cfg["refresh_sec"])
-    if "size" in cfg:
-        MONITOR_SIZE = int(cfg["size"])
+
+    def _f(k, cur):
+        return float(cfg[k]) if k in cfg else cur
+
+    def _i(k, cur):
+        return int(cfg[k]) if k in cfg else cur
+
+    MIN_QUOTE_VOL = _f("min_quote_vol", MIN_QUOTE_VOL)
+    MAX_SPIKE = _f("max_spike", MAX_SPIKE)
+    MONITOR_SIZE = _i("size", MONITOR_SIZE)
+    ATR_LO_MAX = _f("atr_band_lo_max", ATR_LO_MAX)
+    ATR_HI_MIN = _f("atr_band_hi_min", ATR_HI_MIN)
+    ATR_LO_HOLD = _f("atr_lo_hold", ATR_LO_HOLD)
+    ATR_LO_EXIT = _f("atr_lo_exit", ATR_LO_EXIT)
+    ATR_HI_HOLD = _f("atr_hi_hold", ATR_HI_HOLD)
+    ATR_HI_EXIT = _f("atr_hi_exit", ATR_HI_EXIT)
+    MIN_DWELL_SEC = _i("min_dwell_sec", MIN_DWELL_SEC)
+    BBW_PCT_MIN = _f("bbw_pct_min", BBW_PCT_MIN)
+    REFRESH_SEC = _i("refresh_sec", REFRESH_SEC)
+    SCAN_SEC = _i("scan_sec", SCAN_SEC)
+    BBW_REFRESH_SEC = _i("bbw_refresh_sec", BBW_REFRESH_SEC)
+    DAILY_REFRESH_SEC = _i("daily_refresh_sec", DAILY_REFRESH_SEC)
+    TICK_SEC = _i("tick_sec", TICK_SEC)
 
 
-def _atr(bars, n: int = 22):
+# ── 指标计算 ────────────────────────────────────────────────
+
+def _atr(bars, n: int = ATR_N):
+    """Wilder ATR（与回测 backtest/s15_final.py 的 _rma 口径一致）。"""
+    if len(bars) < n + 1:
+        return None
     trs = []
     for i in range(1, len(bars)):
         h, l, pc = bars[i]["high"], bars[i]["low"], bars[i - 1]["close"]
         trs.append(max(h - l, abs(h - pc), abs(l - pc)))
-    return sum(trs[-n:]) / n if len(trs) >= n else None
+    if len(trs) < n:
+        return None
+    val = sum(trs[:n]) / n
+    for x in trs[n:]:
+        val = (val * (n - 1) + x) / n
+    return val
 
 
-async def _fetch(sym: str, retries: int = 2):
-    for attempt in range(retries):
-        try:
-            bars = await binance.klines(sym, "1h", 100)
-            if len(bars) < 96:
-                return None
-            px = bars[-1]["close"]
-            a = _atr(bars)
-            if not a or not px:
-                return None
-            # 24 小时成交额 = 最近 24 根 1h K线
-            qv = sum(x["volume"] * x["close"] for x in bars[-24:])
-            # 插针 = 4 天内单根最大振幅 ÷ ATR（96 根 1h = 4 天）
-            spike = max(x["high"] - x["low"] for x in bars[-96:]) / a
-            atr_pct = a / px * 100.0
-            why = []
-            if qv < MIN_QUOTE_VOL:
-                why.append("量小")
-            if spike > MAX_SPIKE:
-                why.append("易插针")
-            if atr_pct < MIN_ATR_PCT:
-                why.append("死水")
-            return {"qv": qv, "atr_pct": atr_pct, "spike": spike,
-                    "ok": not why, "why": ",".join(why), "ts": time.time()}
-        except Exception as exc:  # noqa: BLE001
-            if attempt + 1 < retries:
-                await asyncio.sleep(1.0)
-                continue
-            log.debug("quality fetch %s failed: %s", sym, exc)
+def _bbw_pct(bars, length: int = BBW_LEN, mult: float = BBW_MULT,
+             lookback: int = BBW_LOOKBACK):
+    """布林带宽度在近 lookback 根中的百分位（0~100）。
+
+    当前值用最后一根（可以是未收盘的，代表「此刻」）；
+    分位基数只取它之前的已收盘根，避免自己跟自己比。
+    """
+    n = len(bars)
+    if n < length + 2:
+        return None
+    widths = []
+    for i in range(length - 1, n):
+        seg = [b["close"] for b in bars[i - length + 1: i + 1]]
+        mid = sum(seg) / length
+        if not mid:
+            widths.append(None)
+            continue
+        var = sum((x - mid) ** 2 for x in seg) / length
+        sd = var ** 0.5
+        widths.append((2 * mult * sd) / mid * 100.0)
+    cur = widths[-1]
+    hist = [w for w in widths[-lookback - 1:-1] if w is not None]
+    if cur is None or len(hist) < 10:
+        return None
+    below = sum(1 for w in hist if w < cur)
+    return below / len(hist) * 100.0
+
+
+# ── 数据采集 ────────────────────────────────────────────────
+
+async def _fetch_atr(sym: str):
+    """5 分钟 ATR% —— 只拉 20 根，够算 ATR14，省流量。"""
+    try:
+        bars = await binance.klines(sym, ATR_INTERVAL, ATR_N + 6)
+        if len(bars) < ATR_N + 1:
             return None
+        a = _atr(bars, ATR_N)
+        px = bars[-1]["close"]
+        if not a or not px:
+            return None
+        return a / px * 100.0
+    except Exception as exc:  # noqa: BLE001
+        log.debug("atr fetch %s failed: %s", sym, exc)
+        return None
+
+
+async def _fetch_1h(sym: str, need_spike: bool, need_bbw: bool):
+    """1 小时 K 线：一次拉 100 根，同时算插针和布林带分位。"""
+    try:
+        bars = await binance.klines(sym, BBW_INTERVAL, BBW_LOOKBACK)
+        if len(bars) < 96:
+            return {}
+        out = {}
+        a = _atr(bars)
+        if need_spike and a:
+            out["spike"] = max(b["high"] - b["low"] for b in bars[-96:]) / a
+        if need_bbw:
+            v = _bbw_pct(bars)
+            if v is not None:
+                out["bbw_pct"] = v
+        return out
+    except Exception as exc:  # noqa: BLE001
+        log.debug("1h fetch %s failed: %s", sym, exc)
+        return {}
+
+
+async def _update_quote_vol(universe) -> None:
+    """24h 成交额走全市场 ticker，零额外请求（引擎本来就在拉）。"""
+    try:
+        tick = await binance.ticker_24h_all()
+        m = {d["symbol"]: float(d.get("quoteVolume") or 0) for d in tick}
+        for s in universe:
+            row = _rows.setdefault(s, {})
+            if s in m:
+                row["qv"] = m[s]
+                row["ts_qv"] = time.time()
+    except Exception as exc:  # noqa: BLE001
+        log.debug("ticker fetch failed: %s", exc)
+
+
+# ── 双档判定 ────────────────────────────────────────────────
+
+def _band_new(atr_pct):
+    """新进池：落在哪一档？死亡区返回 None。"""
+    if atr_pct is None:
+        return None
+    if atr_pct < ATR_LO_MAX:
+        return "lo"
+    if atr_pct >= ATR_HI_MIN:
+        return "hi"
     return None
 
 
-async def refresh(universe) -> int:
-    """重新计算整个监控池的质地。返回成功条数。
+def _band_keep(atr_pct, band: str) -> bool:
+    """已在池：还在这档的缓冲带内就留下。"""
+    if atr_pct is None:
+        return True   # 数据缺失时不让它掉出去（fail-open）
+    if band == "lo":
+        return atr_pct < ATR_LO_HOLD
+    if band == "hi":
+        return atr_pct >= ATR_HI_HOLD
+    return False
 
-    结果采用「先算后换」的原子替换：整个采集过程（100 币并发 8 路 ≈ 10~15 秒）结束后
-    才一次性替换 _cache 和 _monitor。若边采边写，刷新窗口期内 _monitor 可能为空，
-    is_tradable() 里 `if _monitor and ...` 会走不到席位判断，或者更糟 —— 读到半成品名单。
-    """
-    global _ts, _cache, _monitor
+
+def _band_force_exit(atr_pct, band: str) -> bool:
+    """硬底线：跌穿就立刻踢，无视最短停留。"""
+    if atr_pct is None:
+        return False
+    if band == "lo":
+        return atr_pct >= ATR_LO_EXIT
+    if band == "hi":
+        return atr_pct < ATR_HI_EXIT
+    return True
+
+
+def _judge(sym: str) -> tuple[bool, str]:
+    """单币的日线门槛 + BBW（ATR 双档另算）。"""
+    r = _rows.get(sym) or {}
+    why = []
+    qv = r.get("qv")
+    if qv is not None and qv < MIN_QUOTE_VOL:
+        why.append("量小")
+    spike = r.get("spike")
+    if spike is not None and spike > MAX_SPIKE:
+        why.append("易插针")
+    bbw = r.get("bbw_pct")
+    if bbw is not None and bbw < BBW_PCT_MIN:
+        why.append("无趋势")
+    return (not why), ",".join(why)
+
+
+# ── 刷新流程 ────────────────────────────────────────────────
+
+async def _gather(syms, fn):
     sem = asyncio.Semaphore(FETCH_CONCURRENCY)
 
-    async def _one(sym):
+    async def _one(s):
         async with sem:
-            r = await _fetch(sym)
-            await asyncio.sleep(0.05)   # 轻微错峰，避免瞬时打满权重
-            return sym, r
+            r = await fn(s)
+            await asyncio.sleep(0.03)   # 轻微错峰，避免瞬时打满权重
+            return s, r
 
-    results = await asyncio.gather(*[_one(s) for s in universe])
-    out: dict[str, dict] = {sym: r for sym, r in results if r}
-    if not out:
-        log.warning("quality refresh: 一个币都没采到，保留上一轮结果")
+    return await asyncio.gather(*[_one(s) for s in syms])
+
+
+async def _refresh_atr(universe, only=None) -> int:
+    """刷 5m ATR。only=None 表示扫全部候选币，否则只刷指定名单。"""
+    global _ts_atr_pool, _ts_atr_scan
+    targets = list(universe) if only is None else list(only)
+    if not targets:
         return 0
-    # 三道门全过的按成交额降序，取前 MONITOR_SIZE 进监控池
-    passed = sorted(((sym, v["qv"]) for sym, v in out.items() if v["ok"]),
-                    key=lambda x: -x[1])
-    monitor = [s for s, _ in passed[:MONITOR_SIZE]]
-    _cache, _monitor, _ts = out, monitor, time.time()   # 原子替换
-    log.info("quality refreshed: %d symbols, pass %d, monitor %d",
-             len(out), len(passed), len(monitor))
-    return len(out)
+    res = await _gather(targets, _fetch_atr)
+    n = 0
+    for sym, v in res:
+        if v is None:
+            continue
+        row = _rows.setdefault(sym, {})
+        row["atr_pct"] = v
+        row["ts_atr"] = time.time()
+        n += 1
+    if only is None:
+        _ts_atr_scan = time.time()
+    else:
+        _ts_atr_pool = time.time()
+    return n
 
+
+async def _refresh_bbw(syms) -> int:
+    global _ts_bbw
+    if not syms:
+        return 0
+    res = await _gather(list(syms), lambda s: _fetch_1h(s, need_spike=False, need_bbw=True))
+    n = 0
+    for sym, d in res:
+        if not d:
+            continue
+        row = _rows.setdefault(sym, {})
+        row.update(d)
+        row["ts_bbw"] = time.time()
+        n += 1
+    _ts_bbw = time.time()
+    return n
+
+
+async def _refresh_daily(universe) -> int:
+    """日线插针：全候选池每天一次。"""
+    global _ts_daily
+    res = await _gather(list(universe),
+                        lambda s: _fetch_1h(s, need_spike=True, need_bbw=False))
+    n = 0
+    for sym, d in res:
+        if not d:
+            continue
+        _rows.setdefault(sym, {}).update(d)
+        n += 1
+    _ts_daily = time.time()
+    log.info("quality daily: spike refreshed for %d symbols", n)
+    return n
+
+
+# ── 池子重算（双档 + 缓冲带 + 容量）─────────────────────────
+
+def recompute(universe) -> list[str]:
+    """根据当前数据重算监控池名单。返回新名单。"""
+    global _monitor, _ts
+    now = time.time()
+    now_set = set(universe)
+
+    # ① 已在池的：按缓冲带判断留不留
+    kept: list[str] = []
+    for sym in _monitor:
+        if sym not in now_set:
+            continue                       # 掉出候选池，自动出局
+        r = _rows.get(sym) or {}
+        band = _band_of.get(sym, "lo")
+        atr = r.get("atr_pct")
+        if _band_force_exit(atr, band):
+            continue                       # 硬底线，立刻踢
+        if _band_keep(atr, band):
+            kept.append(sym)
+        elif now - _in_since.get(sym, 0) < MIN_DWELL_SEC:
+            kept.append(sym)               # 最短停留保护
+
+    # ② 未在池的：按双档门槛找新的
+    fresh_lo: list[tuple[str, float]] = []
+    fresh_hi: list[tuple[str, float]] = []
+    in_pool = set(kept)
+    for sym in universe:
+        if sym in in_pool:
+            continue
+        r = _rows.get(sym) or {}
+        atr = r.get("atr_pct")
+        if atr is None:
+            continue                       # 没数据不进池（宁缺毋滥）
+        ok, _why = _judge(sym)
+        if not ok:
+            continue
+        if BBW_PCT_MIN > 0 and r.get("bbw_pct") is None:
+            continue                       # BBW 门槛启用时，必须先采到数据才放行
+        band = _band_new(atr)
+        if band == "lo":
+            fresh_lo.append((sym, atr))
+        elif band == "hi":
+            fresh_hi.append((sym, atr))
+
+    # ③ 排序：低档取 ATR 最低的（最稳），高档取 ATR 最高的（最野）
+    fresh_lo.sort(key=lambda x: x[1])
+    fresh_hi.sort(key=lambda x: -x[1])
+
+    # ④ 容量：已留下的优先，剩余名额两档交替补（保证两头都有人）
+    picked = list(kept)
+    i = j = 0
+    while len(picked) < MONITOR_SIZE and (i < len(fresh_lo) or j < len(fresh_hi)):
+        if i < len(fresh_lo):
+            sym = fresh_lo[i][0]
+            picked.append(sym)
+            _band_of[sym] = "lo"
+            _in_since.setdefault(sym, now)
+            i += 1
+        if len(picked) >= MONITOR_SIZE:
+            break
+        if j < len(fresh_hi):
+            sym = fresh_hi[j][0]
+            picked.append(sym)
+            _band_of[sym] = "hi"
+            _in_since.setdefault(sym, now)
+            j += 1
+
+    # ⑤ 清理已出局的状态
+    keep_set = set(picked)
+    for s in list(_in_since):
+        if s not in keep_set:
+            _in_since.pop(s, None)
+            _band_of.pop(s, None)
+
+    _monitor = picked
+    _ts = now
+    if picked:
+        READY.set()      # 池子有内容了，扫描循环可以开工
+    log.info("monitor recomputed: %d 个（低档 %d / 高档 %d），容量 %d",
+             len(picked),
+             sum(1 for s in picked if _band_of.get(s) == "lo"),
+             sum(1 for s in picked if _band_of.get(s) == "hi"),
+             MONITOR_SIZE)
+    return picked
+
+
+async def refresh(universe) -> int:
+    """兼容旧接口：全量刷一次（ATR + BBW + 日线）后重算名单。"""
+    await _update_quote_vol(universe)
+    await _refresh_atr(universe, only=None)
+    ok_syms = [s for s in universe
+               if _band_new(_rows.get(s, {}).get("atr_pct")) is not None]
+    if BBW_PCT_MIN > 0:
+        await _refresh_bbw(ok_syms)
+    await _refresh_daily(universe)
+    recompute(universe)
+    return len(_rows)
+
+
+# ── 对外接口 ────────────────────────────────────────────────
 
 def get(symbol: str):
-    """取单币质量。未采集到时返回 None（此时放行，不因数据缺失而停单）。"""
-    return _cache.get(symbol)
+    """取单币质量明细。未采集到时返回 None。"""
+    r = _rows.get(symbol)
+    if not r:
+        return None
+    ok, why = _judge(symbol)
+    return {"qv": r.get("qv"), "atr_pct": r.get("atr_pct"),
+            "spike": r.get("spike"), "bbw_pct": r.get("bbw_pct"),
+            "band": _band_of.get(symbol), "ok": ok, "why": why}
 
 
 def monitor_list() -> list[str]:
-    """当前监控池（30 个）。策略扫描时应以它为准，而不是全量候选池 ——
-    扫了也白扫：执行层的 is_tradable() 会把非监控池的信号全拦掉。"""
+    """当前监控池。策略扫描以它为准，不扫全候选池。"""
     return list(_monitor)
 
 
 def is_tradable(symbol: str):
     """(是否放行, 原因)。数据缺失时放行，避免因刷新失败误停整个系统。"""
-    q = _cache.get(symbol)
-    if not q:
-        return True, ""
-    if not q["ok"]:
-        return False, q["why"]
-    # 过了三道门还要抢到监控池席位（成交额前 30）
+    ok, why = _judge(symbol)
+    if not ok:
+        return False, why
     if _monitor and symbol not in _monitor:
         return False, "未进监控池"
     return True, ""
 
 
 def snapshot() -> dict:
-    return {"ts": _ts, "min_quote_vol": MIN_QUOTE_VOL,
-            "max_spike": MAX_SPIKE, "min_atr_pct": MIN_ATR_PCT,
-            "refresh_sec": REFRESH_SEC, "data": _cache,
-            "monitor": list(_monitor), "monitor_size": MONITOR_SIZE,
-            "monitor_n": len(_monitor)}
+    data = {}
+    for s, r in _rows.items():
+        ok, why = _judge(s)
+        data[s] = {**r, "band": _band_of.get(s), "ok": ok, "why": why}
+    return {
+        "ts": _ts,
+        "min_quote_vol": MIN_QUOTE_VOL,
+        "max_spike": MAX_SPIKE,
+        "atr_band_lo_max": ATR_LO_MAX,
+        "atr_band_hi_min": ATR_HI_MIN,
+        "atr_interval": ATR_INTERVAL,
+        "bbw_interval": BBW_INTERVAL,
+        "bbw_pct_min": BBW_PCT_MIN,
+        "size": MONITOR_SIZE,
+        "refresh_sec": REFRESH_SEC,
+        "scan_sec": SCAN_SEC,
+        "data": data,
+        "monitor": list(_monitor),
+        "monitor_size": MONITOR_SIZE,
+        "monitor_n": len(_monitor),
+        "bands": {s: _band_of.get(s) for s in _monitor},
+    }
 
+
+# ── 主循环（分级刷新）──────────────────────────────────────
 
 async def loop(universe_fn, cfg_fn=None):
-    """后台循环，随引擎一起启动。
-
-    universe_fn: () -> 候选池币种列表（约 100 只）
-    cfg_fn:      () -> pools.monitor 配置字典（可空）
-    """
+    """后台循环。不同数据源按各自节奏刷新。"""
     while True:
         try:
             if cfg_fn is not None:
                 configure(cfg_fn())
-            await refresh(universe_fn())
+            universe = universe_fn()
+            now = time.time()
+
+            # 日线插针：每天一次
+            if now - _ts_daily >= DAILY_REFRESH_SEC:
+                await _refresh_daily(universe)
+
+            # 24h 成交额：每轮（走 ticker，零成本）
+            await _update_quote_vol(universe)
+
+            # 池外 5m ATR：15 分钟一次
+            if now - _ts_atr_scan >= SCAN_SEC:
+                await _refresh_atr(universe, only=None)
+
+            # 池内 5m ATR：3 分钟一次
+            if now - _ts_atr_pool >= REFRESH_SEC and _monitor:
+                await _refresh_atr(universe, only=list(_monitor))
+
+            # BBW 采集（2026-11-06 起默认关闭：门槛已归策略层 15m，
+            # 池子不再采集能省 11MB/天；配置里 bbw_pct_min>0 才启用）
+            if BBW_PCT_MIN > 0 and now - _ts_bbw >= BBW_REFRESH_SEC:
+                cand = [s for s in universe
+                        if _band_new(_rows.get(s, {}).get("atr_pct")) is not None]
+                await _refresh_bbw(cand)
+
+            # 重算名单
+            recompute(universe)
+
         except Exception as exc:  # noqa: BLE001
             log.warning("quality loop failed: %s", exc)
-        await asyncio.sleep(REFRESH_SEC)
+        await asyncio.sleep(TICK_SEC)

@@ -715,14 +715,16 @@ class S15CeZlsma(Base):
                 if d_now == d_prev:
                     continue
 
-                # ② ATR 门槛
+                # ② ATR 门槛 —— 2026-11-06 已搬到池子模块（5m 双档）
+                #    池子只管「资格」（这个币能不能做），策略只管「时机」（何时进出）
+                #    yaml 里 min_atr_pct 设 0 即关闭；保留代码是为了回测对比
                 atr_pct = atr / c * 100.0 if c > 0 else 0.0
-                if atr_pct < min_atr_pct:
+                if min_atr_pct > 0 and atr_pct < min_atr_pct:
                     continue
 
-                # ③ 布林带宽度分位门槛（排除震荡）
+                # ③ 布林带宽度分位门槛 —— 同上，已搬到池子（1h 分位 >70%），默认关闭
                 bp = bbw_pct[i]
-                if bp is None or bp < bbw_pct_min:
+                if bbw_pct_min > 0 and (bp is None or bp < bbw_pct_min):
                     continue
 
                 # ④ 关键 K 线（HA 阳线站上均线 / 阴线跌破均线）
@@ -733,7 +735,11 @@ class S15CeZlsma(Base):
                 if d_now == -1 and not key_short:
                     continue
 
-                px = float(c)
+                # 委托价用「真实收盘价」，不用 HA 合成价。
+                # 2026-11-06 定案（方案 B）：指标域用 HA 判方向，委托域用真实价算钱。
+                # 实测证据：LIT 那笔 HA 收盘 3.4170，真实收盘 3.4530（差 +2.11%），
+                # 导致实际盈亏比从 1.20 掉到 0.73、单笔风险从 0.5% 放大到 0.82%。
+                px = float(ks[i]["close"])
                 if px <= 0 or not math.isfinite(px):
                     continue
 
@@ -762,7 +768,8 @@ class S15CeZlsma(Base):
                     reason=(f"CE{'多' if side == 'long' else '空'}翻向+"
                             f"{'阳' if side == 'long' else '阴'}线"
                             f"{'站上' if side == 'long' else '跌破'}ZLSMA "
-                            f"ATR={atr_pct:.2f}% BBW分位={bp:.0f}%"),
+                            f"ATR={atr_pct:.2f}%"
+                            + (f" BBW分位={bp:.0f}%" if bp is not None else "")),
                     stop_price=round(stop, 8),
                     take_profit=round(tp, 8),
                     max_hold_sec=self.max_hold,
