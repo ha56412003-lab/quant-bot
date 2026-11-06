@@ -208,7 +208,8 @@ def simulate(sym, ks, ind, swing_lookback=20, min_atr_pct=2.5, min_adx=25.0,
              stop_atr_mult=0.0,
              # ── 分段回撤（峰顶未到 trail_pct_max_r 时改用「浮盈回撤百分比」）──
              trail_pct=0.0, trail_pct_max_r=2.0, ma_bars_lt=None,
-             trail_pct_cap=0.0, dd_force_mult=0.0):
+             trail_pct_cap=0.0, dd_force_mult=0.0,
+             half_tp_r=0.0, half_dd_pct=0.0, half_dd_r=0.0):
     """浩哥定稿规则。返回 (trades, missed)。
 
     trail_pct: 0=关闭。设为 0.5 表示峰顶不足 trail_pct_max_r 时，
@@ -368,6 +369,24 @@ def simulate(sym, ks, ind, swing_lookback=20, min_atr_pct=2.5, min_adx=25.0,
                     exit_px = entry + sign * rr_target * risk
                     exit_reason, exit_i = "1.5R止盈", j
                     break
+            # ②-b 半仓专属出场（2R 平掉一半之后，管剩下那一半）
+            # 门槛按「平半后新赚的那一段」算：从开仓算的话峰顶 3R 回撤 50%
+            # =1.5R，出场掉到平半价 2R 以下，等于把落袋的又吐回去。
+            if half_done:
+                _base = rr_target
+                _extra_peak = peak_r - _base
+                _extra_cur = cur_r - _base
+                if (half_dd_pct > 0 and _extra_peak > 0.05
+                        and (peak_r - cur_r) >= _extra_peak * half_dd_pct):
+                    exit_px, exit_reason, exit_i = c_, "半仓回撤50%", j
+                    break
+                if half_dd_r > 0 and (peak_r - cur_r) >= half_dd_r:
+                    exit_px, exit_reason, exit_i = c_, "半仓回撤0.8R", j
+                    break
+                if half_tp_r > 0 and _extra_cur >= half_tp_r:
+                    exit_px, exit_reason, exit_i = c_, "半仓再满2R", j
+                    break
+
             # ④ 保本止损：浮盈达 breakeven_r 后，止损上移到成本价
             if breakeven_r > 0 and peak_r >= breakeven_r:
                 cur_stop = entry if sign > 0 else entry

@@ -734,8 +734,34 @@ class S15CeZlsma(Base):
                 # 落库：重启后能接着数，卡片上也能显示 N/2
                 db.update_position(pos["id"], ma_break_cnt=new_cnt)
 
+        peak = st["peak"]        # 半仓判定和③都要用，先取出来
+
+        # ── 半仓专属出场（2R 已平掉一半之后）──
+        # 三个条件并列，达到任一就全平剩下的那一半。
+        # 默认只开 ⓒ（浩哥 2026-11-06 的明确要求：③不变，再加一条「再满 2R 直接走」）；
+        # ⓐⓑ 做成参数，回测里对比过再决定要不要开。
+        if int(pos.get("half_closed") or 0):
+            base_r = float(self._p("half_at_r", 2.0))
+            # 关键：门槛按「平半之后新赚的那一段」算，不是从开仓算。
+            # 从开仓算的话峰顶 3.0R 回撤 50%=1.5R，出场落在 1.5R，
+            # 比平半价 2.0R 还低 —— 等于把已经落袋的一半又吐回去。
+            extra_peak = peak - base_r
+            extra_cur = cur_r - base_r
+            # ⓐ 半仓额外浮盈回撤 50%
+            hp = float(self._p("half_dd_pct", 0.0))
+            if hp > 0 and extra_peak > 0.05 and (peak - cur_r) >= extra_peak * hp:
+                return (f"半仓回撤{hp*100:.0f}%(峰值{peak:.2f}R "
+                        f"额外{extra_peak:.2f}R 回撤{peak-cur_r:.2f}R)")
+            # ⓑ 半仓峰顶回撤固定 0.8R（不看均线，比③更松）
+            hr = float(self._p("half_dd_r", 0.0))
+            if hr > 0 and (peak - cur_r) >= hr:
+                return f"半仓回撤{hr:.2f}R(峰值{peak:.2f}R)"
+            # ⓒ 半仓又赚满 2R → 全平落袋
+            ht = float(self._p("half_tp_r", 0.0))
+            if ht > 0 and extra_cur >= ht:
+                return f"半仓再赚{ht:.2f}R止盈(峰值{peak:.2f}R 现{cur_r:.2f}R)"
+
         # ── 出场判定：峰顶不足 2R 走「比例回撤」，满 2R 走「固定 0.8R」──
-        peak = st["peak"]
         # peak <= 0 说明内存态还没重建（进程刚起来、仓位刚被访问），
         # 此时按比例算出来的门槛是 0 → 任何回撤都会触发，等于提前乱砍仓。
         # 这种情况必须退回固定 trail_r。

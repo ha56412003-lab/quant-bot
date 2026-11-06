@@ -84,6 +84,14 @@ strategies:
       trail_pct_max_r: 2.0
       trail_pct_cap: 0.8
       ma_bars_lt: 5
+      # ── 半仓专属出场（2R 平掉一半之后，管剩下那一半）──
+      # 三个并列，达到任一就全平。0 = 关闭该条。
+      # 默认只开 half_tp_r：浩哥要的是「③不变，再加一条再满 2R 直接走」。
+      # 注意 half_dd_pct 的门槛按「平半后新赚的那一段」算，
+      # 否则峰顶 3R 回撤 50%=1.5R 会掉到平半价 2R 以下。
+      half_tp_r: 2.0
+      half_dd_pct: 0.0
+      half_dd_r: 0.0
       fee_rate: 0.0002
       slip_pct: 0.0
 pools:
