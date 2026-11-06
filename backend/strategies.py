@@ -753,7 +753,11 @@ class S15CeZlsma(Base):
                 return (f"半仓回撤{hp*100:.0f}%(峰值{peak:.2f}R "
                         f"额外{extra_peak:.2f}R 回撤{peak-cur_r:.2f}R)")
             # ⓑ 半仓峰顶回撤固定 0.8R（不看均线，比③更松）
+            # 必须夹到 extra_peak 以内：峰顶 2.5R 时extra 只有 0.5R，
+            # 按 0.8R 回撤出场会落在 1.70R —— 比平半价 2.0R 还低，倒吐。
             hr = float(self._p("half_dd_r", 0.0))
+            if hr > 0:
+                hr = min(hr, max(0.0, extra_peak))
             if hr > 0 and (peak - cur_r) >= hr:
                 return f"半仓回撤{hr:.2f}R(峰值{peak:.2f}R)"
             # ⓒ 半仓又赚满 2R → 全平落袋
