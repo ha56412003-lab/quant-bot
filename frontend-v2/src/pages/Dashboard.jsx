@@ -64,6 +64,7 @@ export default function Dashboard({ status }) {
   const [trades] = usePoll(api.trades, 15000)
   const [logs] = usePoll(api.logs, 15000)
   const [gates] = usePoll(api.gates, 30000)   // 三道光闸：数据 15m 才变一次，30s 够
+  const [events] = usePoll(api.events, 60000) // 经济事件：静默窗口要准，1min 刷一次
   const [pool] = usePoll(api.pool, 30000)
   const [shadow] = usePoll(api.shadow, 30000)
 
@@ -528,6 +529,7 @@ export default function Dashboard({ status }) {
               trades={trades?.trades || []}
               logs={logs?.logs || []}
               gates={gates}
+              events={events}
             />
           </div>
         </article>

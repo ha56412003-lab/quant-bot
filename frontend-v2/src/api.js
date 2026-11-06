@@ -27,6 +27,7 @@ export const api = {
   trades: (limit = 100) => get(`/api/trades?limit=${limit}`),
   signals: (limit = 50) => get(`/api/signals?limit=${limit}`),
   gates: () => get('/api/gates'),
+  events: () => get('/api/events'),
   factors: () => get('/api/factors'),
   strategies: () => get('/api/strategies'),
   toggleStrategy: (id, enabled) => post(`/api/strategies/${id}/toggle`, { enabled }),

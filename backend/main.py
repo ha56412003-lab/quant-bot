@@ -246,6 +246,62 @@ async def api_status():
     }
 
 
+@app.get("/api/events")
+async def api_events():
+    """经济日历：未来 48 小时事件 + 当前静默状态。
+
+    浩哥 2026-11-06 要求「事件要在界面上看得见」。
+    此前只有 /api/status.event_quiet 一个字符串，且**只在静默时才非空** ——
+    平时页面上完全看不到这个机制存在，也不知道下一个事件什么时候来。
+
+    同一时刻的多个事件合并成一行：非农一次会返回 6 条（非农就业/失业率/
+    时薪/就业人口…），分开列会把表格灌满，实际它们是同一个时刻同一个闸门。
+    """
+    cfg = config.load_strategies()
+    g = cfg.get("global") or {}
+    window_min = int(g.get("event_quiet_minutes", 30) or 0)
+    now = time.time()
+
+    raw = (db.get_factor("econ_cal") or {}).get("events") or []
+    horizon = now + 48 * 3600
+    # 略早于 now 的也留着（正在静默窗口里的事件需要显示「已进入静默」）
+    fut = [e for e in raw if now - window_min * 60 < float(e.get("ts") or 0) <= horizon]
+    fut.sort(key=lambda e: float(e["ts"]))
+
+    groups: dict[int, list] = {}
+    for e in fut:
+        groups.setdefault(int(e["ts"]), []).append(e)
+
+    rows = []
+    for ts in sorted(groups):
+        items = groups[ts]
+        top = max(items, key=lambda x: int(x.get("importance") or 0))
+        dt = ts - now
+        rows.append({
+            "ts": ts,
+            "title": top.get("title", ""),
+            "importance": int(top.get("importance") or 0),
+            "count": len(items),
+            "minutes": round(dt / 60),
+            # 必须和 risk.event_quiet() 用同一个判据：0 < ts-now <= window
+            # 也就是「只在事件之前静默」。写成前后对称会让界面显示「静默中」
+            # 而引擎其实照常开仓 —— 界面和真实行为对不上比不显示更糟。
+            "in_window": bool(0 < dt <= window_min * 60),
+        })
+
+    nxt = next((r for r in rows if r["minutes"] > 0), None)
+    return {
+        "quiet": risk.event_quiet(g),          # 非空 = 正在静默，值是事件名
+        "window_min": window_min,
+        "now": int(now),
+        "next_ts": nxt["ts"] if nxt else 0,
+        "next_title": nxt["title"] if nxt else "",
+        "next_minutes": nxt["minutes"] if nxt else None,
+        "rows": rows[:40],
+        "total": len(rows),
+    }
+
+
 @app.get("/api/positions")
 async def api_positions():
     cfg = config.load_strategies()
