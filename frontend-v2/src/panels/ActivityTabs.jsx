@@ -13,10 +13,19 @@ export default function ActivityTabs({ signals, trades, logs }) {
     { title: t('dash.col.symbol'), dataIndex: 'symbol', width: 80 },
     { title: t('dash.col.side'), dataIndex: 'side', width: 50,
       render: (v) => <Tag color={v === 'long' ? 'red' : 'green'}>{v === 'long' ? t('dash.long') : t('dash.short')}</Tag> },
-    { title: t('act.result'), key: 'acted', width: 100,
-      render: (_, r) => r.acted
-        ? <Tag color="green">{t('act.executed')}</Tag>
-        : <Tag color="default">{r.skip_reason || t('act.skipped')}</Tag> },
+    { title: t('act.result'), key: 'acted', width: 110,
+      render: (_, r) => {
+        if (!r.acted) return <Tag color="default">{r.skip_reason || t('act.skipped')}</Tag>
+        // acted=1 只说明「当时开了仓」，仓位现在还在不在要看 pos_status
+        if (r.pos_status === 'open') return <Tag color="green">{t('act.holding')}</Tag>
+        if (r.pos_status === 'closed') {
+          const p = r.pos_pnl
+          return <Tag color="default">{t('act.closed')}{p == null ? '' : ' '}
+            {p != null && <span style={{ color: p >= 0 ? '#d4595e' : '#3fa86a' }}>{fmtPnl(p)}</span>}
+          </Tag>
+        }
+        return <Tag color="blue">{t('act.executed')}</Tag>
+      } },
     { title: t('act.reason'), dataIndex: 'reason', ellipsis: true },
   ]
   const tradeCols = [

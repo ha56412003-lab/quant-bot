@@ -224,8 +224,29 @@ def log_signal(strategy, symbol, side, reason, acted, skip_reason=""):
 
 
 def recent_signals(limit=50):
+    """信号列表 + 对应仓位的当前状态。
+
+    signals 表只记「当时是否开了仓」（acted），不看仓位后来怎样。
+    页面上直接显示 acted 会让人误以为还持仓，所以这里关联出 pos_status：
+      open   → 还在持仓
+      closed → 已经平掉（附带盈亏）
+      None   → 当时就没开仓
+    """
+    sql = """
+    SELECT s.*,
+           (SELECT p.status FROM positions p
+             WHERE p.symbol = s.symbol
+               AND p.opened_at BETWEEN s.ts - 120 AND s.ts + 120
+             ORDER BY p.id DESC LIMIT 1) AS pos_status,
+           (SELECT p.pnl FROM positions p
+             WHERE p.symbol = s.symbol
+               AND p.opened_at BETWEEN s.ts - 120 AND s.ts + 120
+             ORDER BY p.id DESC LIMIT 1) AS pos_pnl
+      FROM signals s
+     ORDER BY s.id DESC LIMIT ?
+    """
     with _lock:
-        rows = _conn.execute("SELECT * FROM signals ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        rows = _conn.execute(sql, (limit,)).fetchall()
     return [dict(r) for r in rows]
 
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Card, Table, Tag, Tooltip, Typography } from 'antd'
 import { useI18n } from '../i18n'
+import { fmtPnl } from '../api'
 
 const { Text } = Typography
 
@@ -128,14 +129,31 @@ export default function PoolTable({ pool }) {
       title: t('pool.col.signal'), key: 'sig', width: 150,
       render: (_, r) => {
         if (!r.last_sig_side) return <Text type="secondary">-</Text>
+        // acted=1 只说明当时开了仓；仓位现在还在不在看 last_sig_pos
+        let statusEl
+        if (!r.last_sig_acted) {
+          statusEl = <span style={{ color: '#8c8c8c' }}>{r.last_sig_skip || t('pool.skipped')}</span>
+        } else if (r.last_sig_pos === 'closed') {
+          const p = r.last_sig_pnl
+          statusEl = (
+            <span style={{ color: '#8c8c8c' }}>
+              {t('act.closed')}{' '}
+              {p != null && (
+                <span style={{ color: p >= 0 ? '#c4182c' : '#0f7a3d' }}>{fmtPnl(p)}</span>
+              )}
+            </span>
+          )
+        } else if (r.last_sig_pos === 'open') {
+          statusEl = <span style={{ color: '#52c41a' }}>{t('pool.held')}</span>
+        } else {
+          statusEl = <span style={{ color: '#1677ff' }}>{t('pool.acted')}</span>
+        }
         return (
           <span style={{ fontSize: 12 }}>
             <Tag color={r.last_sig_side === 'long' ? 'red' : 'green'}>
               {r.last_sig_side === 'long' ? t('pool.long') : t('pool.short')}
             </Tag>
-            <span style={{ color: r.last_sig_acted ? '#52c41a' : '#8c8c8c' }}>
-              {r.last_sig_acted ? t('pool.acted') : (r.last_sig_skip || t('pool.skipped'))}
-            </span>
+            {statusEl}
             <div style={{ color: '#8c8c8c', fontSize: 11 }}>{ago(r.last_sig_ts)}</div>
           </span>
         )

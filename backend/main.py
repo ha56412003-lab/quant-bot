@@ -550,6 +550,9 @@ async def api_pool():
             "last_sig_ts": sig["ts"] if sig else None,
             "last_sig_acted": bool(sig["acted"]) if sig else None,
             "last_sig_skip": sig.get("skip_reason") if sig else None,
+            # acted 只代表「当时开了仓」，仓位现在还在不在看 pos_status
+            "last_sig_pos": sig.get("pos_status") if sig else None,
+            "last_sig_pnl": sig.get("pos_pnl") if sig else None,
         })
     rows.sort(key=lambda r: -(r["qv"] or 0))
     pool_snap = pool.snapshot()
