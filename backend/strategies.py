@@ -768,8 +768,14 @@ class S15CeZlsma(Base):
         # peak <= 0 说明内存态还没重建（进程刚起来、仓位刚被访问），
         # 此时按比例算出来的门槛是 0 → 任何回撤都会触发，等于提前乱砍仓。
         # 这种情况必须退回固定 trail_r。
+        # 两件事必须分开判：
+        #   根数只看「峰顶是否满 2R」—— 不足 2R 一律 5 根（含刚开的票）
+        #   门槛才用 0.05 护栏 —— 峰顶太小算比例会得 0，退回固定 trail_r
+        # 原来两者共用 use_pct，导致新仓（峰顶常接近 0）被连带切成 2 根，
+        # 与「不足 2R 走 5 根」的规则不符，卡片上也显示成 0/2。
+        in_lt = peak < trail_pct_max_r
         use_pct = trail_pct > 0 and 0.05 < peak < trail_pct_max_r
-        need_bars = ma_bars_lt if use_pct else ma_confirm
+        need_bars = ma_bars_lt if in_lt else ma_confirm
         if use_pct:
             need_dd = peak * trail_pct
             if trail_pct_cap > 0:

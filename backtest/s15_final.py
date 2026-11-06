@@ -210,7 +210,7 @@ def simulate(sym, ks, ind, swing_lookback=20, min_atr_pct=2.5, min_adx=25.0,
              trail_pct=0.0, trail_pct_max_r=2.0, ma_bars_lt=None,
              trail_pct_cap=0.0, dd_force_mult=0.0,
              half_tp_r=0.0, half_dd_pct=0.0, half_dd_r=0.0,
-             half_fresh=False):
+             half_fresh=False, guard_split=True):
     """浩哥定稿规则。返回 (trades, missed)。
 
     trail_pct: 0=关闭。设为 0.5 表示峰顶不足 trail_pct_max_r 时，
@@ -424,9 +424,16 @@ def simulate(sym, ks, ind, swing_lookback=20, min_atr_pct=2.5, min_adx=25.0,
                 else:
                     pk = peak_r
                     cr = cur_r
+                # 段A/段B 的分界只看 2R。0.05 护栏只管「门槛怎么算」，
+                # 不能连带把根数也切到 2 根 —— 否则新开的票（峰顶还没起来）
+                # 会一直显示 2 根，与「不足 2R 走 5 根」的规则不符。
+                in_lt = pk < trail_pct_max_r
                 use_pct = trail_pct > 0 and 0.05 < pk < trail_pct_max_r
-                need_bars = (ma_bars_lt if (use_pct and ma_bars_lt is not None)
-                             else ma_confirm_bars)
+                _lt_bars = ma_bars_lt if in_lt else ma_confirm_bars
+                if guard_split:
+                    need_bars = _lt_bars
+                else:   # 旧口径：护栏连带切根数
+                    need_bars = _lt_bars if use_pct else ma_confirm_bars
                 if use_pct:
                     need_dd = pk * trail_pct
                     if trail_pct_cap > 0:

@@ -360,16 +360,17 @@ async def api_positions():
         _bars_lt = int(sparams.get("ma_bars_lt") or ma_confirm)
         # peak<=0.05 时代码会算出 0 门槛 → 前端显示「回撤目标 0.00」，
         # 实际出场判定也走固定 trail_r（见 strategies.py 同样的保护）
+        # 根数只看「峰顶是否满 2R」，与门槛分开判（否则新仓会显示成 0/2）
+        _pk = float(peak_r_mem or 0.0)
         use_pct = bool(_pct > 0 and peak_r_mem is not None
-                       and 0.05 < float(peak_r_mem) < _pct_max)
+                       and 0.05 < _pk < _pct_max)
+        ma_bars_need = _bars_lt if _pk < _pct_max else ma_confirm
         if use_pct:
-            trail_target_r = float(peak_r_mem or 0.0) * _pct
+            trail_target_r = _pk * _pct
             if _pct_cap > 0:
                 trail_target_r = min(trail_target_r, _pct_cap)
-            ma_bars_need = _bars_lt
         else:
             trail_target_r = _trail_r
-            ma_bars_need = ma_confirm
 
         out.append({**p, "mark_price": price, "unrealized_pnl": upnl,
                     "notional": abs(p["qty"] * price),
