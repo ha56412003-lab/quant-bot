@@ -1729,6 +1729,15 @@ html, body, #root {
 .spider-root .bot > .pnl .ant-table-thead > tr > th {
   padding: 6px 8px !important;
 }
+/* 监控池表头（2026-11-06）：8 列压到 601px 后，「24h成交额」「杂讯过滤」
+   按 12px 字号 + 8px 内边距会折成两行。表头缩到 10.5px、内边距收到 4px、
+   禁止换行 —— 只作用于第一个 .pnl（监控池），影子和信息流表不变。 */
+.spider-root .bot > .pnl:first-child .ant-table-thead > tr > th {
+  font-size: 10.5px !important;
+  padding: 6px 4px !important;
+  white-space: nowrap !important;
+  letter-spacing: 0 !important;
+}
 
 /* ══════════ antd 弹窗深色主题（默认白底在暗界面上太戳眼）══════════ */
 .ant-modal-mask { background: rgba(0, 0, 0, .86) !important; }
