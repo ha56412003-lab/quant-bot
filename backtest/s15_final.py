@@ -380,8 +380,7 @@ def simulate(sym, ks, ind, swing_lookback=20, min_atr_pct=2.5, min_adx=25.0,
                         and (peak_r - cur_r) >= _extra_peak * half_dd_pct):
                     exit_px, exit_reason, exit_i = c_, "半仓回撤50%", j
                     break
-                _hr = min(half_dd_r, max(0.0, _extra_peak)) if half_dd_r > 0 else 0.0
-                if _hr > 0 and (peak_r - cur_r) >= _hr:
+                if half_dd_r > 0 and (peak_r - cur_r) >= half_dd_r:
                     exit_px, exit_reason, exit_i = c_, "半仓回撤0.8R", j
                     break
                 if half_tp_r > 0 and _extra_cur >= half_tp_r:
