@@ -168,19 +168,21 @@ function PosCard({ p, avatar }) {
           </>
         )}
 
-        {/* ② 回撤区：当前价 → 峰顶，虚点像素填充 */}
+        {/* ② 羽化回撤区：当前价 → 峰顶，边缘渐隐的流动光带 */}
         {showPeak && (
           <span className="dd-zone" style={{
             left: `${curPct}%`, width: `${peakPct - curPct}%`,
           }} />
         )}
 
-        {/* ③ 0.8R 回撤出局线：峰顶往左 0.8R，跌破即出场 */}
-        {showExit && <span className="exit-line" style={{ left: `${exitPct}%` }} />}
+        {/* ③ 出局线：轨道上方红色倒三角（闪烁）—— 当前价跌破这里就走人 */}
+        {showExit && <span className="exit-arrow" style={{ left: `${exitPct}%` }} />}
 
-        {/* ④ 峰顶 + 当前价游标 */}
-        {showPeak && <span className="peak-mark" style={{ left: `${peakPct}%` }} />}
-        <b className="cursor" style={{ left: `${curPct}%` }} />
+        {/* ④ 峰顶：轨道上方绿色倒三角 */}
+        {showPeak && <span className="peak-arrow" style={{ left: `${peakPct}%` }} />}
+
+        {/* ④ 当前价：轨道下方橙黄正三角，尖端压进轨道 */}
+        <b className="cur-arrow" style={{ left: `${curPct}%` }} />
         {phase === 'loss' && <span className="stop-anchor" />}
       </div>
 
