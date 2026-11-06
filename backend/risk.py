@@ -8,7 +8,11 @@ import time
 
 from . import db, factors
 
-QUIET_EXEMPT = {"S09_EVENT_BREAKOUT"}
+# 事件静默豁免名单：这些策略在自己的信号里已经处理过宏观数据，不需要再静默。
+# 2026-11-06 自检清理：原内容是 {"S09_EVENT_BREAKOUT"}，但该类早已删除
+# （11-04 日志「策略实例 S09_EVENT_BREAKOUT 已删除」），yaml 里也没有 → 空集。
+# S15 不在豁免名单里，所以重要数据前 30 分钟它会被正常拦下（这是想要的）。
+QUIET_EXEMPT: set[str] = set()
 
 
 def _day_start():

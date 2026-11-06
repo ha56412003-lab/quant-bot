@@ -11,20 +11,22 @@
       3.0~4.5%     大赚（野币靠波段）
   双档筛选（<1.0% 或 >=3.0%）净 +31.74R，且是唯一「前半段不亏」的方案。
 
-【四个门槛各看什么周期】
+【三个门槛各看什么周期】
   成交额      日线口径（走全市场 ticker，零额外成本）
   插针        日线口径（96 根 1h 内最大振幅 ÷ ATR）
-  ATR         5 分钟（小一级，提前发现波动）
-  布林带分位  1 小时（大一级，判断趋势环境成不成立）
+  ATR         5 分钟（提前发现波动）
 
-【分级刷新（约 99MB/天；全量 3 分钟刷新是 288MB）】
-  5m ATR  · 池内         每 3 分钟
+  布林带分位不在这里 —— 2026-11-06 移交给策略层按 15m 算（见 strategies.py
+  的 _bollinger_width / _pct_rank）。池子层按 1h 算的那套已整套删除：
+  1h BBW 近 100 根 = 100 小时（4 天），等它确认趋势早走完了，实测 -36.96R。
+
+【分级刷新（约 138MB/天）】
+  5m ATR  · 池内         每 5 分钟
   5m ATR  · 池外         每 15 分钟
-  1h BBW                 每小时（只算 ATR 已过双档的币）
   日线插针               每天
   24h 成交额             每轮（走 ticker）
 
-【ATR 准入门槛（2026-11-06 晚 浩哥定）】
+【ATR 准入门槛（2026-11-06 晚 浩哥定，当日两次调整 1.20 → 0.40）】
   进池：5m ATR > 0.40%
   出池：进池满 30 分钟 + 期间没被选进持仓池 + ATR < 0.30% → 移除
   已进持仓池的币不受 ATR 影响（出场交给策略层）
@@ -64,39 +66,33 @@ MIN_DWELL_SEC = 1800    # 进池后最短停留 30 分钟
 
 ATR_INTERVAL = "5m"     # ATR 周期
 ATR_N = 14              # ATR 回看根数
-BBW_INTERVAL = "1h"     # 布林带周期（仅表示 BBW 采集周期；K 线请求周期已写死 1h）
 _RETRY_SEC = 600         # 整轮刷新全失败时的重试间隔（秒）
-BBW_LEN = 20            # 布林带长度
-BBW_MULT = 2.0          # 布林带倍数
-BBW_LOOKBACK = 100      # 分位回看根数
-BBW_PCT_MIN = 70.0      # 分位门槛
+SPIKE_LOOKBACK = 100    # 插针：拉 100 根 1h（实际用最后 96 根）
 
 # 分级刷新
 REFRESH_SEC = 300          # 池内 5m ATR：5 分钟
 SCAN_SEC = 900             # 池外 5m ATR：15 分钟
-BBW_REFRESH_SEC = 3600     # 1h 布林带：每小时
 DAILY_REFRESH_SEC = 86400  # 日线插针：每天
 TICK_SEC = 60              # 主循环节拍
 
 FETCH_CONCURRENCY = 8   # 并发数（200 币串行要 200 秒，并发 8 约 25 秒）
 
 # ── 状态 ────────────────────────────────────────────────────
-_rows: dict[str, dict] = {}       # sym -> {atr_pct, bbw_pct, spike, qv, ts_*}
+_rows: dict[str, dict] = {}       # sym -> {atr_pct, spike, qv, ts_*}
 _monitor: list[str] = []          # 当前监控池
 _in_since: dict[str, float] = {}  # sym -> 进池时间戳
 
 _ts_atr_pool = 0.0   # 池内 ATR 上次刷新
 _ts_atr_scan = 0.0   # 池外 ATR 上次扫描
-_ts_bbw = 0.0        # BBW 上次刷新
-_ts_daily = 0.0      # 日线上次刷新
+_ts_daily = 0.0      # 日线插针上次刷新
 _ts = 0.0            # 监控池上次重算
 
 
 def configure(cfg: dict | None = None) -> None:
     """从 strategies.yaml 的 pools.monitor 段热更新阈值（缺项保留原值）。"""
     global MIN_QUOTE_VOL, MAX_SPIKE, MONITOR_SIZE
-    global MIN_DWELL_SEC, ATR_ENTER_MIN, ATR_EXIT_MAX, BBW_PCT_MIN
-    global REFRESH_SEC, SCAN_SEC, BBW_REFRESH_SEC, DAILY_REFRESH_SEC, TICK_SEC
+    global MIN_DWELL_SEC, ATR_ENTER_MIN, ATR_EXIT_MAX
+    global REFRESH_SEC, SCAN_SEC, DAILY_REFRESH_SEC, TICK_SEC
     cfg = cfg or {}
 
     def _f(k, cur):
@@ -111,30 +107,17 @@ def configure(cfg: dict | None = None) -> None:
     MIN_DWELL_SEC = _i("min_dwell_sec", MIN_DWELL_SEC)
     ATR_ENTER_MIN = _f("atr_enter_min", ATR_ENTER_MIN)
     ATR_EXIT_MAX = _f("atr_exit_max", ATR_EXIT_MAX)
-    BBW_PCT_MIN = _f("bbw_pct_min", BBW_PCT_MIN)
     REFRESH_SEC = _i("refresh_sec", REFRESH_SEC)
     SCAN_SEC = _i("scan_sec", SCAN_SEC)
-    BBW_REFRESH_SEC = _i("bbw_refresh_sec", BBW_REFRESH_SEC)
     DAILY_REFRESH_SEC = _i("daily_refresh_sec", DAILY_REFRESH_SEC)
     TICK_SEC = _i("tick_sec", TICK_SEC)
-    # 2026-11-06 自检修复：这三个配置此前只写不读（configure 漏读），
-    # 改 yaml 会静默失效。现在真正生效：
-    #   atr_interval — ATR 用的 K 线周期
-    #   bbw_interval — 布林带周期；写 "off" 表示连采集都不做（双保险，
-    #                  另一个开关是 bbw_pct_min=0）
-    #   sort_by      — 仅描述性（容量排序固定为低档取最低、高档取最高），
-    #                  从 yaml 移除，此处不再读取
-    global ATR_INTERVAL, BBW_INTERVAL
-    # 注意 YAML 坑：裸写的 off/on/yes/no 会被解析成布尔 False/True，
-    # 所以这里要显式处理 False 的情况（yaml 里建议写带引号的 "off"）。
+    # atr_interval — ATR 用的 K 线周期
+    # （bbw_interval / bbw_pct_min / bbw_refresh_sec 三个键 2026-11-06 已删除：
+    #   BBW 整套移交策略层 15m，池子层不再采集也不再判断）
+    global ATR_INTERVAL
     _atr_iv = cfg.get("atr_interval")
     if _atr_iv is not None:
         ATR_INTERVAL = str(_atr_iv)
-    _bbw_iv = cfg.get("bbw_interval")
-    if _bbw_iv is False:
-        BBW_INTERVAL = "off"
-    elif _bbw_iv is not None:
-        BBW_INTERVAL = str(_bbw_iv)
 
 
 # ── 指标计算 ────────────────────────────────────────────────
@@ -155,34 +138,6 @@ def _atr(bars, n: int = ATR_N):
     return val
 
 
-def _bbw_pct(bars, length: int = BBW_LEN, mult: float = BBW_MULT,
-             lookback: int = BBW_LOOKBACK):
-    """布林带宽度在近 lookback 根中的百分位（0~100）。
-
-    当前值用最后一根（可以是未收盘的，代表「此刻」）；
-    分位基数只取它之前的已收盘根，避免自己跟自己比。
-    """
-    n = len(bars)
-    if n < length + 2:
-        return None
-    widths = []
-    for i in range(length - 1, n):
-        seg = [b["close"] for b in bars[i - length + 1: i + 1]]
-        mid = sum(seg) / length
-        if not mid:
-            widths.append(None)
-            continue
-        var = sum((x - mid) ** 2 for x in seg) / length
-        sd = var ** 0.5
-        widths.append((2 * mult * sd) / mid * 100.0)
-    cur = widths[-1]
-    hist = [w for w in widths[-lookback - 1:-1] if w is not None]
-    if cur is None or len(hist) < 10:
-        return None
-    below = sum(1 for w in hist if w < cur)
-    return below / len(hist) * 100.0
-
-
 # ── 数据采集 ────────────────────────────────────────────────
 
 async def _fetch_atr(sym: str):
@@ -201,32 +156,24 @@ async def _fetch_atr(sym: str):
         return None
 
 
-async def _fetch_1h(sym: str, need_spike: bool, need_bbw: bool):
-    """1 小时 K 线：一次拉 100 根，同时算插针和布林带分位。
+async def _fetch_spike(sym: str):
+    """1 小时 K 线：拉 100 根，算插针（最大振幅 ÷ ATR）。
 
-    ⚠ 这里的周期必须写死 "1h"，不能再用 BBW_INTERVAL。
-    2026-11-06 踩过的坑：为了省流量把 yaml 的 bbw_interval 设成 "off"
-    （本意只是"别采布林带"），结果这个变量同时被当成 klines 的 interval
-    传给币安 → 请求 interval=off → 400 → 整个函数返回 {} → 插针值算不出来
-    → 「插针 ≤4.0」这道池子门槛静默失效（日志只显示 refreshed for 0 symbols，
-    一条报错都没有，异常被 log.debug 吞掉）。
-    BBW 采不采由调用方的 need_bbw 控制，与 K 线周期是两件事。
+    ⚠ 周期写死 "1h"，不要改成可配置 —— 2026-11-06 的坑：曾把 yaml 的
+    bbw_interval 直接当 klines 的 interval 传，别人写 "off" 就变成
+    请求 interval=off → 币安 400 → 函数返回 {} → 插针算不出来 →
+    「插针 ≤4.0」门槛静默失效，日志只有 refreshed for 0 symbols。
     """
     try:
-        bars = await binance.klines(sym, "1h", BBW_LOOKBACK)
+        bars = await binance.klines(sym, "1h", SPIKE_LOOKBACK)
         if len(bars) < 96:
             return {}
-        out = {}
         a = _atr(bars)
-        if need_spike and a:
-            out["spike"] = max(b["high"] - b["low"] for b in bars[-96:]) / a
-        if need_bbw:
-            v = _bbw_pct(bars)
-            if v is not None:
-                out["bbw_pct"] = v
-        return out
+        if not a:
+            return {}
+        return {"spike": max(b["high"] - b["low"] for b in bars[-96:]) / a}
     except Exception as exc:  # noqa: BLE001
-        log.debug("1h fetch %s failed: %s", sym, exc)
+        log.debug("spike fetch %s failed: %s", sym, exc)
         return {}
 
 
@@ -256,7 +203,11 @@ async def _update_quote_vol(universe) -> None:
 
 
 def _judge(sym: str) -> tuple[bool, str]:
-    """单币的日线门槛 + BBW（ATR 双档另算）。"""
+    """单币的池子资格：成交额 + 插针。进出池用同一把尺子。
+
+    （2026-11-06 前的 ATR 双档与 1h BBW 判断已删除：ATR 改由
+     ATR_ENTER_MIN / ATR_EXIT_MAX 单线判断，BBW 移交策略层 15m。）
+    """
     r = _rows.get(sym) or {}
     why = []
     qv = r.get("qv")
@@ -265,9 +216,6 @@ def _judge(sym: str) -> tuple[bool, str]:
     spike = r.get("spike")
     if spike is not None and spike > MAX_SPIKE:
         why.append("易插针")
-    bbw = r.get("bbw_pct")
-    if bbw is not None and bbw < BBW_PCT_MIN:
-        why.append("无趋势")
     return (not why), ",".join(why)
 
 
@@ -318,32 +266,10 @@ async def _refresh_atr(universe, only=None) -> int:
     return n
 
 
-async def _refresh_bbw(syms) -> int:
-    global _ts_bbw
-    if not syms:
-        return 0
-    res = await _gather(list(syms), lambda s: _fetch_1h(s, need_spike=False, need_bbw=True))
-    n = 0
-    for sym, d in res:
-        if not d:
-            continue
-        row = _rows.setdefault(sym, {})
-        row.update(d)
-        row["ts_bbw"] = time.time()
-        n += 1
-    if n == 0:
-        _ts_bbw = time.time() - BBW_REFRESH_SEC + _RETRY_SEC
-        log.warning("quality bbw: 本轮 %d 个全部失败，%ds 后重试", len(syms), _RETRY_SEC)
-    else:
-        _ts_bbw = time.time()
-    return n
-
-
 async def _refresh_daily(universe) -> int:
     """日线插针：全候选池每天一次。"""
     global _ts_daily
-    res = await _gather(list(universe),
-                        lambda s: _fetch_1h(s, need_spike=True, need_bbw=False))
+    res = await _gather(list(universe), _fetch_spike)
     n = 0
     for sym, d in res:
         if not d:
@@ -399,7 +325,7 @@ def recompute(universe) -> list[str]:
         # —— 满 30 分钟且没被选进持仓池，才做清退判断 ——
         r = _rows.get(sym) or {}
         atr = r.get("atr_pct")
-        # 浩哥定的清退规则：ATR 掉到 0.80% 以下 → 移除
+        # 清退规则：ATR 掉到 ATR_EXIT_MAX（0.30%）以下 → 移除
         if atr is not None and atr < ATR_EXIT_MAX:
             continue
         # 成交额 / 插针不达标 → 移除
@@ -414,7 +340,7 @@ def recompute(universe) -> list[str]:
         log.info("quality: 监控池容量下调 %d → %d，裁掉末位", len(kept), MONITOR_SIZE)
         kept = kept[:MONITOR_SIZE]
 
-    # ② 未在池的：必须 5m ATR > 1.20%（浩哥定）+ 过 _judge，按成交额降序
+    # ② 未在池的：必须 5m ATR > ATR_ENTER_MIN（0.40%）+ 过 _judge，按成交额降序
     fresh: list[tuple[str, float]] = []
     in_pool = set(kept)
     for sym in universe:
@@ -427,8 +353,6 @@ def recompute(universe) -> list[str]:
         ok, _why = _judge(sym)
         if not ok:
             continue
-        if BBW_PCT_MIN > 0 and r.get("bbw_pct") is None:
-            continue                       # BBW 门槛启用时，必须先采到数据才放行
         fresh.append((sym, float(r.get("qv") or 0.0)))
 
     # ③ 排序：成交额高的在前（流动性好 = 滑点小 = 能真成交）
@@ -458,12 +382,9 @@ def recompute(universe) -> list[str]:
 
 
 async def refresh(universe) -> int:
-    """兼容旧接口：全量刷一次（ATR + BBW + 日线）后重算名单。"""
+    """兼容旧接口：全量刷一次（ATR + 日线插针）后重算名单。"""
     await _update_quote_vol(universe)
     await _refresh_atr(universe, only=None)
-    ok_syms = [s for s in universe if _judge(s)[0]]
-    if BBW_PCT_MIN > 0:
-        await _refresh_bbw(ok_syms)
     await _refresh_daily(universe)
     recompute(universe)
     return len(_rows)
@@ -478,8 +399,7 @@ def get(symbol: str):
         return None
     ok, why = _judge(symbol)
     return {"qv": r.get("qv"), "atr_pct": r.get("atr_pct"),
-            "spike": r.get("spike"), "bbw_pct": r.get("bbw_pct"),
-            "ok": ok, "why": why}
+            "spike": r.get("spike"), "ok": ok, "why": why}
 
 
 def monitor_list() -> list[str]:
@@ -507,8 +427,9 @@ def snapshot() -> dict:
         "min_quote_vol": MIN_QUOTE_VOL,
         "max_spike": MAX_SPIKE,
         "atr_interval": ATR_INTERVAL,
-        "bbw_interval": BBW_INTERVAL,
-        "bbw_pct_min": BBW_PCT_MIN,
+        "atr_enter_min": ATR_ENTER_MIN,
+        "atr_exit_max": ATR_EXIT_MAX,
+        "min_dwell_sec": MIN_DWELL_SEC,
         "size": MONITOR_SIZE,
         "refresh_sec": REFRESH_SEC,
         "scan_sec": SCAN_SEC,
@@ -544,15 +465,6 @@ async def loop(universe_fn, cfg_fn=None):
             # 池内 5m ATR：3 分钟一次
             if now - _ts_atr_pool >= REFRESH_SEC and _monitor:
                 await _refresh_atr(universe, only=list(_monitor))
-
-            # BBW 采集（2026-11-06 起默认关闭：门槛已归策略层 15m，
-            # 池子不再采集能省 11MB/天）。
-            # 双开关：bbw_pct_min>0 且 bbw_interval 不是 "off" 才采集。
-            if (BBW_PCT_MIN > 0 and str(BBW_INTERVAL).lower() != "off"
-                    and now - _ts_bbw >= BBW_REFRESH_SEC):
-                cand = [s for s in universe
-                        if _judge(s)[0]]
-                await _refresh_bbw(cand)
 
             # 重算名单
             recompute(universe)

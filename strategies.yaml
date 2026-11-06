@@ -53,46 +53,6 @@ global:
     pause_new: true
     notify: true
 strategies:
-  S11_CRASH_SCALP:
-    enabled: false
-    # 原来是 1（= 1 秒）—— 现在虽然是关着的，但一旦有人打开就会把事件循环
-    # 和币安权重一起打爆，改成安全默认值。
-    scan_interval: 15m
-    symbols: []
-    risk:
-      capital_usd: 0
-      leverage: 3
-      max_position_usd: 0
-      risk_per_trade_pct: 0
-    max_hold_hours: 2
-    params:
-      drop_pct: 1.2
-      window_sec: 30
-      recent_sec: 3
-      decel_ratio: 0.4
-      liq_confirm_mult: 3
-      require_liq: false
-      tp_pct: 0.6
-      stop_pct: 0.8
-      exhaust_tp_frac: 0.5
-      cooldown_sec: 300
-      spike_short: true
-      min_buffer_sec: 20
-  S14_VWAP_REVERT:
-    enabled: false
-    scan_interval: 1m
-    symbols: []
-    risk:
-      capital_usd: 0
-      leverage: 3
-      max_position_usd: 0
-      risk_per_trade_pct: 0
-    max_hold_hours: 0.75
-    params:
-      dev_pct: 2.0
-      taker_conf: 0.95
-      exit_frac: 0.5
-      cooldown_sec: 600
   S15_CE_ZLSMA:
     enabled: true
     # 15m：策略吃 15 分钟 K 线，一根 K 线 15 分钟才变一次。
@@ -106,7 +66,10 @@ strategies:
       leverage: 6                     # 3→6：必须跟 global.max_gross_leverage 一致。
                                       # engine.py:281 是「策略级优先、全局兜底」，这里留 3 会把全局的 6x
                                       # 覆盖掉 —— 总敞口按 6x 放行、每仓按 3x 记保证金，实盘会保证金不足
-      max_position_usd: 0
+      max_position_usd: 0          # 0 = 不限（代码里 falsy 会兜底成 capital×leverage ≈ 60,000U）。
+                                   # 真正生效的单币闸是 global.max_position_pct_per_coin
+                                   # 32% × 6x = 约 19,200U，所以这个「不限」实际不起作用，
+                                   # 别误以为 0 是不能开仓。
       risk_per_trade_pct: 0
     # 时间止损：持仓满 16 小时还没到 1.2R 就平（出场④）。
     # 回测（15m / 120 天 / 14 币）：平均持仓 6.9 小时、中位 4.5 小时。
@@ -209,20 +172,19 @@ pools:
                               #   否则「刚进池 0.5% 的币满 30 分钟就被踢」自相矛盾。
     min_dwell_sec: 1800       # 进池后最短停留 30 分钟
     atr_interval: 5m          # ATR 用 5 分钟（只采集，不再参与准入）
-    # BBW 门槛已从池子移除（2026-11-06 回测证伪）：
+    # BBW 已整套从池子移除（2026-11-06 回测证伪 + 代码清理）：
     #   池子按 1 小时算 BBW 时，双档 ATR + 1hBBW>70 = −36.96R；
     #   而 15m BBW>70（留在策略层）= +36.66R。
     #   原因：1h 近 100 根 = 100 小时（4 天），等它确认趋势行情已走完。
-    #   现在 BBW 由策略层按 15 分钟算，池子只管资质（成交额/插针）。
-    bbw_interval: "off"       # 加引号！裸写 off 会被 YAML 解析成布尔 False
-    bbw_pct_min: 0
+    #   现在 BBW 由策略层按 15 分钟算（strategies.S15.params.bbw_pct_min: 70）。
+    #   池子的 bbw_interval / bbw_pct_min / bbw_refresh_sec 三个键已删除，
+    #   quality.py 里对应的采集与判断代码也一并删除 —— 留着是死链。
     # ── 日线口径门槛 ──
     min_quote_vol: 10000000
     max_spike: 4.0
     # ── 分级刷新 ──
     refresh_sec: 300          # 池内币 5m ATR：5 分钟（池子扩容到 200 后控流量用）
     scan_sec: 900             # 池外币 5m ATR：15 分钟
-    bbw_refresh_sec: 3600     # 1h 布林带：每小时
     daily_refresh_sec: 86400  # 日线成交额/插针：每天
     tick_sec: 60              # 主循环节拍
     # 超容量时的补位顺序：代码固定按成交额降序（流动性好的优先），
