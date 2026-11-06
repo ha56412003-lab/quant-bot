@@ -217,6 +217,9 @@ async def api_status():
         "event_quiet": risk.event_quiet(cfg["global"]),
         "open_positions": len(db.open_positions()),
         "universe": config.UNIVERSE,
+        # 2026-11-06 自检修复：前端把 universe（候选池 200）当"监控标的"显示，
+        # 实际监控池是 quality 维护的 ≤23 名单。这里单独给一个字段。
+        "monitor_n": len(quality.monitor_list() or []),
         "last_tick_ts": int(db.get_meta("last_tick_ts", "0") or 0),
         "last_manage_ms": int(db.get_meta("last_manage_ts_ms", "0") or 0),
         "ws_symbols": len(ws.PRICES),

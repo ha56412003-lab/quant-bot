@@ -19,11 +19,8 @@
   · 手续费 taker 0.05% 双边 + 滑点 0.03%
 """
 import asyncio
-import json
-import math
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

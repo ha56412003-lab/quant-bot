@@ -12,7 +12,17 @@ QUIET_EXEMPT = {"S09_EVENT_BREAKOUT"}
 
 
 def _day_start():
-    return int(time.time()) // 86400 * 86400
+    """当日 0 点（本地时区）。
+
+    2026-11-06 自检修复：原实现是 int(time.time()) // 86400 * 86400，
+    即 UTC 0 点 —— 在北京时间等于早上 8:00 换日。而日目标与净值曲线
+    用的是本地 0 点，导致同一页面上「今日已实现」和「净值变化」两个数
+    各按各的日界统计，互相打架（实测 11-06：+7.51 vs −89.34）。
+    现统一为本地 0 点，与日报、日目标、看板口径一致。
+    """
+    import datetime as _dt
+    return int(_dt.datetime.now().replace(hour=0, minute=0, second=0,
+                                          microsecond=0).timestamp())
 
 
 def daily_realized_pnl():
@@ -33,7 +43,7 @@ def check_daily_halt(equity, cfg_global):
         return True
     tomorrow = _day_start() + 86400
     db.set_meta("halt_until", tomorrow)
-    db.log("warn", f"日内熔断触发:已实现亏损 {pnl:.2f} ({abs(pnl)/equity*100:.1f}%),停止开仓至次日 UTC0")
+    db.log("warn", f"日内熔断触发:已实现亏损 {pnl:.2f} ({abs(pnl)/equity*100:.1f}%),停止开仓至次日本地 0 点")
     return True
 
 

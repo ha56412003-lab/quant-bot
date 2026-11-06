@@ -118,6 +118,24 @@ def configure(cfg: dict | None = None) -> None:
     BBW_REFRESH_SEC = _i("bbw_refresh_sec", BBW_REFRESH_SEC)
     DAILY_REFRESH_SEC = _i("daily_refresh_sec", DAILY_REFRESH_SEC)
     TICK_SEC = _i("tick_sec", TICK_SEC)
+    # 2026-11-06 自检修复：这三个配置此前只写不读（configure 漏读），
+    # 改 yaml 会静默失效。现在真正生效：
+    #   atr_interval — ATR 用的 K 线周期
+    #   bbw_interval — 布林带周期；写 "off" 表示连采集都不做（双保险，
+    #                  另一个开关是 bbw_pct_min=0）
+    #   sort_by      — 仅描述性（容量排序固定为低档取最低、高档取最高），
+    #                  从 yaml 移除，此处不再读取
+    global ATR_INTERVAL, BBW_INTERVAL
+    # 注意 YAML 坑：裸写的 off/on/yes/no 会被解析成布尔 False/True，
+    # 所以这里要显式处理 False 的情况（yaml 里建议写带引号的 "off"）。
+    _atr_iv = cfg.get("atr_interval")
+    if _atr_iv is not None:
+        ATR_INTERVAL = str(_atr_iv)
+    _bbw_iv = cfg.get("bbw_interval")
+    if _bbw_iv is False:
+        BBW_INTERVAL = "off"
+    elif _bbw_iv is not None:
+        BBW_INTERVAL = str(_bbw_iv)
 
 
 # ── 指标计算 ────────────────────────────────────────────────
@@ -518,8 +536,10 @@ async def loop(universe_fn, cfg_fn=None):
                 await _refresh_atr(universe, only=list(_monitor))
 
             # BBW 采集（2026-11-06 起默认关闭：门槛已归策略层 15m，
-            # 池子不再采集能省 11MB/天；配置里 bbw_pct_min>0 才启用）
-            if BBW_PCT_MIN > 0 and now - _ts_bbw >= BBW_REFRESH_SEC:
+            # 池子不再采集能省 11MB/天）。
+            # 双开关：bbw_pct_min>0 且 bbw_interval 不是 "off" 才采集。
+            if (BBW_PCT_MIN > 0 and str(BBW_INTERVAL).lower() != "off"
+                    and now - _ts_bbw >= BBW_REFRESH_SEC):
                 cand = [s for s in universe
                         if _band_new(_rows.get(s, {}).get("atr_pct")) is not None]
                 await _refresh_bbw(cand)

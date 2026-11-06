@@ -30,7 +30,6 @@ import argparse
 import asyncio
 import json
 import math
-import statistics
 import sys
 import time
 from pathlib import Path
@@ -39,7 +38,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from backend import binance                     # noqa: E402
-from backend.strategies import _ce_zlsma, _linreg, _rma   # noqa: E402
+from backend.strategies import _linreg, _rma   # noqa: E402
 
 CACHE = ROOT / "backtest" / "data"
 CACHE.mkdir(parents=True, exist_ok=True)

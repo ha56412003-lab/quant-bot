@@ -93,6 +93,7 @@ async def open_position(sig, qty, price, leverage=None):
     if mode() == "live":
         venue = exchange()
         side = "BUY" if sig.side == "long" else "SELL"
+        order = None
         try:
             if venue == "binance":
                 step = await binance.qty_step(sig.symbol)
@@ -101,16 +102,33 @@ async def open_position(sig, qty, price, leverage=None):
                     return None
                 if leverage:
                     await binance.set_leverage(sig.symbol, leverage)
-                await binance.place_market_order(sig.symbol, side, qty)
+                order = await binance.place_market_order(sig.symbol, side, qty)
             else:
                 if leverage:
                     await exchanges.set_leverage(venue, sig.symbol, leverage)
-                await exchanges.place_market(venue, sig.symbol, side, qty)
+                order = await exchanges.place_market(venue, sig.symbol, side, qty)
         except Exception as exc:  # noqa: BLE001
             db.log("error", f"live[{venue}] 开仓失败 {sig.symbol} {sig.side}: {exc}")
             return None
+        # 成交价：优先用交易所回报的成交均价，取不到才回落到信号价。
+        # （原代码此处引用了未定义的 pos 变量，实盘开仓会 NameError；
+        #   且直接用指令价记账会在市价单里偏乐观。两处一并修掉。）
         fill = price
-        fee = fill * qty * _close_fee_rate(pos)
+        if order:
+            try:
+                avg = float(order.get("avgPrice") or 0)
+                if avg > 0:
+                    fill = avg
+                else:
+                    executed = float(order.get("executedQty") or 0)
+                    quote = float(order.get("cummulativeQuoteQty") or 0)
+                    if executed > 0 and quote > 0:
+                        fill = quote / executed
+            except (TypeError, ValueError, AttributeError):
+                pass
+        # 费率：策略指定的优先（S15 是挂单策略，按 maker 记），否则用全局默认
+        _live_fee = sig.fee_rate if sig.fee_rate is not None else config.PAPER_FEE_RATE
+        fee = fill * qty * _live_fee
     else:
         # 策略可以用 sig.slip_pct / sig.fee_rate 覆盖全局口径（S15 是挂单策略，
         # 回测按 maker 0.02% + 零滑点算的，线上必须同口径才可比）
