@@ -28,6 +28,7 @@ export const api = {
   closeAll: () => post('/api/positions/close-all'),
   trades: (limit = 100) => get(`/api/trades?limit=${limit}`),
   signals: (limit = 50) => get(`/api/signals?limit=${limit}`),
+  gates: () => get('/api/gates'),
   equity: () => get('/api/equity'),
   factors: () => get('/api/factors'),
   factorConfig: () => get('/api/factor-config'),

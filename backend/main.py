@@ -14,7 +14,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import binance, config, daily_target, db, engine, executor, factors, pool, quality, risk, shadow, ws
+from . import binance, config, daily_target, db, engine, executor, factors, pool, quality, risk, shadow, strategies, ws
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -371,6 +371,43 @@ async def api_trades(limit: int = 100, mode: str = "auto"):
 @app.get("/api/signals")
 async def api_signals(limit: int = 50):
     return {"signals": db.recent_signals(limit)}
+
+
+@app.get("/api/gates")
+async def api_gates():
+    """三道光闸诊断：监控池每个币最新一根 15m 的三道闸状态。
+
+    数据来自策略扫描时留在内存里的中间结果（strategies._GATE_STATE），
+    不额外拉 K 线，零流量成本。回答的问题是：今天没开仓，是
+    「真没机会」还是「门槛卡死了」。
+    """
+    gs = strategies._GATE_STATE
+    mon = set(quality.monitor_list() or [])
+    rows = []
+    bar = None
+    for sym in config.UNIVERSE:
+        v = gs.get(sym)
+        if not v:
+            continue
+        if v.get("ts") and (bar is None or v["ts"] > bar):
+            bar = v["ts"]
+        rows.append({"symbol": sym, "in_monitor": sym in mon, **v})
+    # 有戏的排前面：已开仓 > CE 已翻 > 其它
+    rows.sort(key=lambda r: (not r.get("ok"), not r.get("ce"),
+                             not r.get("ha"),
+                             -(r.get("bbw") or 0)))
+    return {
+        "ts": bar,
+        "rows": rows,
+        "total": len(rows),
+        "passed": sum(1 for r in rows if r.get("ok")),
+        "ce_n": sum(1 for r in rows if r.get("ce")),
+        "ha_n": sum(1 for r in rows if r.get("ha")),
+        "bbw_n": sum(1 for r in rows
+                     if r.get("bbw") is not None
+                     and r["bbw"] >= (r.get("bbw_thr") or 70)),
+        "bbw_thr": next((r.get("bbw_thr") for r in rows if r.get("bbw_thr")), 70),
+    }
 
 
 @app.get("/api/equity")

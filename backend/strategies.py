@@ -602,6 +602,11 @@ def _ce_zlsma(ks, ce_len=1, ce_mult=2.0, z_len=50, use_close=True, use_ha=True):
 
 _LAST_BAR = {}   # (sid, symbol) -> 已评估过的K线时间戳，防止高频扫描重复出信号
 
+# 三道光闸诊断：每根 15m K 线评估完把三道闸的即时状态存在这里。
+# 只写内存、不额外拉 K 线（扫描本来就在算 CE/HA/BBW，算完原本是丢掉的）。
+# 页面用它回答「今天是没机会，还是门槛卡死了」。
+_GATE_STATE = {}   # symbol -> {ts, dir, ce, ha, bbw, bbw_thr, atr_pct, ok, why}
+
 
 # ── S15 趋势反转出场的 bar 边界缓存 ──────────────────────────────────────
 # check_exit 每 0.5 秒被调用一次（engine.position_loop），8 个仓位就是
@@ -712,6 +717,30 @@ class S15CeZlsma(Base):
                 # ① CE 方向翻转（事件，不是状态）
                 d_now = int(dirs_arr[i] or 1)
                 d_prev = int(dirs_arr[i - 1] or 1)
+
+                # ── 三道光闸诊断（纯内存，零额外流量）──────────────────────
+                # 三步的判断本来就要做，这里只是把结果留下给页面看。
+                # 顺序：CE 翻转 → HA 形态 → BBW 分位，全过才开仓。
+                _bp = bbw_pct[i]
+                _ha_ok = (c > z and c > o) if d_now == 1 else (c < z and c < o)
+                _thr = bbw_pct_min if bbw_pct_min > 0 else 70.0
+                _ce_ok = d_now != d_prev
+                _bbw_ok = _bp is None or _bp >= _thr
+                if not _ce_ok:
+                    _why = "CE 没翻转"
+                elif not _ha_ok:
+                    _why = "HA 形态不对"
+                elif not _bbw_ok:
+                    _why = f"BBW 差 {_thr - (_bp or 0):.0f} 个点"
+                else:
+                    _why = "应开仓"
+                _GATE_STATE[sym] = {
+                    "ts": bar_ts, "dir": "多" if d_now == 1 else "空",
+                    "ce": _ce_ok, "ha": _ha_ok, "bbw": _bp, "bbw_thr": _thr,
+                    "atr_pct": round(atr / c * 100.0, 3) if c > 0 else None,
+                    "ok": False, "why": _why,
+                }
+
                 if d_now == d_prev:
                     continue
 
@@ -763,6 +792,8 @@ class S15CeZlsma(Base):
                 if not (math.isfinite(stop) and math.isfinite(tp) and stop > 0 and tp > 0):
                     continue
 
+                _GATE_STATE[sym]["ok"] = True
+                _GATE_STATE[sym]["why"] = "已开仓"
                 out.append(Signal(
                     strategy=self.sid, symbol=sym, side=side,
                     reason=(f"CE{'多' if side == 'long' else '空'}翻向+"
