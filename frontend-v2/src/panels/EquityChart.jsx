@@ -12,8 +12,8 @@ const CARD_TITLE = {
 // 按主题取色。纸面主题的卡片底是 #f6f5f1，亮荧光色在上面会发飘，所以整体压深一档。
 function palette(isPaper) {
   return isPaper
-    ? { line: '#b8303c', glow: 'rgba(184,48,60,.85)', dot: 'rgba(184,48,60,.62)',
-        bg: '#f6f5f1', label: '#a3a19a', tipBg: 'rgba(251,250,247,.97)',
+    ? { line: '#c22b3a', glow: 'rgba(194,43,58,.95)', dot: 'rgba(194,43,58,.70)',
+        bg: '#f6f5f1', label: '#8a8880', tipBg: 'rgba(251,250,247,.97)',
         tipBorder: 'rgba(184,48,60,.35)', tipText: '#2a2a26' }
     : { line: '#45e6f5', glow: 'rgba(69,230,245,.90)', dot: 'rgba(69,230,245,.55)',
         bg: '#0b0c12', label: 'rgba(150,160,180,.75)', tipBg: 'rgba(8,10,16,.94)',
@@ -21,7 +21,7 @@ function palette(isPaper) {
 }
 
 // 半调点阵 tile —— 参考图是线下铺一层规则小圆点，不是实色渐变
-function dotTile(color, size = 7, radius = 1.15) {
+function dotTile(color, size = 6, radius = 1.0) {
   const c = document.createElement('canvas')
   c.width = size; c.height = size
   const g = c.getContext('2d')
@@ -104,19 +104,29 @@ export default function EquityChart({ activeMode }) {
             color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
               colorStops: [
                 { offset: 0,    color: 'rgba(0,0,0,0)' },
-                { offset: 0.45, color: hexA(P.bg, 0.12) },
-                { offset: 1,    color: hexA(P.bg, 0.94) },
+                { offset: 0.30, color: hexA(P.bg, 0.08) },
+                { offset: 0.62, color: hexA(P.bg, 0.55) },
+                { offset: 1,    color: hexA(P.bg, 0.97) },
               ] },
           },
           silent: true,
         },
-        // ③ 折线：细芯 + 外发光 = 参考图那种霓虹感
+        // ③ 弥散光晕层：粗而极淡的一条，把 shadow 的硬边撑开
+        {
+          name: '_halo', type: 'line', data: eq, showSymbol: false,
+          smooth: 0.15, z: 4, silent: true,
+          lineStyle: {
+            color: P.line, width: 5, opacity: 0.16,
+            shadowColor: P.glow, shadowBlur: 24, shadowOffsetY: 0,
+          },
+        },
+        // ④ 折线：细芯 + 外发光 = 参考图那种霓虹感
         {
           name: t('dash.equityName'), type: 'line', data: eq, showSymbol: false,
           smooth: 0.15, z: 5,
           lineStyle: {
             color: P.line, width: 1.7,
-            shadowColor: P.glow, shadowBlur: isPaper ? 13 : 12, shadowOffsetY: 0,
+            shadowColor: P.glow, shadowBlur: isPaper ? 17 : 15, shadowOffsetY: 0,
           },
           emphasis: { lineStyle: { width: 2.2 } },
           tooltip: {
