@@ -736,13 +736,21 @@ class S15CeZlsma(Base):
                 _ha_ok = (c > z and c > o) if d_now == 1 else (c < z and c < o)
                 _thr = bbw_pct_min if bbw_pct_min > 0 else 70.0
                 _ce_ok = d_now != d_prev
-                _bbw_ok = _bp is None or _bp >= _thr
+                # ⚠ 2026-11-06 修：原来写成 `_bp is None or _bp >= _thr`，
+                # 数据缺失时诊断表显示"这道过了"，而下面 ④ 的实际开仓判断是
+                # `bp is None → continue`（拒绝）。两处相反，诊断会骗人。
+                # 现在与开仓逻辑对齐：门槛开着时，None 一律算不通过。
+                if bbw_pct_min > 0:
+                    _bbw_ok = _bp is not None and _bp >= _thr
+                else:
+                    _bbw_ok = True          # 策略层关掉 BBW 门槛，不参与判断
                 if not _ce_ok:
                     _why = "CE没翻转"
                 elif not _ha_ok:
                     _why = "HA形态不对"
                 elif not _bbw_ok:
-                    _why = f"BBW差{_thr - (_bp or 0):.0f}点"
+                    _why = ("BBW数据缺失" if _bp is None
+                            else f"BBW差{_thr - _bp:.0f}点")
                 else:
                     _why = "应开仓"
                 _GATE_STATE[sym] = {

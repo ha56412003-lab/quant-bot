@@ -51,7 +51,9 @@ global:
 strategies:
   S11_CRASH_SCALP:
     enabled: false
-    scan_interval: 1
+    # 原来是 1（= 1 秒）—— 现在虽然是关着的，但一旦有人打开就会把事件循环
+    # 和币安权重一起打爆，改成安全默认值。
+    scan_interval: 15m
     symbols: []
     risk:
       capital_usd: 0
@@ -89,7 +91,11 @@ strategies:
       cooldown_sec: 600
   S15_CE_ZLSMA:
     enabled: true
-    scan_interval: 2m
+    # 15m：策略吃 15 分钟 K 线，一根 K 线 15 分钟才变一次。
+    # 之前配的 2m 会让每 2 分钟就把 23 个币的 K 线全重拉一遍（K 线缓存仅 5 秒），
+    # 每轮 6~7 次里有 6 次算完发现还是同一根 K 线、直接跳过 —— 纯烧流量
+    # （实测约 380MB/天 → 51MB/天）。
+    scan_interval: 15m
     symbols: []
     risk:
       capital_usd: 0
@@ -190,5 +196,6 @@ pools:
     tick_sec: 60              # 主循环节拍
     sort_by: atr              # 超容量时按 ATR 取极端值（低档取最低，高档取最高）
   position:
+    # scan_interval 已删：全仓库没有任何代码读它（实际节拍由 main.py 的
+    # position_loop 0.5s + factors 的 10s 记账节流决定），留着只会误导人。
     max_concurrent: 8
-    scan_interval: 2m

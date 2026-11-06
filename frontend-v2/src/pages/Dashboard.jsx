@@ -56,6 +56,9 @@ const HEAD_BAR = {
 }
 
 export default function Dashboard({ status }) {
+  // 扫描节拍从后端读（配置改了页面自动跟着变），读不到才回落 900s。
+  // 2026-11-06 之前这里写死 900，而配置实际是 2m，页面一直在说谎。
+  const SCAN_SEC = status?.scan_sec || 900
   const [positions, refresh] = usePoll(api.positions, 5000)
   const [signals] = usePoll(api.signals, 15000)
   const [trades] = usePoll(api.trades, 15000)
@@ -137,10 +140,8 @@ export default function Dashboard({ status }) {
           <div className="ticker">
             <span>
               {(pos.length ? pos.map(p => `${(p.symbol||'').replace('USDT','')} ${p.side === 'long' ? '多' : '空'} ${(p.unrealized_pnl||0) >= 0 ? '+' : ''}${(p.unrealized_pnl||0).toFixed(2)}`).join('  ·  ') : '等待开仓')}
-              &nbsp;&nbsp;·&nbsp;&nbsp; S15_CE_ZLSMA 运行中 &nbsp;·&nbsp; 扫描间隔 15m &nbsp;·&nbsp; 15m K线
+              &nbsp;&nbsp;·&nbsp;&nbsp; S15_CE_ZLSMA 运行中 &nbsp;·&nbsp; 扫描间隔 {SCAN_SEC / 60}m &nbsp;·&nbsp; 15m K线
               &nbsp;&nbsp;·&nbsp;&nbsp; 引擎心跳正常 &nbsp;·&nbsp; 下一轮扫描 {(() => {
-                // 扫描周期 = strategies.DEFAULT_INTERVAL = 900s（15m K线）
-                const SCAN_SEC = 900
                 const base = status?.last_scan_ts || status?.last_tick_ts || 0
                 const elapsed = Math.floor(Date.now() / 1000) - base
                 const left = Math.max(0, SCAN_SEC - (elapsed % SCAN_SEC))
