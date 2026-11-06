@@ -215,8 +215,9 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
     ? <span style={{ color: '#d4595e', fontWeight: 600 }}>⏸ {t('ev.quietNow')}</span>
     : `${t('act.events')}${evRows.length ? ` (${evRows.length})` : ''}`
 
-  const items = [
-    { key: 'events', label: evLabel,
+  // 「经济事件」放到最后一个标签（2026-11-06 浩哥要求）。
+  // 它偏参考信息，日常盯的是三道光闸 / 信号流 / 成交记录 / 运行日志。
+  const eventsItem = { key: 'events', label: evLabel,
       children: (
         <div>
           <div data-act-status style={{ fontSize: 12, marginBottom: 6 }}>
@@ -238,7 +239,9 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
                 {t('ev.none')}
               </div>}
         </div>
-      ) },
+      ) }
+
+  const items = [
     { key: 'gates',
       label: `${t('act.gates')} ${gateRows.length ? `(${g.passed || 0}/${gateRows.length})` : ''}`,
       children: (
@@ -261,6 +264,7 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
     { key: 'logs', label: t('act.logs'),
       children: <Table rowKey="id" dataSource={logs} columns={logCols} size="small"
                        pagination={false} scroll={{ y: scrollY }} /> },
+    eventsItem,
   ]
   return (
     <Card size="small" ref={wrapRef}>
