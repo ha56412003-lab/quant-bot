@@ -161,10 +161,15 @@ function PosCard({ p, avatar }) {
         )}
         {phase === 'free' && (
           <>
-            {/* 红条：0 → 2R，填满表示已达成平半 */}
+            {/* 红条：0 → 2R 打底，表示主仓已经达成平半目标 */}
             <i className="base2r" style={{ left: `${zeroPct}%`, width: `${twoPct - zeroPct}%` }} />
-            {/* 橙黄层：2R → 当前价，压在红条之上（z-index 更高） */}
-            <i className="halflayer" style={{ left: `${twoPct}%`, width: `${Math.max(0, curPct - twoPct)}%` }} />
+            {/* 橙黄层：从 0 起手，整段【压在红条之上】——
+                半透明，底下红条透得出来，形成"红底 + 橙黄覆盖"的层次，
+                末端继续向右延伸出 2R 之外，就是半仓还在跑的距离。 */}
+            <i className="halflayer" style={{
+              left: `${zeroPct}%`,
+              width: `${Math.max(0, curPct - zeroPct)}%`,
+            }} />
           </>
         )}
 
@@ -175,8 +180,15 @@ function PosCard({ p, avatar }) {
           }} />
         )}
 
-        {/* ③ 出局线：轨道上方红色倒三角（闪烁）—— 当前价跌破这里就走人 */}
-        {showExit && <span className="exit-arrow" style={{ left: `${exitPct}%` }} />}
+        {/* ③ 出局标记：红色倒三角（闪烁）+ 两个小圆点
+              亮一个 = 已经触碰过一次 0.8R 出局线；亮两个 = 该出场了 */}
+        {showExit && (
+          <span className="exit-mark" style={{ left: `${exitPct}%` }}>
+            <i className="tri" />
+            <i className={`dot${maCnt >= 1 ? ' on' : ''}`} />
+            <i className={`dot${maCnt >= 2 ? ' on' : ''}`} />
+          </span>
+        )}
 
         {/* ④ 峰顶：轨道上方绿色倒三角 */}
         {showPeak && <span className="peak-arrow" style={{ left: `${peakPct}%` }} />}

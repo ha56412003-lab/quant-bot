@@ -887,10 +887,19 @@ html, body, #root {
   box-shadow: 0 0 8px rgba(255, 77, 94, .45);
   z-index: 2;
 }
-/* ③ 橙黄覆盖层：2R → 当前价，压在红条之上（z-index 更高） */
+/* ③ 橙黄覆盖层：从 0 起手，【斜上 45° 错位】叠在红条之上 */
 .spider-root .cards .card .bar.prog.free .halflayer {
-  background: linear-gradient(90deg, #ffb020, #ffd24d) !important;
-  box-shadow: 0 0 9px rgba(255, 176, 32, .6);
+  background: linear-gradient(90deg,
+    rgba(255, 176, 32, .9) 0%,
+    rgba(255, 210, 77, 1) 100%) !important;
+  /* 高度和红条一致，整体往右上平移 3px（45° 斜向错位）：
+     红条在【左下】露出 L 形边，黄条顶到轨道右上 —— 像两张纸斜着叠放 */
+  top: 0 !important;
+  bottom: 0 !important;
+  transform: translate(3px, -3px);
+  box-shadow:
+    0 4px 9px rgba(0, 0, 0, .6),             /* 投影把黄条"抬"离红条 */
+    0 0 12px rgba(255, 176, 32, .62);        /* 自身辉光 */
   z-index: 3;
   animation: halfIn .6s ease-out;
 }
@@ -900,8 +909,9 @@ html, body, #root {
 }
 
 /* ② 羽化回撤区：当前价 → 峰顶。
-   不再是虚点，改成「边缘渐隐 + 内部流动光带」的透明区：
-   两端用渐变淡出（看起来像羽化），中间一道白光缓慢扫过（动效）。 */
+   要「看得清」，不是淡淡的雾：
+   主体是不透明度够高的半透明白 → 两端用 mask 渐隐（羽化过渡）
+   → 内部一道白光 2.6s 从当前价扫向峰顶（动效）。 */
 .spider-root .cards .card .bar.prog .dd-zone {
   position: absolute;
   top: 0; bottom: 0;
@@ -909,60 +919,80 @@ html, body, #root {
   pointer-events: none;
   overflow: hidden;
   background: linear-gradient(90deg,
-    rgba(255, 255, 255, .02) 0%,
-    rgba(255, 255, 255, .22) 40%,
-    rgba(255, 255, 255, .10) 100%);
-  /* 左右两端淡出 = 羽化边缘 */
+    rgba(255, 255, 255, .16) 0%,
+    rgba(255, 255, 255, .62) 35%,
+    rgba(255, 255, 255, .40) 100%);
+  /* 左右两端淡出 = 羽化过渡，不是硬边 */
   -webkit-mask-image: linear-gradient(90deg,
-    transparent 0%, #000 22%, #000 78%, transparent 100%);
+    transparent 0%, #000 16%, #000 84%, transparent 100%);
   mask-image: linear-gradient(90deg,
-    transparent 0%, #000 22%, #000 78%, transparent 100%);
+    transparent 0%, #000 16%, #000 84%, transparent 100%);
   transition: left .55s cubic-bezier(.4, 0, .2, 1),
               width .55s cubic-bezier(.4, 0, .2, 1);
 }
-/* 流动光带：一道白光从当前价扫向峰顶，暗示「利润正在回吐」 */
+/* 流动光带：一道高亮白条从当前价扫向峰顶，暗示「利润正在回吐」 */
 .spider-root .cards .card .bar.prog .dd-zone::after {
   content: '';
   position: absolute;
   inset: 0;
   background: linear-gradient(90deg,
     transparent 0%,
-    rgba(255, 255, 255, .45) 50%,
+    rgba(255, 255, 255, .85) 50%,
     transparent 100%);
-  background-size: 55% 100%;
+  background-size: 50% 100%;
   background-repeat: no-repeat;
-  animation: featherSweep 2.8s ease-in-out infinite;
+  animation: featherSweep 2.6s ease-in-out infinite;
 }
 @keyframes featherSweep {
-  0%   { background-position: -60% 0; opacity: .15; }
-  45%  { opacity: .95; }
-  100% { background-position: 160% 0; opacity: .15; }
+  0%   { background-position: -55% 0; opacity: .25; }
+  40%  { opacity: 1; }
+  100% { background-position: 155% 0; opacity: .25; }
 }
-/* 亏损态羽化区淡一档：绿条上白光太抢眼 */
+/* 亏损态羽化区降一档：绿底上白光容易糊成一片 */
 .spider-root .cards .card .bar.prog.loss .dd-zone {
   background: linear-gradient(90deg,
-    rgba(255, 255, 255, .01) 0%,
-    rgba(255, 255, 255, .15) 40%,
-    rgba(255, 255, 255, .06) 100%);
+    rgba(255, 255, 255, .10) 0%,
+    rgba(255, 255, 255, .45) 35%,
+    rgba(255, 255, 255, .28) 100%);
 }
 
-/* ③ 出局箭头：轨道【上方】的红色倒三角，闪烁提示「跌破这里就出场」 */
-.spider-root .cards .card .bar.prog .exit-arrow {
+/* ③ 出局标记：红色倒三角（闪烁）+ 后面两个小圆点
+      点亮的个数 = 已经触碰过 0.8R 出局线的次数，亮满 2 个就该出场 */
+.spider-root .cards .card .bar.prog .exit-mark {
   position: absolute;
-  bottom: calc(100% + 3px);
-  width: 0; height: 0;
-  margin-left: -4px;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 6px solid #ff4d5e;
-  filter: drop-shadow(0 0 3px rgba(255, 77, 94, .95));
-  z-index: 7;
-  animation: triBlink .85s ease-in-out infinite;
+  bottom: calc(100% + 2px);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: -5px;          /* 让三角尖端对准刻度位置 */
+  z-index: 8;
   transition: left .55s cubic-bezier(.4, 0, .2, 1);
 }
+.spider-root .cards .card .bar.prog .exit-mark .tri {
+  width: 0 !important; height: 0 !important;
+  border-left: 5px solid transparent !important;
+  border-right: 5px solid transparent !important;
+  border-top: 8px solid #ff4d5e !important;
+  filter: drop-shadow(0 0 5px rgba(255, 77, 94, 1));
+  animation: triBlink .62s ease-in-out infinite;
+}
 @keyframes triBlink {
-  0%, 100% { opacity: 1;    transform: scale(1); }
-  50%      { opacity: .28;  transform: scale(.82); }
+  0%, 100% { opacity: 1;   transform: scale(1); }
+  50%      { opacity: .22; transform: scale(.78); }
+}
+.spider-root .cards .card .bar.prog .exit-mark .dot {
+  width: 6px !important; height: 6px !important;
+  border-radius: 50% !important;
+  box-sizing: border-box;
+  background: rgba(255, 77, 94, .14);
+  border: 1.5px solid rgba(255, 77, 94, .5);
+  transition: background .3s, box-shadow .3s, border-color .3s;
+}
+/* 点亮：已经触线一次 */
+.spider-root .cards .card .bar.prog .exit-mark .dot.on {
+  background: #ff4d5e;
+  border-color: #ff9aa4;
+  box-shadow: 0 0 7px rgba(255, 77, 94, 1);
 }
 
 /* ④ 峰顶箭头：轨道【上方】的绿色倒三角 */
@@ -1090,7 +1120,7 @@ html, body, #root {
   .spider-root .cards .card .bar.prog i,
   .spider-root .cards .card .bar.prog .dd-zone,
   .spider-root .cards .card .bar.prog .dd-zone::after,
-  .spider-root .cards .card .bar.prog .exit-arrow,
+  .spider-root .cards .card .bar.prog .exit-mark .tri,
   .spider-root .cards .card .bar.prog .peak-arrow,
   .spider-root .cards .card .bar.prog .cur-arrow,
   .spider-root .cards .card .bar.prog.free .halflayer,
