@@ -727,11 +727,11 @@ class S15CeZlsma(Base):
                 _ce_ok = d_now != d_prev
                 _bbw_ok = _bp is None or _bp >= _thr
                 if not _ce_ok:
-                    _why = "CE 没翻转"
+                    _why = "CE没翻转"
                 elif not _ha_ok:
-                    _why = "HA 形态不对"
+                    _why = "HA形态不对"
                 elif not _bbw_ok:
-                    _why = f"BBW 差 {_thr - (_bp or 0):.0f} 个点"
+                    _why = f"BBW差{_thr - (_bp or 0):.0f}点"
                 else:
                     _why = "应开仓"
                 _GATE_STATE[sym] = {

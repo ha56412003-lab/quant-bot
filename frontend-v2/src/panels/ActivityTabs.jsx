@@ -73,10 +73,10 @@ export default function ActivityTabs({ signals, trades, logs, gates }) {
       } },
     { title: t('gate.col.atr'), dataIndex: 'atr_pct', width: 80,
       render: (v) => v == null ? '-' : `${v.toFixed(2)}%` },
-    { title: t('gate.col.why'), dataIndex: 'why', ellipsis: true,
+    { title: t('gate.col.why'), dataIndex: 'why', width: 120,
       render: (v, r) => r.ok
         ? <Tag color="green">{t('gate.opened')}</Tag>
-        : <span style={{ fontSize: 12, color: '#8c8c8c' }}>{v}</span> },
+        : <span style={{ fontSize: 12, color: '#8c8c8c', whiteSpace: 'normal' }}>{v}</span> },
   ]
   const g = gates || {}
   const gateRows = g.rows || []
@@ -93,18 +93,18 @@ export default function ActivityTabs({ signals, trades, logs, gates }) {
             })}
           </div>
           <Table rowKey="symbol" dataSource={gateRows} columns={gateCols} size="small"
-                 pagination={{ pageSize: 10 }} />
+                 pagination={false} scroll={{ y: 330 }} />
         </div>
       ) },
     { key: 'signals', label: `${t('act.signals')} (${signals.length})`,
       children: <Table rowKey="id" dataSource={signals} columns={signalCols} size="small"
-                       pagination={{ pageSize: 8 }} /> },
+                       pagination={false} scroll={{ y: 330 }} /> },
     { key: 'trades', label: `${t('act.trades')} (${trades.length})`,
       children: <Table rowKey="id" dataSource={trades} columns={tradeCols} size="small"
-                       pagination={{ pageSize: 8 }} /> },
+                       pagination={false} scroll={{ y: 330 }} /> },
     { key: 'logs', label: t('act.logs'),
       children: <Table rowKey="id" dataSource={logs} columns={logCols} size="small"
-                       pagination={{ pageSize: 8 }} /> },
+                       pagination={false} scroll={{ y: 330 }} /> },
   ]
   return (
     <Card size="small">
