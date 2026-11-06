@@ -9,6 +9,39 @@ const CARD_TITLE = {
   fontSize: 11.5, fontWeight: 700, color: '#45e6f5', letterSpacing: '0.06em',
 }
 
+// 按主题取色。纸面主题的卡片底是 #f6f5f1，亮荧光色在上面会发飘，所以整体压深一档。
+function palette(isPaper) {
+  return isPaper
+    ? { line: '#b8303c', glow: 'rgba(184,48,60,.85)', dot: 'rgba(184,48,60,.62)',
+        bg: '#f6f5f1', label: '#a3a19a', tipBg: 'rgba(251,250,247,.97)',
+        tipBorder: 'rgba(184,48,60,.35)', tipText: '#2a2a26' }
+    : { line: '#45e6f5', glow: 'rgba(69,230,245,.90)', dot: 'rgba(69,230,245,.55)',
+        bg: '#0b0c12', label: 'rgba(150,160,180,.75)', tipBg: 'rgba(8,10,16,.94)',
+        tipBorder: 'rgba(69,230,245,.35)', tipText: '#d8dde9' }
+}
+
+// 半调点阵 tile —— 参考图是线下铺一层规则小圆点，不是实色渐变
+function dotTile(color, size = 7, radius = 1.15) {
+  const c = document.createElement('canvas')
+  c.width = size; c.height = size
+  const g = c.getContext('2d')
+  g.fillStyle = color
+  g.beginPath()
+  g.arc(size / 2, size / 2, radius, 0, Math.PI * 2)
+  g.fill()
+  return c
+}
+
+// hex + alpha → rgba()，给遮罩层用
+function hexA(hex, a) {
+  const h = String(hex).replace('#', '')
+  const n = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
+  const r = parseInt(n.slice(0, 2), 16)
+  const g = parseInt(n.slice(2, 4), 16)
+  const b = parseInt(n.slice(4, 6), 16)
+  return `rgba(${r},${g},${b},${a})`
+}
+
 // Paper and live equity are different universes ($10k virtual vs real wallet):
 // the curve is stored per mode and NEVER mixed; default view = active mode.
 export default function EquityChart({ activeMode }) {
@@ -16,6 +49,10 @@ export default function EquityChart({ activeMode }) {
   const [view, setView] = useState(null)          // null until activeMode known
   const [series, setSeries] = useState([])
   const mode = view || activeMode || 'paper'
+
+  // 主题跟着 <html data-theme> 走；每次渲染重读，切主题即时换色
+  const isPaper = typeof document !== 'undefined'
+    && document.documentElement.getAttribute('data-theme') === 'paper'
 
   useEffect(() => {
     let alive = true
@@ -26,58 +63,71 @@ export default function EquityChart({ activeMode }) {
     return () => { alive = false; clearInterval(timer) }
   }, [mode])
 
+  const last = series.length ? Number(series[series.length - 1].equity) : null
+  const P0 = palette(isPaper)
+
   const option = useMemo(() => {
+    const P = palette(isPaper)
     const ts = series.map((r) => new Date(r.ts * 1000).toLocaleString(
       lang === 'en' ? 'en-US' : 'zh-CN',
       { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }))
     const eq = series.map((r) => Number(r.equity.toFixed(2)))
+    const tile = dotTile(P.dot)
+
     return {
-      grid: { left: 62, right: 20, top: 18, bottom: 26 },
+      // 贴边：参考图没有留白，线和点阵一直顶到画布边缘
+      grid: { left: 6, right: 6, top: 10, bottom: 6, containLabel: false },
       tooltip: {
         trigger: 'axis',
-        backgroundColor: 'rgba(8,10,16,.94)',
-        borderColor: 'rgba(69,230,245,.35)',
-        textStyle: { color: '#d8dde9', fontSize: 11 },
+        backgroundColor: P.tipBg,
+        borderColor: P.tipBorder,
+        borderWidth: 1,
+        textStyle: { color: P.tipText, fontSize: 11 },
+        axisPointer: { type: 'line', lineStyle: { color: P.dot, width: 1, type: 'dashed' } },
       },
-      xAxis: {
-        type: 'category', data: ts, boundaryGap: false,
-        axisLine: { lineStyle: { color: '#2a3140' } },
-        axisTick: { show: false },
-        axisLabel: {
-          color: '#6b7183', fontSize: 9,
-          fontFamily: 'Cascadia Mono, Consolas, monospace',
-          hideOverlap: true, interval: 'auto', rotate: 0,
-          formatter: (v) => String(v).split(' ').slice(-1)[0],   // 只留时间
+      xAxis: { type: 'category', data: ts, boundaryGap: false, show: false },
+      yAxis: { type: 'value', scale: true, show: false },
+      series: [
+        // ① 底层：线下的半调点阵（对应参考图的粉色网点面）
+        {
+          name: t('dash.equityName'), type: 'line', data: eq, showSymbol: false,
+          smooth: 0.15, lineStyle: { width: 0, opacity: 0 }, z: 1,
+          areaStyle: { color: { image: tile, repeat: 'repeat' }, opacity: 1 },
+          silent: true,
         },
-      },
-      yAxis: {
-        type: 'value', scale: true,
-        axisLine: { show: false }, axisTick: { show: false },
-        axisLabel: {
-          color: '#6b7183', fontSize: 9.5,
-          fontFamily: 'Cascadia Mono, Consolas, monospace',
-          formatter: (v) => v.toLocaleString('en-US', { maximumFractionDigits: 0 }),
+        // ② 遮罩：把点阵从上往下压暗，做出参考图那种「上浓下淡」
+        //    颜色必须等于卡片底色，否则整块区域会被染色
+        {
+          name: '_veil', type: 'line', data: eq, showSymbol: false,
+          smooth: 0.15, lineStyle: { width: 0, opacity: 0 }, z: 2,
+          areaStyle: {
+            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+              colorStops: [
+                { offset: 0,    color: 'rgba(0,0,0,0)' },
+                { offset: 0.45, color: hexA(P.bg, 0.12) },
+                { offset: 1,    color: hexA(P.bg, 0.94) },
+              ] },
+          },
+          silent: true,
         },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
-      },
-      series: [{
-        name: t('dash.equityName'), type: 'line', data: eq, showSymbol: false, smooth: 0.35,
-        lineStyle: {
-          color: '#45e6f5', width: 2,
-          shadowColor: 'rgba(69,230,245,.85)', shadowBlur: 10, shadowOffsetY: 2,
+        // ③ 折线：细芯 + 外发光 = 参考图那种霓虹感
+        {
+          name: t('dash.equityName'), type: 'line', data: eq, showSymbol: false,
+          smooth: 0.15, z: 5,
+          lineStyle: {
+            color: P.line, width: 1.7,
+            shadowColor: P.glow, shadowBlur: isPaper ? 13 : 12, shadowOffsetY: 0,
+          },
+          emphasis: { lineStyle: { width: 2.2 } },
+          tooltip: {
+            valueFormatter: (v) => Number(v).toLocaleString('en-US',
+              { maximumFractionDigits: 2 }) + ' U',
+          },
         },
-        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-          colorStops: [{ offset: 0, color: 'rgba(69,230,245,0.26)' },
-                       { offset: 0.7, color: 'rgba(69,230,245,0.05)' },
-                       { offset: 1, color: 'rgba(69,230,245,0)' }] } },
-        markPoint: {
-          symbol: 'circle', symbolSize: 7, data: [{ type: 'max', name: '最高' }],
-          itemStyle: { color: '#45e6f5', borderColor: '#0b0c12', borderWidth: 2 },
-          label: { show: false },
-        },
-      }],
+      ],
     }
-  }, [series, lang, t])
+  }, [series, lang, t, isPaper])
+
   return (
     <Card size="small"
           title={<span style={CARD_TITLE}>{t('dash.equityCurve')}</span>}
@@ -97,8 +147,19 @@ export default function EquityChart({ activeMode }) {
               borderBottom: '1px solid var(--line)',
               background: 'transparent',
             },
-            body: { flex: 1, minHeight: 0, padding: '6px 8px 8px' },
+            body: { flex: 1, minHeight: 0, padding: 0, position: 'relative' },
           }}>
+      {/* 左上角数值：参考图那个浅灰数字，压在画布上而不是占一行 */}
+      {last !== null && (
+        <div style={{
+          position: 'absolute', top: 8, left: 10, zIndex: 3, pointerEvents: 'none',
+          fontFamily: 'Cascadia Mono, Consolas, monospace',
+          fontSize: isPaper ? 15 : 14, fontWeight: 500,
+          color: P0.label, letterSpacing: '0.01em',
+        }}>
+          {last.toLocaleString('en-US', { maximumFractionDigits: 1 })} U
+        </div>
+      )}
       <Chart option={option} height="100%" />
     </Card>
   )

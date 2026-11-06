@@ -2449,3 +2449,145 @@ html, body, #root {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   纸面主题 · 持仓卡进度条配色
+   ──────────────────────────────────────────────────────────────────────
+   原来这条尺整个是按深色底调的：
+     · 轨道 rgba(255,255,255,.09)
+     · 回撤区 rgba(255,255,255,.30~.72) + 白色斜纹 + 白色扫光
+   纸面主题的卡片底色是 #f6f5f1（米白），白配白 —— 回撤区整块消失，
+   轨道也几乎看不见。浩哥原话：「一点都看不到（灰色和白色对比度太低）」。
+
+   纸面主题下改用墨色（#151515）系做所有"白"，主填充改用压深的纸面色，
+   保证在 #f6f5f1 上起码 3:1 的对比。
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* 轨道底：浅色底上用淡墨，而不是淡白 */
+html[data-theme="paper"] .spider-root .cards .card .bar.prog {
+  background: rgba(21, 21, 21, .10) !important;
+}
+
+/* ① 主填充 —— 盈利（红涨）：压深的纸面红，不再用亮荧光红 */
+html[data-theme="paper"] .spider-root .cards .card .bar.prog.run > i,
+html[data-theme="paper"] .spider-root .cards .card .bar.prog.free .base2r {
+  background: linear-gradient(90deg, rgba(184, 48, 60, .55), #b8303c) !important;
+  box-shadow: 0 0 6px rgba(184, 48, 60, .30) !important;
+}
+/* ① 主填充 —— 亏损：压深的纸面绿 */
+html[data-theme="paper"] .spider-root .cards .card .bar.prog.loss > i {
+  background: linear-gradient(90deg, rgba(31, 122, 77, .55), #1f7a4d) !important;
+  box-shadow: 0 0 6px rgba(31, 122, 77, .28) !important;
+}
+
+/* ② 回撤区：改成墨色斜纹 + 墨色渐变，两端仍羽化 —— 现在是"灰在上面" */
+html[data-theme="paper"] .spider-root .cards .card .bar.prog .dd-zone {
+  background:
+    repeating-linear-gradient(45deg,
+      rgba(21, 21, 21, .22) 0px, rgba(21, 21, 21, .22) 2px,
+      transparent 2px, transparent 7px),
+    linear-gradient(90deg,
+      rgba(21, 21, 21, .28) 0%,
+      rgba(21, 21, 21, .50) 45%,
+      rgba(21, 21, 21, .37) 100%);
+}
+/* 扫光：墨底上改用淡白，才有"光扫过"的对比 */
+html[data-theme="paper"] .spider-root .cards .card .bar.prog .dd-zone::after {
+  /* 浅色底上白色扫光等于「把墨色擦淡」，纸面主题直接关掉，
+     改由斜纹本身提供质感 */
+  display: none !important;
+}
+/* 亏损态的绿底上：墨色再压一档，不要抢 */
+html[data-theme="paper"] .spider-root .cards .card .bar.prog.loss .dd-zone {
+  background:
+    repeating-linear-gradient(45deg,
+      rgba(21, 21, 21, .16) 0px, rgba(21, 21, 21, .16) 2px,
+      transparent 2px, transparent 7px),
+    linear-gradient(90deg,
+      rgba(21, 21, 21, .20) 0%,
+      rgba(21, 21, 21, .40) 45%,
+      rgba(21, 21, 21, .28) 100%);
+}
+
+/* ③ 橙黄覆盖层（平半后那一段）：亮黄在米白底上发飘，改暗金 */
+html[data-theme="paper"] .spider-root .cards .card .bar.prog.free .halflayer {
+  background: linear-gradient(90deg,
+    rgba(168, 112, 0, .92) 0%,
+    rgba(196, 134, 0, 1) 100%) !important;
+  box-shadow:
+    0 4px 9px rgba(0, 0, 0, .28),
+    0 0 10px rgba(168, 112, 0, .45) !important;
+}
+
+/* ④ 破均线小点：亮青在白底上发飘，改纸面青 */
+html[data-theme="paper"] .spider-root .cards .card .bar.prog .exit-mark .dot,
+html[data-theme="paper"] .spider-root .cards .card .bar.prog .ma-dots .dot {
+  background: rgba(43, 109, 128, .28) !important;
+  border-color: rgba(43, 109, 128, .45) !important;
+}
+html[data-theme="paper"] .spider-root .cards .card .bar.prog .exit-mark .dot.on,
+html[data-theme="paper"] .spider-root .cards .card .bar.prog .ma-dots .dot.on {
+  background: #2b6d80 !important;
+  border-color: #2b6d80 !important;
+}
+
+/* ⑤ 出局三角 / 峰顶三角：亮红亮绿在米白上偏嫩，压深一档 */
+html[data-theme="paper"] .spider-root .cards .card .bar.prog .exit-mark .tri {
+  border-top-color: #b8303c !important;
+  filter: drop-shadow(0 0 4px rgba(184, 48, 60, .55)) !important;
+}
+html[data-theme="paper"] .spider-root .cards .card .bar.prog .peak-arrow {
+  border-bottom-color: #1f7a4d !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   页面宽度自适应 —— 不再按 1920 设计稿写死像素
+   ──────────────────────────────────────────────────────────────────────
+   原来：
+     .board { width: 1920px / 1904px }
+     .cards { repeat(5, 370px) }
+     .mid   { 1315px 544px }
+     .bot   { 653.5px 653.5px 577px }
+   窗口 1680 时整个 board 撑到 1904，右边 224px 被裁掉（overflow 是 hidden，
+   连横向滚动都没有）—— 第一排第 5 张卡直接看不见，底部第三栏也被切。
+
+   改成 100% + 比例分配（fr），比例沿用原设计稿：
+     mid 1315 : 544        → 2.417 : 1
+     bot 653.5 : 653.5 : 577 → 1.132 : 1.132 : 1
+   ══════════════════════════════════════════════════════════════════════ */
+.spider-root .board {
+  width: 100% !important;
+  max-width: 1920px !important;
+  margin: 0 auto !important;
+}
+/* 卡片：5 列等分，卡片宽度不再写死 */
+.spider-root .cards {
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+}
+.spider-root .cards .card {
+  width: auto !important;
+  min-width: 0 !important;
+}
+/* 中部两栏按原比例分配 */
+.spider-root .mid {
+  grid-template-columns: minmax(0, 2.417fr) minmax(0, 1fr) !important;
+}
+/* 底部三栏按原比例分配 */
+.spider-root .bot {
+  grid-template-columns: minmax(0, 1.132fr) minmax(0, 1.132fr) minmax(0, 1fr) !important;
+}
+/* 窄窗口兜底：卡片改 4 列 → 3 列，避免文字挤成一团 */
+@media (max-width: 1500px) {
+  .spider-root .cards { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; }
+}
+@media (max-width: 1180px) {
+  .spider-root .cards { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+}
+
+/* 下拉分组标题：默认太弱，跟选项混在一起看不出分组 */
+.ant-select-item-group {
+  font-weight: 700 !important;
+  letter-spacing: .04em !important;
+  font-size: 11px !important;
+  opacity: .82;
+}
