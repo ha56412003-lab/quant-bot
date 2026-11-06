@@ -32,11 +32,14 @@ global:
   - UNIUSDT
   max_position_pct_per_coin: 32.0   # 10→32：单笔 1.5% 在止损 1.6% 时需要 9380U 名义，
                                      # 10%×3x 只有 3002U，不改这里风险比例白提
-  max_gross_leverage: 3
-  daily_loss_halt_pct: 7.0          # 3→7：单笔 1.5% 时连亏 5 笔才停（原 3% 是连亏 2 笔）
+  max_gross_leverage: 6             # 3→6：并发 6 个 × 9380U 名义 = 5.62x，3x 装不下
+                                    # ⚠ 全仓模式：接实盘前必须改逐仓(isolated)，否则一个币
+                                    #   插针会吃掉共用保证金、连累其他仓位强平
+  daily_loss_halt_pct: 10.0         # 7→10：6 个仓位同时止损 = -9%，7% 挡不住
   risk_per_trade_pct: 1.5           # 0.5→1.5：1R = 净值×1.5% ≈ 150U（原 50U）
-  max_concurrent_coins: 3           # 8→3：单币要吃 9380U 名义，3 个 = 2.81x，刚好在 3x 总杠杆内
-  max_same_side: 3                  # 6→3：跟并发上限对齐（3 个币已很小，不再额外限方向）
+  max_concurrent_coins: 6           # 3→6：回测实测并发 3 只吃 +18.75R，并发 6 吃 +35.20R
+                                    # 被 3 个上限拒掉的 176 笔合计 +19.47R（含 HYPE +10.72R）
+  max_same_side: 6                  # 跟并发上限对齐：趋势行情会集中同向，不再额外限方向
   event_quiet_minutes: 30
   fear_greed_extreme:
     greed: 85
