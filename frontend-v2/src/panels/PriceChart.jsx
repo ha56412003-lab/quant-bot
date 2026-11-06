@@ -6,6 +6,12 @@ import { useI18n } from '../i18n'
 
 const INTERVALS = ['5m', '15m', '1h', '4h']
 
+// 标题视觉跟 EquityChart 的 CARD_TITLE 一致（11.5px / 700 / 青色 / 字距 0.06em）：
+// 两张右侧卡的标题都在 Card head 里，视觉必须统一
+const CARD_TITLE = {
+  fontSize: 11.5, fontWeight: 700, color: '#45e6f5', letterSpacing: '0.06em',
+}
+
 export default function PriceChart({ universe }) {
   const { t, lang } = useI18n()
   const [symbol, setSymbol] = useState('BTCUSDT')
@@ -72,14 +78,29 @@ export default function PriceChart({ universe }) {
   }, [data, symbol, lang, t])
 
   return (
-    <Card size="small"  extra={
+    <Card size="small"
+          title={<span style={CARD_TITLE}>{t('dash.priceChart')}</span>}
+          extra={
       <Space>
         <Select size="small" value={symbol} onChange={setSymbol} style={{ width: 110 }}
                 options={universe.map((s) => ({ value: s, label: s }))} />
         <Select size="small" value={interval} onChange={setItv} style={{ width: 70 }}
                 options={INTERVALS.map((i) => ({ value: i, label: i }))} />
       </Space>
-    }>
+    }
+          style={{
+            height: '100%', display: 'flex', flexDirection: 'column',
+            background: 'var(--panel)', border: '1px solid var(--line)',
+            borderRadius: 5, overflow: 'hidden',
+          }}
+          styles={{
+            header: {
+              minHeight: 0, padding: '6px 12px',
+              borderBottom: '1px solid var(--line)',
+              background: 'transparent',
+            },
+            body: { flex: 1, minHeight: 0, padding: '6px 8px 8px' },
+          }}>
       {option && <Chart option={option} height="100%" />}
     </Card>
   )

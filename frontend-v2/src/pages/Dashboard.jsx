@@ -50,10 +50,9 @@ const PANEL_TITLE = {
   marginBottom: 6, letterSpacing: '0.06em',
 }
 
-const HEAD_BAR = {
-  padding: '7px 12px', borderBottom: '1px solid var(--line)',
-  fontSize: 11.5, fontWeight: 700, color: '#45e6f5', letterSpacing: '0.06em',
-}
+// 2026-11-06 删除了 HEAD_BAR 常量：右侧两张卡的标题已搬进各自的 Card head
+// （见 panels/EquityChart.jsx、panels/PriceChart.jsx 的 CARD_TITLE），
+// 外层不再有独立标题条，这个常量没有使用者了。
 
 export default function Dashboard({ status }) {
   // 扫描节拍从后端读（配置改了页面自动跟着变），读不到才回落 900s。
@@ -493,20 +492,16 @@ export default function Dashboard({ status }) {
 
         <aside className="side">
           <div style={{
-            position: 'relative', background: 'var(--panel)',
-            border: '1px solid var(--line)', borderRadius: 5, overflow: 'hidden',
+            // 外层只做定位 + 圆角裁切；框和背景由内部 Card 承担（标题已搬进 Card head）
+            position: 'relative', overflow: 'hidden', borderRadius: 5,
           }}>
-            <div style={HEAD_BAR}>账户权益曲线</div>
             <EquityChart activeMode={status?.mode} />
           </div>
           <div style={{
-            background: 'var(--panel)', border: '1px solid var(--line)',
-            borderRadius: 5, overflow: 'hidden', display: 'flex', flexDirection: 'column',
+            // 同上：外层只做定位 + 圆角裁切，标题和框都在 Card 里
+            position: 'relative', overflow: 'hidden', borderRadius: 5,
           }}>
-            <div style={HEAD_BAR}>行情与开平仓标记</div>
-            <div style={{ flex: 1, minHeight: 0 }}>
-              <PriceChart universe={status?.universe || []} />
-            </div>
+            <PriceChart universe={status?.universe || []} />
           </div>
         </aside>
       </section>

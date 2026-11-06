@@ -3,6 +3,12 @@ import { Card, Segmented } from 'antd'
 import Chart from '../Chart'
 import { useI18n } from '../i18n'
 
+// 标题视觉跟 Dashboard 右侧两张卡的 Card head 对齐（11.5px / 700 / 青色 / 字距 0.06em）。
+// 从外层条搬到 Card head 里，看起来还是同一个标题，只是不再多占一层容器
+const CARD_TITLE = {
+  fontSize: 11.5, fontWeight: 700, color: '#45e6f5', letterSpacing: '0.06em',
+}
+
 // Paper and live equity are different universes ($10k virtual vs real wallet):
 // the curve is stored per mode and NEVER mixed; default view = active mode.
 export default function EquityChart({ activeMode }) {
@@ -73,12 +79,26 @@ export default function EquityChart({ activeMode }) {
     }
   }, [series, lang, t])
   return (
-    <Card size="small" 
+    <Card size="small"
+          title={<span style={CARD_TITLE}>{t('dash.equityCurve')}</span>}
           extra={(
             <Segmented size="small" value={mode} onChange={setView}
                        options={[{ label: t('hdr.paper'), value: 'paper' },
                                  { label: t('hdr.live'), value: 'live' }]} />
-          )}>
+          )}
+          style={{
+            height: '100%', display: 'flex', flexDirection: 'column',
+            background: 'var(--panel)', border: '1px solid var(--line)',
+            borderRadius: 5, overflow: 'hidden',
+          }}
+          styles={{
+            header: {
+              minHeight: 0, padding: '6px 12px',
+              borderBottom: '1px solid var(--line)',
+              background: 'transparent',
+            },
+            body: { flex: 1, minHeight: 0, padding: '6px 8px 8px' },
+          }}>
       <Chart option={option} height="100%" />
     </Card>
   )

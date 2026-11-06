@@ -1011,24 +1011,31 @@ html, body, #root {
   column-gap: 12px !important;
 }
 
-/* ═══ 右侧两卡：去掉内层 antd Card 的边框/背景（避免双框）═══ */
+/* ═══ 右侧两卡 ═══
+   2026-11-06：两张卡的标题都从外层 div 搬进了各自的 Card head
+   （浩哥要求「删除外层标题，标题写到内层上」）。框和背景因此改由
+   Card 自己承担，外层 div 退化成纯定位 + 圆角裁切容器。
+   两张卡结构已统一，所以这里共用一套规则，不再分 first-child /
+   nth-child —— 以后再改也只需要改一处。 */
 .spider-root .side .ant-card {
-  background: transparent !important;
-  border: none !important;
+  background: var(--panel) !important;
+  border: 1px solid var(--line) !important;
   box-shadow: none !important;
+  border-radius: 5px !important;
+  overflow: hidden !important;
   height: 100% !important;
   display: flex !important;
   flex-direction: column !important;
 }
 .spider-root .side .ant-card-head {
-  border-bottom: none !important;
+  border-bottom: 1px solid var(--line) !important;
   min-height: 0 !important;
   padding: 0 10px !important;
 }
 .spider-root .side .ant-card-body {
   flex: 1 1 auto !important;
   min-height: 0 !important;
-  padding: 0 !important;
+  padding: 6px 8px 8px !important;
 }
 
 /* ═══════════════════════════════════════════════════════
