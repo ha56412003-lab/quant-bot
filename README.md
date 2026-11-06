@@ -381,7 +381,7 @@ global:
   daily_loss_halt_pct: 10.0
   daily_target.target_usd: 800
   event_quiet_minutes: 30
-  fear_greed_extreme: {high: 85, low: 15, size_mult: 0.6}
+  fear_greed_extreme: {greed: 85, fear: 15, size_mult: 0.6}
 ```
 
 ---
