@@ -47,10 +47,14 @@ READY = threading.Event()
 # ── 默认值（可被 strategies.yaml 的 pools.monitor 段覆盖）──────
 MIN_QUOTE_VOL = 1e7     # 24h 成交额下限：1000 万 U
 MAX_SPIKE = 4.0         # 单根最大振幅 ÷ ATR 上限
-MONITOR_SIZE = 23       # 监控池容量（最多，不凑数）
+MONITOR_SIZE = 200      # 监控池容量（最多，不凑数）
+# 2026-11-06 浩哥定：23 → 69。实测池子「合格但被容量挡」的有 47 个
+# （pass_n=69 / monitor_n=22），这些币系统根本不扫，里面确实有 CE 翻转的信号
+# （INIT / LIT / FLUID / FOGO 四个正在翻转却被挡在门外）。
+# 代价：15m 扫描的 K 线流量 51MB/天 → 160MB/天（+109MB）。
 
 # 双档 ATR（5 分钟口径）
-ATR_LO_MAX = 0.33       # 低档上界
+ATR_LO_MAX = 1.20       # 低档上界
 ATR_HI_MIN = 1.20       # 高档下界
 ATR_LO_HOLD = 0.40      # 低档留池缓冲
 ATR_LO_EXIT = 0.45      # 低档硬踢线
@@ -68,7 +72,7 @@ BBW_LOOKBACK = 100      # 分位回看根数
 BBW_PCT_MIN = 70.0      # 分位门槛
 
 # 分级刷新
-REFRESH_SEC = 180          # 池内 5m ATR：3 分钟
+REFRESH_SEC = 300          # 池内 5m ATR：5 分钟
 SCAN_SEC = 900             # 池外 5m ATR：15 分钟
 BBW_REFRESH_SEC = 3600     # 1h 布林带：每小时
 DAILY_REFRESH_SEC = 86400  # 日线插针：每天

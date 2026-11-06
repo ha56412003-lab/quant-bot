@@ -224,7 +224,7 @@ export default function Dashboard({ status }) {
                       </td>
                       <td style={{ padding: '7px 8px' }}>
                         <span style={{ display: 'inline-flex', gap: 2 }}>
-                          {[3, 5, 10, 20].map((lv) => (
+                          {[3, 6, 10, 20].map((lv) => (
                             <Popconfirm key={lv}
                               open={isPop(p, 'lev') && pop.lev === lv}
                               onOpenChange={(o) => { if (!o) closePop() }}
