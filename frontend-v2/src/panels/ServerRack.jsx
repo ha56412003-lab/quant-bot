@@ -37,8 +37,22 @@ export default function ServerRack({ width = 26, className = '' }) {
             height="4"
             style={{ animationDelay: `${(k % 5) * 0.18}s` }}
           />
+          {/* 红灯：隔一格一个，闪得比绿灯急 */}
+          {k % 2 === 0 && (
+            <rect
+              className="rack-led-red"
+              x="54"
+              y={18 + k * 17}
+              width="6"
+              height="4"
+              style={{ animationDelay: `${(k % 4) * 0.22}s` }}
+            />
+          )}
         </g>
       ))}
+      {/* 标签 */}
+      {/* 顶部报警灯 */}
+      <circle className="rack-alarm" cx="70" cy="4.2" r="2.3" />
       {/* 标签 */}
       <text x="10" y="253" fill="#8b90a6" fontSize="7" fontWeight="700"
             fontFamily="Cascadia Mono, JetBrains Mono, Consolas, monospace">

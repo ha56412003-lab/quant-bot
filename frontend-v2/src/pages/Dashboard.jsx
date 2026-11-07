@@ -429,7 +429,6 @@ export default function Dashboard({ status }) {
                   <div className="stats-big3">
                     <div className="sbig equity">
                       <div className="chief-wrap"><ChiefDesk width={pos.length ? 299 : 430} /></div>
-                      <div className="radar-wrap"><IntakeRadar width={124} /></div>
                       <div className="lb">账 户 净 值</div>
                       <div className="val"><PopNum text={equity.toFixed(2)} /><small>U</small></div>
                       <div className="sub">EQUITY · {status?.mode === 'live' ? 'LIVE 实盘' : 'PAPER 模拟盘'}</div>
@@ -487,8 +486,10 @@ export default function Dashboard({ status }) {
           <i className="cnr cnr-bl" /><i className="cnr cnr-br" />
 
           {/* 服务器机柜（照原版 canvas 绘制坐标复刻：14 机位 + GPU ×8） */}
+          <div className="radar-wrap"><IntakeRadar width={124} /></div>
+
           <div className="srv-wrap">
-            <ServerRack width={52} />
+            <ServerRack width={62} />
           </div>
 
         </main>

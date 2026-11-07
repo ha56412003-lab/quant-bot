@@ -694,3 +694,58 @@ html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .sbig.equity
   width: 430px !important;
   height: 217px !important;
 }
+
+
+/* ══════════════════════════════════════════════════════════════════
+   四角锚定：雷达钉左下角、机柜钉右下角，不随持仓状态上下浮动
+   原来雷达挂在 .sbig.equity 里垂直居中，空仓 y=295、持仓 y=491，
+   每次开平仓它就跳一次。移到 stage 层后固定。
+   ══════════════════════════════════════════════════════════════════ */
+.spider-root .stage > .radar-wrap {
+  position: absolute !important;
+  left: 20px !important;
+  bottom: 56px !important;
+  top: auto !important;
+  transform: none !important;
+  display: block !important;
+  width: 124px !important;
+  height: 142px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 none !important;
+  background: transparent !important;
+  overflow: visible !important;
+  pointer-events: none !important;
+  z-index: 2 !important;
+  opacity: .95 !important;
+}
+.spider-root .stage > .radar-wrap canvas {
+  display: block !important;
+  width: 124px !important;
+  height: 142px !important;
+}
+
+/* 机柜放大 20%（52 -> 62），红色告警灯 */
+.spider-root .stage .srv-wrap {
+  right: 10px !important;
+  bottom: 22px !important;
+  filter: drop-shadow(0 0 9px rgba(61, 230, 154, .28)) !important;
+}
+.spider-root .stage .srv-rack .rack-led-red {
+  fill: #ff4d5e;
+  animation: rackRedBlink 1.15s steps(1) infinite;
+  filter: drop-shadow(0 0 3px rgba(255, 77, 94, .95));
+}
+@keyframes rackRedBlink {
+  0%, 42%   { fill: #ff4d5e; opacity: 1; }
+  46%, 88%  { fill: #5c161d; opacity: .4; }
+  100%      { fill: #ff4d5e; opacity: 1; }
+}
+.spider-root .stage .srv-rack .rack-alarm {
+  fill: #ff4d5e;
+  animation: rackAlarmBlink 1.6s ease-in-out infinite;
+}
+@keyframes rackAlarmBlink {
+  0%, 100% { opacity: 1; filter: drop-shadow(0 0 5px rgba(255, 77, 94, 1)); }
+  50%      { opacity: .28; filter: drop-shadow(0 0 1px rgba(255, 77, 94, .5)); }
+}
