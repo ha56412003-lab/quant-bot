@@ -1325,8 +1325,8 @@ html[data-theme="mac-light"] .rp { border-color: #e2e0e6; background: #fbf9fb }
   border-radius: 0;         /* 直角 */
   /* 框体半透 —— 底下的点阵和曲线能透出来一点，才像浮在上面 */
   background: rgba(8, 10, 16, 0.13);   /* 只压一层淡色，底下的点阵和曲线都看得见 */
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);   /* 只要一点点 —— 14px 会把点阵糊成色块，2px 是"虚一层" */
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-left: none;                   /* 贴边的一侧不要边框，免得跟卡片边叠成双线 */
   /* 浮出：远投影 + 近投影 + 顶部内高光，三层叠出厚度 */
