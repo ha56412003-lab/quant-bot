@@ -1059,12 +1059,21 @@ html[data-theme="paper"] .stage tbody td > .rdot.lv1 { color:#b8303c !important;
   padding: 9px 12px 8px;
   overflow: hidden;
   min-height: 96px;
-  /* .stats 是固定高度 + space-between 的 flex 列：卸掉三大项之后中间会空出
-     100 多像素，让面板自己吃掉 —— 有仓显示完整列表，空仓留着大窗口。 */
-  flex: 1 1 auto;
+  /* 有持仓时卡片缩小、居中浮在下边（照浩哥的图稿）；
+     内部日志区固定高度 + 滚动，多了往下翻，不撑大整块。 */
+  width: 640px;
+  margin: auto auto 4px;
+  max-height: 176px;
   display: flex;
   flex-direction: column;
 }
+/* 空仓不缩小 —— 用整个数据区显示雷达扫描待命（有仓才收成小卡片浮在下边） */
+.rp.rp-wide {
+  width: 100%;
+  max-height: none;
+  flex: 1 1 auto;
+}
+.rp.rp-wide .rp-f { max-height: none; overflow: hidden }
 .rp-h {
   /* .stats div 有全局 display:grid（v2.css:1993 那条），这两个都是 div，
      不加 !important 会被压成单列 —— 右侧统计会掉到标题下面 */
@@ -1100,24 +1109,38 @@ html[data-theme="paper"] .stage tbody td > .rdot.lv1 { color:#b8303c !important;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-/* 日志行：八列固定节奏，最后两条吃掉剩余宽度 */
+/* 日志行：六列固定节奏，跟 LIVE FEED 一样密；多了往下滚 */
 .rp-f {
   list-style: none;
   margin: 0;
-  padding: 0;
-  overflow: hidden;
+  padding: 0 0 0 0;
+  overflow-y: auto;
+  overflow-x: hidden;
   flex: 1 1 auto;
+  max-height: 118px;
 }
 .rp-f li {
   display: grid;
-  grid-template-columns: 44px 62px 40px 30px 58px 46px minmax(80px, 1fr) 42px;
-  gap: 8px;
+  grid-template-columns: 46px 58px 38px 92px 40px 40px;
+  gap: 7px;
   align-items: center;
   padding: 0 4px;
   font-size: 10.5px;
-  line-height: 21px;
+  line-height: 16px;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+/* 滚动条：细，跟终端感一致，不抢内容 */
+.rp-f::-webkit-scrollbar { width: 6px }
+.rp-f::-webkit-scrollbar-track { background: transparent }
+.rp-f::-webkit-scrollbar-thumb {
+  background: #6b7290;
+  border-radius: 3px;
+  min-height: 24px;
+}
+.rp-f:hover::-webkit-scrollbar-thumb { background: #8b93b5 }
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f::-webkit-scrollbar-thumb {
+  background: #b9b5ab;
 }
 .rp-f li + li { border-top: 1px solid rgba(255, 255, 255, .035) }
 .rp-f li time { color: var(--dim2, #767c92) }
@@ -1154,7 +1177,7 @@ html[data-theme="paper"] .stage tbody td > .rdot.lv1 { color:#b8303c !important;
 .rp-bar i.bar-lv3 { background: #ffd23f }
 .rp-bar i.bar-lv2 { background: #ff9a1f }
 .rp-bar i.bar-lv1 { background: #ff4458 }
-.rp-act { font-weight: 700; text-align: right }
+.rp-act { font-weight: 700 }
 
 /* 档位四色 —— 跟币种列的分数徽章同一套语义 */
 .rp-f li em.lv4, .rp-f li .rp-sc.lv4, .rp-f li .rp-act.lv4 { color: #2fd27a }

@@ -37,7 +37,7 @@ export default function RadarPanel({ rows = [] }) {
   }
 
   return (
-    <article className="rp">
+    <article className={'rp' + (list.length ? '' : ' rp-wide')}>
       <div className="rp-h">
         <h2>
           RADAR<i>持仓强弱雷达</i>
@@ -86,17 +86,14 @@ export default function RadarPanel({ rows = [] }) {
               <time>{hhmm(r.ts)}</time>
               <b style={{ color: coinColor(name) }}>{name}</b>
               <em className={lv}>{(r.verdict || '—').slice(-2)}</em>
-              <span className={r.side === 'long' ? 'rp-dir c-red' : 'rp-dir c-green'}>
-                {r.side === 'long' ? '多' : '空'}
-              </span>
               <span className="rp-r">
-                {rn >= 0 ? '+' : ''}{rn.toFixed(2)}R
+                <i className={r.side === 'long' ? 'rp-dir c-red' : 'rp-dir c-green'}>
+                  {r.side === 'long' ? '多' : '空'}
+                </i>
+                {' '}{rn >= 0 ? '+' : ''}{rn.toFixed(2)}R
               </span>
               <span className={'rp-sc ' + lv}>
                 {Math.round(sc)}{arrow}
-              </span>
-              <span className="rp-bar">
-                <i className={'bar-' + lv} style={{ width: `${sc}%` }} />
               </span>
               <span className={'rp-act ' + lv}>{ACT[r.verdict] || '—'}</span>
             </li>
