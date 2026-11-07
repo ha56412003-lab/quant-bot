@@ -194,6 +194,10 @@ html[data-theme="paper"] .spider-root {
   --bad:    #b8303c;
   --warn:   #8a6a12;
   --sticky: #8a6a12;
+  /* 补齐 v2.css 里的亮色别名，否则组件里 var(--red) 会落到荧光色上 */
+  --red:    #b8303c;
+  --green:  #1f7a4d;
+  --amber:  #a87000;
 
   /* 作战室场景：浅灰阶（原来是深色舞台） */
   --stage:      #e9e8e2;
