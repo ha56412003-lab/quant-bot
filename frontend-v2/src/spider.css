@@ -1485,3 +1485,21 @@ html:not([data-theme]) .spider-root .hdr .ant-select-selection-item {
 html:not([data-theme]) .spider-root .hdr .ant-select-arrow {
   color: rgba(27, 6, 19, .7) !important;
 }
+
+
+/* ── danger ghost 按钮在玫红深底上看不清（2026-11-07）───────────────
+   「切换实盘」用 antd danger + ghost：透明底 + 错色文字/边框。
+   colorError 之前写成 var(--red,#d4595e)，antd 解析不了 CSS 变量，
+   派生成 #030303 近黑 → 压 rgb(11,12,18) 底色上完全隐形。
+   main.jsx 已改为实色 #d4595e；但 darkAlgorithm 继续压暗到 rgb(183,79,83)，
+   实测 4.07:1 仍不够 AA。这里提亮到 #ff6b6b（≈7:1）。
+   只作用于玫红主题；MAC 与纸面各自的 colorError 本来就合适。 */
+html:not([data-theme]) .ant-btn-dangerous:not(.ant-btn-primary) {
+  color: #ff6b6b !important;
+  border-color: rgba(255, 107, 107, .55) !important;
+}
+html:not([data-theme]) .ant-btn-dangerous:not(.ant-btn-primary):hover {
+  color: #ff8f8f !important;
+  border-color: rgba(255, 107, 107, .85) !important;
+  background: rgba(255, 107, 107, .09) !important;
+}

@@ -15,8 +15,11 @@ const DARK_THEME = {
   token: {
     colorPrimary: '#c1207e',
     colorInfo: '#45e6f5',
-    colorSuccess: 'var(--green, #3fa86a)',
-    colorError: 'var(--red, #d4595e)',
+    colorSuccess: '#3fa86a',
+    /* 注意：antd token 必须是具体色值，不能写 var(--x, #y)。
+       传 CSS 变量会让 @ant-design/colors 解析失败，派生出一堆 #030303 近黑色，
+       表现为「danger / success 按钮变成黑字黑框，在深色底上完全看不见」。 */
+    colorError: '#d4595e',
     colorWarning: '#ffb020',
     colorLink: '#45e6f5',
     colorBgBase: '#07080d',
