@@ -42,7 +42,13 @@ global:
     fear: 15
     size_mult: 0.6
   daily_target:
-    enabled: true
+    # ⚠ 2026-11-07 浩哥确定只放 100U 实盘 → 日目标先关掉。
+    # 原因：target_usd 是绝对金额，代码不支持百分比。200U 在 100U 本金上
+    # 等于 200%，永远达不到；更糟的是 auto_close_sec 只有 5 秒，
+    # 一旦真触发就自动全平 + 当天停止开仓，会直接打断验证期的观察。
+    # 100U 验证阶段要看的是「系统对不对」，不是「赚多少」。
+    # 本钱加大后再按比例设回来（例：本金 5000U → target_usd 250 ≈ 5%）。
+    enabled: false
     target_usd: 200
     sustain_sec: 30
     auto_close_sec: 5
@@ -92,7 +98,11 @@ strategies:
       half_tp_r: 2.0
       half_dd_pct: 0.0
       half_dd_r: 0.0
-      fee_rate: 0.0002
+      # 手续费：币安 U 本位 VIP0 的 taker 是 0.05%（不是 0.02%）。
+      # 原来写 0.0002 = 按 2.5 倍低估成本。100U 本金单笔 30U 名义，
+      # 开平各收一次 ≈ 0.03U，占 1.5U 风险的 2%，一天 9 笔 ≈ 8U/月。
+      # 若用 BNB 抵扣可降到 0.045%（0.00045），这里按不打折的保守值算。
+      fee_rate: 0.0005
       slip_pct: 0.0
 pools:
   candidate:

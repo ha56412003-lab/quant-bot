@@ -52,3 +52,4 @@ __pycache__/
 # Backtest temp checkpoints
 backtest/orig_*.json
 backtest/*.log
+strategies.yaml.bak_*
