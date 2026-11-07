@@ -195,7 +195,10 @@ export default function Dashboard({ status }) {
                     ['浮盈', 'right'], ['操作', 'center'],
                   ].map(([h, al], i) => (
                     <th key={h} style={{ ...TH, textAlign: al }}>
-                      <span className="th-chip" style={{ '--c': TH_CHIP[i % TH_CHIP.length] }}>{h}</span>
+                      <span
+                          className={'th-chip' + (h === '操作' ? ' th-chip-op' : '')}
+                          style={{ '--c': TH_CHIP[i % TH_CHIP.length] }}
+                        >{h}</span>
                     </th>
                   ))}
                 </tr>

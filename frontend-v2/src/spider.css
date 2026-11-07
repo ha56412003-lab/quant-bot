@@ -190,36 +190,36 @@
    选择器 html:not([data-theme]) 精确命中默认主题 ——
    ThemeSwitch 对 dark 是做 removeAttribute，paper/mac-* 才会写 data-theme。
    ══════════════════════════════════════════════════════════════════ */
-html:not([data-theme]) .spider-root .card{position:relative;padding-left:10px;border-radius:5px;background:#000000 !important}
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .card{position:relative;padding-left:10px;border-radius:5px;background:#000000 !important}
 
 /* 图标：保留卡通头像 */
 
 /* 币种名：等宽 800 / 12.5px / .06em / 主题色（对应 .cl .k） */
-html:not([data-theme]) .spider-root .cards .card .k{font:800 12.5px/26px var(--mono) !important;letter-spacing:.06em;color:var(--c) !important}
-html:not([data-theme]) .spider-root .card.idle .k{opacity:.6}
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .cards .card .k{font:800 12.5px/26px var(--mono) !important;letter-spacing:.06em;color:var(--c) !important}
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .card.idle .k{opacity:.6}
 
 /* 浮盈数字：等宽 700 / 12px / tabular-nums / 右对齐（对应 .cl .pc） */
 /* v2.css 里 .pnl-num 写死 20px !important，这里必须同等优先级压回去 */
-html:not([data-theme]) .spider-root .cards .card .pc{font:700 15px/26px var(--mono) !important;text-align:right;color:var(--ink);letter-spacing:-.01em}
-html:not([data-theme]) .spider-root .card.idle .pc{color:var(--dim)}
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .cards .card .pc{font:700 15px/26px var(--mono) !important;text-align:right;color:var(--ink);letter-spacing:-.01em}
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .card.idle .pc{color:var(--dim)}
 
 /* 副标题（开仓价 → 现价）：10px / --ink-2（对应 .cl .z） */
-html:not([data-theme]) .spider-root .card .row2{font:500 10px/15px var(--cjk);color:var(--ink-2)}
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .card .row2{font:500 10px/15px var(--cjk);color:var(--ink-2)}
 
 /* 进度条：底 rgba(186,212,240,.1)、填充 8px 光晕（对应 .cl .bar / .bar i） */
-html:not([data-theme]) .spider-root .card .bar{background:rgba(186,212,240,.1)}
-html:not([data-theme]) .spider-root .card .bar i{box-shadow:0 0 4px var(--c)}
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .card .bar{background:rgba(186,212,240,.1)}
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .card .bar i{box-shadow:0 0 4px var(--c)}
 
 /* 状态行：10px 基线，工作中由 --mute 提到 --ink-2（对应 .cl .st） */
-html:not([data-theme]) .spider-root .card .c4{font:500 10px/13px var(--cjk)}
-html:not([data-theme]) .spider-root .card .c4 .st{font:400 10px/13px var(--cjk);color:var(--mute)}
-html:not([data-theme]) .spider-root .card.work .c4 .st{color:var(--ink-2)}
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .card .c4{font:500 10px/13px var(--cjk)}
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .card .c4 .st{font:400 10px/13px var(--cjk);color:var(--mute)}
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .card.work .c4 .st{color:var(--ink-2)}
 
 /* 空卡主题色：让竖条/名字有颜色，否则 --c 落回白色看不见 */
-html:not([data-theme]) .spider-root .card.idle{--c:rgba(236,79,174,.72)}
-html:not([data-theme]) .spider-root .cards .card.idle{background:#000000 !important;border-color:rgba(236,79,174,.26) !important}
-html:not([data-theme]) .spider-root .cards .card.idle .idle-big{color:rgba(236,79,174,.78)}
-html:not([data-theme]) .spider-root .cards .card.idle .k{opacity:1}
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .card.idle{--c:rgba(236,79,174,.72)}
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .cards .card.idle{background:#000000 !important;border-color:rgba(236,79,174,.26) !important}
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .cards .card.idle .idle-big{color:rgba(236,79,174,.78)}
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .cards .card.idle .k{opacity:1}
 
 
 /* ══════════════════════════════════════════════════════════════════
@@ -233,8 +233,8 @@ html:not([data-theme]) .spider-root .cards .card.idle .k{opacity:1}
 
 /* ① 卡片标题：12.5px/600 常规灰白 → 11px/800 宽字距主色
       （JSX 里 CARD_TITLE 的 inline 也一并压掉，统一到一套规格） */
-html:not([data-theme]) .spider-root .ant-card-head-title,
-html:not([data-theme]) .spider-root .ant-card-head-title > span {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-card-head-title,
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-card-head-title > span {
   font-size: 11.5px !important;
   font-weight: 700 !important;
   letter-spacing: .05em !important;
@@ -243,17 +243,17 @@ html:not([data-theme]) .spider-root .ant-card-head-title > span {
 }
 
 /* ② 卡片头：贴参考页 .ph 的 7px 下间距与对齐基线 */
-html:not([data-theme]) .spider-root .ant-card-head {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-card-head {
   border-bottom: 1px solid var(--line-2);
   padding: 0 12px;
 }
-html:not([data-theme]) .spider-root .ant-card-head-wrapper {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-card-head-wrapper {
   align-items: baseline;
 }
 
 /* ③ 卡头右上角状态文字（PAPER / LIVE、BTCUSDT / 15m、刷新时间等）
       统一 10px / .1em / 强调色 / 等宽数字 —— 对应 .ph .r */
-html:not([data-theme]) .spider-root .ant-card-extra {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-card-extra {
   font-size: 10px;
   letter-spacing: .1em;
   color: var(--joint);
@@ -262,21 +262,21 @@ html:not([data-theme]) .spider-root .ant-card-extra {
 
 /* ④ 内层框体：卡内再嵌套的小盒子（指标格、列表容器、检查清单）
       对应 .stats div / .chk：--panel-2 底 + 1px --line 边 + 3px 圆角 */
-html:not([data-theme]) .spider-root .ant-card-body .ant-statistic {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-card-body .ant-statistic {
   background: var(--panel-2);
   border: 1px solid var(--line-2);
   border-radius: 3px;
   padding: 5px 9px;
   box-sizing: border-box;
 }
-html:not([data-theme]) .spider-root .ant-card-body .ant-statistic-title {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-card-body .ant-statistic-title {
   font-size: 8.5px !important;
   font-weight: 500;
   letter-spacing: .08em;
   color: var(--mute) !important;
   margin-bottom: 2px !important;
 }
-html:not([data-theme]) .spider-root .ant-card-body .ant-statistic-content {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-card-body .ant-statistic-content {
   font-size: 15px !important;
   font-weight: 700 !important;
   font-variant-numeric: tabular-nums;
@@ -284,7 +284,7 @@ html:not([data-theme]) .spider-root .ant-card-body .ant-statistic-content {
 }
 
 /* ⑤ chip 小标签：9px / .08em / --ink-2 + 1px --line-2 边（对应 .chip） */
-html:not([data-theme]) .spider-root .ant-tag {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-tag {
   font-size: 9px;
   letter-spacing: .08em;
   border: 1px solid var(--line-2);
@@ -297,7 +297,7 @@ html:not([data-theme]) .spider-root .ant-tag {
 
 /* ⑥ 表格：表头 10px/700/.04em/--mute，表体 10.5px/--ink-2，行线只留上边
       对应 .rtab */
-html:not([data-theme]) .spider-root .ant-table-thead > tr > th {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-table-thead > tr > th {
   font-size: 10px !important;
   font-weight: 700 !important;
   letter-spacing: .04em !important;
@@ -305,7 +305,7 @@ html:not([data-theme]) .spider-root .ant-table-thead > tr > th {
   background: var(--panel-2) !important;
   border-bottom: 1px solid var(--line) !important;
 }
-html:not([data-theme]) .spider-root .ant-table-tbody > tr > td {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-table-tbody > tr > td {
   font-size: 10.5px !important;
   color: var(--ink-2);
   border-bottom: 1px solid var(--line) !important;
@@ -314,18 +314,18 @@ html:not([data-theme]) .spider-root .ant-table-tbody > tr > td {
 
 /* 语义色豁免 —— 参考页 .s.pass 绿 / .s.drop 红 / .verdict 都是靠专属色说话，
    表里那些「通过 / 拦截 / 盈 / 亏」必须保留自己的颜色，不能被中性灰吃掉 */
-html:not([data-theme]) .spider-root .c-red,
-html:not([data-theme]) .spider-root .c-red small,
-html:not([data-theme]) .spider-root .c-red span { color: var(--red) !important; }
-html:not([data-theme]) .spider-root .c-green,
-html:not([data-theme]) .spider-root .c-green small,
-html:not([data-theme]) .spider-root .c-green span { color: var(--green) !important; }
-html:not([data-theme]) .spider-root .c-amber,
-html:not([data-theme]) .spider-root .c-amber small,
-html:not([data-theme]) .spider-root .c-amber span { color: var(--amber) !important; }
-html:not([data-theme]) .spider-root .c-cyan,
-html:not([data-theme]) .spider-root .c-cyan small,
-html:not([data-theme]) .spider-root .c-cyan span { color: var(--cyan) !important; }
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .c-red,
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .c-red small,
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .c-red span { color: var(--red) !important; }
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .c-green,
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .c-green small,
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .c-green span { color: var(--green) !important; }
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .c-amber,
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .c-amber small,
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .c-amber span { color: var(--amber) !important; }
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .c-cyan,
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .c-cyan small,
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .c-cyan span { color: var(--cyan) !important; }
 
 
 /* ══════════════════════════════════════════════════════════════════
@@ -336,30 +336,30 @@ html:not([data-theme]) .spider-root .c-cyan span { color: var(--cyan) !important
    ══════════════════════════════════════════════════════════════════ */
 
 /* ① 三大数字：同色光晕（对应 .big b 的 text-shadow:0 0 18px rgba(53,224,138,.35)） */
-html:not([data-theme]) .spider-root .stage .sbig.c-red .val {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage .sbig.c-red .val {
   text-shadow: 0 0 18px rgba(255, 77, 94, .35);
 }
-html:not([data-theme]) .spider-root .stage .sbig.c-green .val {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage .sbig.c-green .val {
   text-shadow: 0 0 18px rgba(53, 224, 138, .35);
 }
-html:not([data-theme]) .spider-root .stage .sbig.equity .val {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage .sbig.equity .val {
   text-shadow: 0 0 18px rgba(69, 230, 245, .32);
 }
 
 /* ② 大数字字号/字重对齐参考页 .big b 的 30px/800 分量 */
-html:not([data-theme]) .spider-root .stage .sbig .val {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage .sbig .val {
   font-weight: 800;
   letter-spacing: -.02em;
 }
 
 /* ③ 五小格配色：每格一个语义色，对应 .kv2 em.tk / .cost / .sm */
-html:not([data-theme]) .spider-root .stats-small5 .ssm:nth-child(1) .val { color: var(--cyan); }
-html:not([data-theme]) .spider-root .stats-small5 .ssm:nth-child(2) .val { color: var(--sticky); }
-html:not([data-theme]) .spider-root .stats-small5 .ssm:nth-child(5) .val { color: var(--joint); }
-html:not([data-theme]) .spider-root .stats-small5 .ssm .lb { color: var(--mute); letter-spacing: .16em; }
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stats-small5 .ssm:nth-child(1) .val { color: var(--cyan); }
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stats-small5 .ssm:nth-child(2) .val { color: var(--sticky); }
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stats-small5 .ssm:nth-child(5) .val { color: var(--joint); }
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stats-small5 .ssm .lb { color: var(--mute); letter-spacing: .16em; }
 
 /* ④ 小号数字统一等宽 + tabular，跟参考页一样 */
-html:not([data-theme]) .spider-root .stats-small5 .ssm .val {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stats-small5 .ssm .val {
   font-variant-numeric: tabular-nums;
   font-family: var(--mono);
 }
@@ -370,29 +370,29 @@ html:not([data-theme]) .spider-root .stats-small5 .ssm .val {
    铁律：通过=绿 被拒=红 涨=红 跌=绿。antd 预设绿(106,190,57) 是旧绿，
    统一到本主题的 --good #35e08a / --bad #ff4d5e / --cyan #45e6f5
    ══════════════════════════════════════════════════════════════════ */
-html:not([data-theme]) .spider-root .ant-tag-green {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-tag-green {
   color: var(--good) !important;
   border-color: rgba(53, 224, 138, .45) !important;
   background: rgba(53, 224, 138, .1) !important;
 }
-html:not([data-theme]) .spider-root .ant-tag-red {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-tag-red {
   color: var(--bad) !important;
   border-color: rgba(255, 77, 94, .45) !important;
   background: rgba(255, 77, 94, .1) !important;
 }
-html:not([data-theme]) .spider-root .ant-tag-cyan {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-tag-cyan {
   color: var(--cyan) !important;
   border-color: rgba(69, 230, 245, .42) !important;
   background: rgba(69, 230, 245, .09) !important;
 }
-html:not([data-theme]) .spider-root .ant-tag-gold,
-html:not([data-theme]) .spider-root .ant-tag-orange {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-tag-gold,
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-tag-orange {
   color: var(--warn) !important;
   border-color: rgba(255, 176, 32, .45) !important;
   background: rgba(255, 176, 32, .1) !important;
 }
-html:not([data-theme]) .spider-root .ant-tag-blue,
-html:not([data-theme]) .spider-root .ant-tag-purple {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-tag-blue,
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-tag-purple {
   color: var(--joint) !important;
   border-color: rgba(255, 63, 142, .42) !important;
   background: rgba(255, 63, 142, .09) !important;
@@ -410,20 +410,20 @@ html:not([data-theme]) .spider-root .ant-tag-purple {
    ══════════════════════════════════════════════════════════════════ */
 
 /* ① 轨道槽：rgba(255,255,255,.09) → 参考页 --line-2 #262a39 */
-html:not([data-theme]) .spider-root .cards .card .bar.prog {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .cards .card .bar.prog {
   background: var(--line-2) !important;
 }
 
 /* ② 主填充：三种状态统一走 var(--c) 币种身份色 */
-html:not([data-theme]) .spider-root .cards .card .bar.prog.loss > i,
-html:not([data-theme]) .spider-root .cards .card .bar.prog.run > i,
-html:not([data-theme]) .spider-root .cards .card .bar.prog.free .base2r {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .cards .card .bar.prog.loss > i,
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .cards .card .bar.prog.run > i,
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .cards .card .bar.prog.free .base2r {
   background: var(--c) !important;
   box-shadow: 0 0 8px var(--c);
 }
 
 /* ③ 平半橙黄层：保留（这是"已平一半"的唯一标识），色值是参考页 --warn/--sticky */
-html:not([data-theme]) .spider-root .cards .card .bar.prog.free .halflayer {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .cards .card .bar.prog.free .halflayer {
   background: linear-gradient(90deg, var(--warn), var(--sticky)) !important;
   box-shadow:
     0 4px 9px rgba(0, 0, 0, .6),
@@ -432,7 +432,7 @@ html:not([data-theme]) .spider-root .cards .card .bar.prog.free .halflayer {
 
 /* ④ 回撤区：原来整条是白色斜纹 + .72 白渐变，把底下的彩色全糊成银灰。
       降到 .18/.34 并保留斜纹质感，只当"回撤量"的淡底纹。 */
-html:not([data-theme]) .spider-root .cards .card .bar.prog .dd-zone {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .cards .card .bar.prog .dd-zone {
   background:
     repeating-linear-gradient(45deg,
       rgba(255, 255, 255, .06) 0px, rgba(255, 255, 255, .06) 2px,
@@ -442,7 +442,7 @@ html:not([data-theme]) .spider-root .cards .card .bar.prog .dd-zone {
       rgba(255, 255, 255, .22) 45%,
       rgba(255, 255, 255, .15) 100%);
 }
-html:not([data-theme]) .spider-root .cards .card .bar.prog.loss .dd-zone {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .cards .card .bar.prog.loss .dd-zone {
   background:
     repeating-linear-gradient(45deg,
       rgba(255, 255, 255, .05) 0px, rgba(255, 255, 255, .05) 2px,
@@ -453,7 +453,7 @@ html:not([data-theme]) .spider-root .cards .card .bar.prog.loss .dd-zone {
       rgba(255, 255, 255, .18) 100%);
 }
 /* 流动白光减弱，别把彩色条扫成一片白 */
-html:not([data-theme]) .spider-root .cards .card .bar.prog .dd-zone::after {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .cards .card .bar.prog .dd-zone::after {
   background: linear-gradient(90deg,
     transparent 0%,
     rgba(255, 255, 255, .55) 50%,
@@ -467,7 +467,7 @@ html:not([data-theme]) .spider-root .cards .card .bar.prog .dd-zone::after {
    跟样板网站的（#eef0f7 / #ff4d5e / #35e08a / #73788e）不是同一套，混用导致
    整体偏冷、偏灰、偏旧。这里把变量整体重映射一档，一次性拉齐。
    ══════════════════════════════════════════════════════════════════ */
-html:not([data-theme]) .spider-root {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root {
   /* 文字层 */
   --text: var(--ink);          /* #f2f6fa → #eef0f7 */
   --muted: var(--mute);        /* #6b7787 → #73788e */
@@ -481,12 +481,12 @@ html:not([data-theme]) .spider-root {
   --panel-2: #10121a;
 }
 /* 卡底还有一处硬编码 rgba(14,19,26,.92) */
-html:not([data-theme]) .spider-root .ant-card {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-card {
   background: rgba(11, 12, 18, .92) !important;
   border-color: rgba(236, 79, 174, .15) !important;
 }
 /* 表格头/体里散落的 #8a96a8 #7f8598 之类的旧灰，一并归到 --ink-2 / --mute */
-html:not([data-theme]) .spider-root .ant-table-thead > tr > th {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-table-thead > tr > th {
   color: var(--mute) !important;
 }
 
@@ -502,18 +502,18 @@ html:not([data-theme]) .spider-root .ant-table-thead > tr > th {
    落地到 antd Tabs：未选中 = 绿描边芯片，选中 = 实心粉芯片，tab 之间补 → 箭头。
    只看玫红深色（html:not([data-theme])），MAC/纸面三套不动。
    ══════════════════════════════════════════════════════════════════ */
-html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-nav::before {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-nav::before {
   border-bottom: 0 !important;
 }
-html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-nav {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-nav {
   margin-bottom: 6px !important;
 }
-html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-nav-list {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-nav-list {
   align-items: center;
 }
 
 /* ① 每个 tab = 绿色描边芯片 */
-html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab {
   margin: 0 !important;
   padding: 2px 7px !important;
   border: 1px solid rgba(53, 224, 138, .45) !important;
@@ -522,7 +522,7 @@ html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab {
   position: relative;
   transition: background .3s, color .3s, border-color .3s;
 }
-html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab .ant-tabs-tab-btn {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab .ant-tabs-tab-btn {
   color: var(--good) !important;
   font-family: var(--mono) !important;
   font-size: 10px !important;
@@ -531,10 +531,10 @@ html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab .an
 }
 
 /* ② tab 之间补 → 箭头（对应参考页的 <i>→</i>） */
-html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab + .ant-tabs-tab {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab + .ant-tabs-tab {
   margin-left: 14px !important;
 }
-html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab + .ant-tabs-tab::before {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab + .ant-tabs-tab::before {
   content: '→';
   position: absolute;
   left: -11px;
@@ -547,37 +547,37 @@ html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab + .
 }
 
 /* ③ 选中 = 实心粉（参考页 .chips span.on） */
-html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab-active {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab-active {
   background: var(--joint) !important;
   border-color: var(--joint) !important;
 }
-html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab-active .ant-tabs-tab-btn {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab-active .ant-tabs-tab-btn {
   color: var(--frame-ink) !important;
   font-weight: 800 !important;
 }
 
 /* ④ 未选中 hover 微微透绿 */
-html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab:not(.ant-tabs-tab-active):hover {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab:not(.ant-tabs-tab-active):hover {
   background: rgba(53, 224, 138, .1) !important;
 }
 
 /* ⑤ 隐藏 ink-bar（芯片自己就是激活指示） */
-html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-ink-bar {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-ink-bar {
   display: none !important;
 }
 
 
 /* ⑥ 芯片带箭头后变宽，5 个放不下会被 antd 折叠成「...」
       改成允许换行 + 隐藏折叠按钮，保证 5 个标签全部可见 */
-html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-nav-wrap {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-nav-wrap {
   overflow: visible !important;
 }
-html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-nav-list {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-nav-list {
   flex-wrap: wrap !important;
   row-gap: 5px;
 }
-html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-nav-operations,
-html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-nav-more {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-nav-operations,
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-nav-more {
   display: none !important;
 }
 
@@ -591,7 +591,7 @@ html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-nav-mor
 .shadow-sub {
   color: var(--mute, #8c8c8c);
 }
-html:not([data-theme]) .spider-root .ant-card-head-title > span > .shadow-sub {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-card-head-title > span > .shadow-sub {
   color: var(--bad) !important;
   font-size: 11px !important;
   font-weight: 400 !important;
@@ -606,7 +606,7 @@ html:not([data-theme]) .spider-root .ant-card-head-title > span > .shadow-sub {
    注意：表格 table-layout:fixed，列宽锁死，芯片必须压在列宽内，
         所以字号降到 9px、左右 padding 3px、字距 -.02em。
    ══════════════════════════════════════════════════════════════════ */
-html:not([data-theme]) .spider-root .th-chip {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .th-chip {
   display: inline-block;
   box-sizing: border-box;
   padding: 3px 7px;
@@ -625,7 +625,7 @@ html:not([data-theme]) .spider-root .th-chip {
 }
 
 /* 「一键全平」收成小胶囊，浮在状态带右侧 */
-html:not([data-theme]) .spider-root .close-all-fab {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .close-all-fab {
   font-family: var(--mono) !important;
   font-size: 9px !important;
   font-weight: 800 !important;
@@ -644,55 +644,55 @@ html:not([data-theme]) .spider-root .close-all-fab {
    空仓后表格从 420 收到 34，底部就剩 ~230px 死空白。
    这里用 data-empty 精确选中：空仓 → 放开高度锁，flex 撑满。
    ══════════════════════════════════════════════════════════════════ */
-html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage > .stats[data-empty="1"] {
   flex: 1 1 auto !important;
   height: auto !important;
   min-height: 0 !important;
   max-height: none !important;
 }
 /* 空仓时净值大块也放开，让 CHIEF 有地方居中放大 */
-html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .stats-big3 {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage > .stats[data-empty="1"] .stats-big3 {
   flex: 1 1 auto !important;
   min-height: 0 !important;
 }
 
 /* 空仓时净值块内容跟着放大（空间撑开了，字也要撑起来） */
-html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .sbig.equity .val {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage > .stats[data-empty="1"] .sbig.equity .val {
   font-size: 64px !important;
   letter-spacing: -.03em !important;
 }
-html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .sbig.equity .val small {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage > .stats[data-empty="1"] .sbig.equity .val small {
   font-size: 24px !important;
 }
-html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .sbig.equity .lb {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage > .stats[data-empty="1"] .sbig.equity .lb {
   font-size: 13px !important;
   letter-spacing: .32em !important;
 }
-html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .sbig .lb {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage > .stats[data-empty="1"] .sbig .lb {
   font-size: 12px !important;
 }
-html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .sbig.pnl .val,
-html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .sbig.real .val {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage > .stats[data-empty="1"] .sbig.pnl .val,
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage > .stats[data-empty="1"] .sbig.real .val {
   font-size: 40px !important;
 }
-html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .stats-small5 {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage > .stats[data-empty="1"] .stats-small5 {
   padding-top: 14px !important;
 }
-html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .stats-small5 .ssm .lb {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage > .stats[data-empty="1"] .stats-small5 .ssm .lb {
   font-size: 11px !important;
 }
-html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .stats-small5 .ssm .v {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage > .stats[data-empty="1"] .stats-small5 .ssm .v {
   font-size: 17px !important;
 }
 
 /* 空仓时 CHIEF 放大：原 CSS 用 !important 锁死 299x151，这里按 430x217 放开 */
-html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .sbig.equity > .chief-wrap {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage > .stats[data-empty="1"] .sbig.equity > .chief-wrap {
   width: 430px !important;
   height: 217px !important;
   right: -170px !important;
   bottom: 4px !important;
 }
-html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .sbig.equity > .chief-wrap canvas {
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage > .stats[data-empty="1"] .sbig.equity > .chief-wrap canvas {
   width: 430px !important;
   height: 217px !important;
 }
@@ -750,4 +750,176 @@ html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .sbig.equity
 @keyframes rackAlarmBlink {
   0%, 100% { opacity: 1; filter: drop-shadow(0 0 5px rgba(255, 77, 94, 1)); }
   50%      { opacity: .28; filter: drop-shadow(0 0 1px rgba(255, 77, 94, .5)); }
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   纸面主题适配：--joint 在纸面是深红 #b8303c（不是玫红亮粉），
+   而芯片文字用 --frame-ink（墨黑 #151515）→ 深底深字，对比度崩。
+   纸面下选中态改纸白字。
+   ══════════════════════════════════════════════════════════════════ */
+html[data-theme="paper"] .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #f6f5f1 !important;
+}
+html[data-theme="paper"] .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab {
+  border-color: rgba(31, 122, 77, .5) !important;
+}
+html[data-theme="paper"] .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab + .ant-tabs-tab::before {
+  color: rgba(21, 21, 21, .45) !important;
+}
+
+/* 纸面主题：「操作」列头是近白 #f3f4f8，在米白纸上隐形 → 换墨黑块 + 纸白字 */
+html[data-theme="paper"] .spider-root .th-chip-op {
+  background: #151515 !important;
+  color: #f6f5f1 !important;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   纸面纠偏：上面「全站色板统一」那一段是深色主题专用，里面把
+   --panel / --panel-2 / .ant-card 底色写死成深色。作用域扩到纸面后
+   会把纸面的浅色卡全部改成深底 —— 而纸面文字是墨黑 #151515，
+   结果深底配深字，对比度 1.02:1，整块读不出来。
+   这里把纸面的结构色还原回纸面色阶。
+   ══════════════════════════════════════════════════════════════════ */
+html[data-theme="paper"] .spider-root {
+  --panel:   #f6f5f1 !important;
+  --panel-2: #efeee9 !important;
+}
+html[data-theme="paper"] .spider-root .ant-card {
+  background: #f6f5f1 !important;
+  border-color: #d2d0c9 !important;
+}
+html[data-theme="paper"] .spider-root .ant-card-body .ant-statistic {
+  background: #efeee9 !important;
+  border-color: #c4c2ba !important;
+}
+html[data-theme="paper"] .spider-root .ant-card-body .ant-statistic-title {
+  color: #5f5e58 !important;
+}
+html[data-theme="paper"] .spider-root .ant-card-body .ant-statistic-content {
+  color: #151515 !important;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   纸面：糖果色在米白底上不可读（黄绿 #b5ef3a 只有 1.25:1）。
+   币种身份色要保色相、压明度 —— 用 filter 比逐个换色板更稳，
+   也不会因为哈希表变动而失配。
+   ══════════════════════════════════════════════════════════════════ */
+html[data-theme="paper"] .spider-root .coin-name {
+  color: color-mix(in srgb, var(--cc) 42%, #151515) !important;
+}
+html[data-theme="paper"] .spider-root .card .k {
+  color: color-mix(in srgb, var(--c) 42%, #151515) !important;
+}
+/* 空卡里「待进场 / IDLE / 等待信号」的灰字也压深一档 */
+html[data-theme="paper"] .spider-root .card.idle .tg,
+html[data-theme="paper"] .spider-root .card.idle .idle-mid,
+html[data-theme="paper"] .spider-root .card.idle .idle-big,
+html[data-theme="paper"] .spider-root .card.idle .pc {
+  filter: brightness(.62) !important;
+}
+
+
+/* 纸面：空卡（待进场 / IDLE）跟着纸面走浅色，不要 10 张黑卡铺在米白纸上 */
+html[data-theme="paper"] .spider-root .cards .card.idle,
+html[data-theme="paper"] .spider-root .card.idle {
+  background: #f6f5f1 !important;
+  background-image: none !important;
+  border-color: #d2d0c9 !important;
+}
+html[data-theme="paper"] .spider-root .card.idle .tg,
+html[data-theme="paper"] .spider-root .card.idle .idle-mid {
+  color: #5f5e58 !important;
+}
+html[data-theme="paper"] .spider-root .card.idle .idle-big {
+  color: #8a8983 !important;
+}
+html[data-theme="paper"] .spider-root .card.idle .k {
+  color: #b8303c !important;
+}
+
+
+/* ── 纸面收尾：剩余 13 处低对比度 ── */
+/* ① 持仓卡币种名：原规则用 .cards .card .k 提权，这里要同权重才能压过 */
+html[data-theme="paper"] .spider-root .cards .card .k {
+  color: color-mix(in srgb, var(--c) 38%, #151515) !important;
+}
+/* ② 出场进度条的红字（dark 是 #ff4d5e，纸面浅底上只有 2.97:1） */
+html[data-theme="paper"] .spider-root .cards .card .prog-txt,
+html[data-theme="paper"] .spider-root .cards .card .prog-txt.run.danger,
+html[data-theme="paper"] .spider-root .cards .card .c4 .prog-txt {
+  color: #b8303c !important;
+}
+/* ③ 副行灰字 / 时间青色 */
+html[data-theme="paper"] .spider-root .cards .card .c4-mid {
+  color: #5f5e58 !important;
+}
+html[data-theme="paper"] .spider-root .cards .card .c4-time {
+  color: #2b6d80 !important;
+}
+/* ④ 一键全平浮动胶囊：深底上配亮字 */
+html[data-theme="paper"] .spider-root .close-all-fab {
+  color: #f6f5f1 !important;
+}
+
+html[data-theme="paper"] .spider-root .cards .card .prog-txt b,
+html[data-theme="paper"] .spider-root .cards .card .prog-txt small {
+  color: inherit !important;
+}
+/* 表格里的杠杆按钮（选中态是亮粉底 + 灰字）和策略标签 */
+html[data-theme="paper"] .spider-root .stage td .ant-btn-sm.ant-btn-primary,
+html[data-theme="paper"] .spider-root .stage td .ant-btn-sm[class*="active"] {
+  background: #b8303c !important;
+  border-color: #b8303c !important;
+  color: #f6f5f1 !important;
+}
+html[data-theme="paper"] .spider-root .stage td .ant-tag {
+  color: #2b6d80 !important;
+  border-color: #c4c2ba !important;
+  background: #efeee9 !important;
+}
+
+/* 表格里：杠杆按钮（粉底）字改墨黑、策略标签压深 */
+html[data-theme="paper"] .spider-root .stage tbody td button {
+  color: #151515 !important;
+}
+html[data-theme="paper"] .spider-root .stage tbody td > span {
+  color: #2b6d80 !important;
+}
+/* 图表卡里的小标签灰字压深 */
+html[data-theme="paper"] .spider-root .ant-card-body .ant-statistic-content,
+html[data-theme="paper"] .spider-root .ant-card-body .ant-statistic-content span {
+  color: #151515 !important;
+}
+html[data-theme="paper"] .spider-root .ant-card-body .ant-statistic-title {
+  color: #5f5e58 !important;
+}
+
+/* ★ 关键：上面「全站色板统一」里有 --cyan: var(--cyan) 自引用，
+   属于循环定义 → 无效，纸面下会落回 dark 的 #45e6f5（浅底上 1.23:1 看不见）。
+   这里给纸面一个实值。 */
+html[data-theme="paper"] .spider-root {
+  --cyan: #2b6d80 !important;
+}
+/* 剩余零散小字压深 */
+html[data-theme="paper"] .spider-root .bot .ant-tabs-tab + .ant-tabs-tab::before {
+  color: rgba(21, 21, 21, .62) !important;
+}
+html[data-theme="paper"] .spider-root .ant-card-body > div > span,
+html[data-theme="paper"] .spider-root .ant-card-body > span {
+  color: #5f5e58 !important;
+}
+
+/* 未选中 tab 文字再压一档 + 箭头加深 */
+html[data-theme="paper"] .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab .ant-tabs-tab-btn {
+  color: #145c37 !important;
+}
+html[data-theme="paper"] .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab + .ant-tabs-tab::before {
+  color: rgba(21, 21, 21, .72) !important;
+}
+/* 卡片里没有内联色的小标签灰字（有内联色的语义色不动） */
+html[data-theme="paper"] .spider-root .ant-card-body span:not([style*="color"]) {
+  color: #5f5e58 !important;
 }
