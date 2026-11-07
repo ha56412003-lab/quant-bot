@@ -1315,24 +1315,25 @@ html[data-theme="mac-light"] .rp { border-color: #e2e0e6; background: #fbf9fb }
 .eq-float {
   position: absolute;
   top: 10px;
-  left: 10px;
+  left: 0;                  /* 贴齐卡片左边缘 */
   z-index: 3;
   pointer-events: none;
   display: flex;
   flex-direction: column;
   gap: 13px;
   padding: 20px 26px 22px;
-  border-radius: 14px;
+  border-radius: 0;         /* 直角 */
   /* 框体半透 —— 底下的点阵和曲线能透出来一点，才像浮在上面 */
-  background: rgba(8, 10, 16, 0.42);
-  -webkit-backdrop-filter: blur(14px) saturate(1.25);
-  backdrop-filter: blur(14px) saturate(1.25);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(8, 10, 16, 0.13);   /* 只压一层淡色，底下的点阵和曲线都看得见 */
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-left: none;                   /* 贴边的一侧不要边框，免得跟卡片边叠成双线 */
   /* 浮出：远投影 + 近投影 + 顶部内高光，三层叠出厚度 */
   box-shadow:
-    0 18px 52px rgba(0, 0, 0, 0.58),
-    0 6px 16px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.11);
+    0 14px 40px rgba(0, 0, 0, 0.46),
+    0 4px 12px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
   font-family: Cascadia Mono, Consolas, monospace;
 }
 
@@ -1353,6 +1354,8 @@ html[data-theme="mac-light"] .rp { border-color: #e2e0e6; background: #fbf9fb }
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   letter-spacing: -0.01em;
+  /* 浮框透了以后曲线会从字后面穿，给一点同色系暗影把字托住 */
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 .eq-float .eq-v i {
@@ -1372,35 +1375,40 @@ html[data-theme="mac-light"] .rp { border-color: #e2e0e6; background: #fbf9fb }
 
 /* MAC 深色：底子是 #17161b，浮框压得更深一点才分得开 */
 html[data-theme="mac-dark"] .eq-float {
-  background: rgba(12, 11, 15, 0.46);
-  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(12, 11, 15, 0.15);
+  border-color: rgba(255, 255, 255, 0.13);
+  border-left: none;
 }
 /* MAC 浅色：白底上毛玻璃要反过来 —— 用浅色半透明 + 深字 */
 html[data-theme="mac-light"] .eq-float {
-  background: rgba(252, 251, 253, 0.72);
-  border-color: rgba(0, 0, 0, 0.2);
+  background: rgba(252, 251, 253, 0.3);
+  border-color: rgba(0, 0, 0, 0.16);
+  border-left: none;
   box-shadow:
     0 20px 56px rgba(0, 0, 0, 0.2),
     0 8px 20px rgba(0, 0, 0, 0.14),
     0 2px 5px rgba(0, 0, 0, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.98);
 }
+html[data-theme="mac-light"] .eq-float .eq-v { text-shadow: 0 1px 2px rgba(255, 255, 255, 0.9); }
 html[data-theme="mac-light"] .eq-float .eq-lb { color: #55505f; }
 html[data-theme="mac-light"] .eq-float .eq-g { color: #2f6b0a; }   /* 苹果绿压深 6.45:1 */
 html[data-theme="mac-light"] .eq-float .eq-r { color: #b71c5a; }
-html[data-theme="mac-light"] .eq-float .eq-o { color: #9c5800; }   /* 5.47:1 */
+html[data-theme="mac-light"] .eq-float .eq-o { color: #8a4d00; }   /* 透底后压深 */
 
 /* 纸面：米白底，同 MAC 浅色思路，绿/橙再压一档 */
 html[data-theme="paper"] .eq-float {
-  background: rgba(252, 251, 247, 0.72);
-  border-color: rgba(0, 0, 0, 0.21);
+  background: rgba(252, 251, 247, 0.3);
+  border-color: rgba(0, 0, 0, 0.17);
+  border-left: none;
   box-shadow:
     0 20px 56px rgba(0, 0, 0, 0.19),
     0 8px 20px rgba(0, 0, 0, 0.13),
     0 2px 5px rgba(0, 0, 0, 0.07),
     inset 0 1px 0 rgba(255, 255, 255, 0.98);
 }
+html[data-theme="paper"] .eq-float .eq-v { text-shadow: 0 1px 2px rgba(255, 255, 255, 0.9); }
 html[data-theme="paper"] .eq-float .eq-lb { color: #57554c; }
 html[data-theme="paper"] .eq-float .eq-g { color: #2e640c; }       /* 6.90:1 */
 html[data-theme="paper"] .eq-float .eq-r { color: #b8303c; }
-html[data-theme="paper"] .eq-float .eq-o { color: #96520a; }       /* 5.9:1 */
+html[data-theme="paper"] .eq-float .eq-o { color: #86490a; }       /* 透底后压深 */
