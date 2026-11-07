@@ -63,6 +63,24 @@ def conn():
             detail TEXT          -- JSON：各因子的原始值，便于事后复盘
         );
         CREATE INDEX IF NOT EXISTS ix_radar_sym_ts ON radar_history(symbol, ts);
+
+        -- 警报记录：什么时候叫过、叫的什么、后来准不准
+        CREATE TABLE IF NOT EXISTS radar_alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts INTEGER NOT NULL,
+            symbol TEXT NOT NULL,
+            side TEXT,
+            from_level INTEGER,
+            level INTEGER,
+            score REAL,
+            r_at_alert REAL,
+            action TEXT,
+            advice TEXT,
+            eval_1h_r REAL,
+            eval_4h_r REAL,
+            eval_ts INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS ix_alert_sym_ts ON radar_alerts(symbol, ts);
         """)
         _conn.commit()
     return _conn
@@ -195,19 +213,19 @@ WEIGHTS = (("taker", 25), ("cvd", 25), ("oi", 20), ("liq", 15), ("book", 15))
 def verdict_of(score, r_now):
     """把分数翻译成人话 + 建议动作。
 
-    浮亏时不给「离场」建议 —— 那是量化系统止损该管的事，雷达不越界。
+    建议动作**统一由 _advice_action 决定** —— 早先这里自己写了一套阈值
+    （浮盈 >0 就喊"建议平掉"），跟警报逻辑（浮盈 ≥0.3R 才喊）各说一套，
+    出现「页面建议平掉、警报说交给系统」的自相矛盾。
+    浮亏时不给离场建议 —— 那是量化系统止损该管的事，雷达不越界。
     """
     if score >= 80:
         return "走势很强", "势还在，不用动"
     if score >= 60:
         return "走势放缓", "开始放缓，盯着点"
+    action, advice = _advice_action(score, r_now)
     if score >= 40:
-        if r_now > 0.3:
-            return "走势转弱", "可以考虑平一半锁定一部分"
-        return "中性偏弱", "观望，等下一轮确认"
-    if r_now > 0:
-        return "走势力竭", "建议手动平掉（至少平一半）"
-    return "走势力竭", "力竭但没浮盈，交给系统止损"
+        return ("走势转弱" if action == "half" else "中性偏弱"), advice
+    return "走势力竭", advice
 
 
 async def sample(symbol, side, r_now=0.0, slow=True):
@@ -298,29 +316,181 @@ async def sample(symbol, side, r_now=0.0, slow=True):
     return row
 
 
+# ── 执行层：什么时候叫、叫几次、叫完怎么验证 ──────────────────────────
+#
+# 目标不是"每分钟报一次数字"（那没人看），而是：
+#   ① 只在【分数跨档往下掉】的那一次叫 —— 档内抖动不叫
+#   ② 叫的时候直接给可执行的动作（平一半 / 全平 / 交给系统）
+#   ③ 同一个币同一个方向 30 分钟内不重复叫
+#   ④ 叫完记下来，事后回填 1h/4h 走势 —— 用来判断这个雷达到底准不准
+
+ALERT_COOLDOWN = 1800          # 同币 30 分钟内不重复叫
+_alert_state = {}              # symbol -> {"level": int, "ts": int}
+
+
+def _level_of(score):
+    """分数 -> 档位。数字越小越弱。"""
+    if score < 40:
+        return 0
+    if score < 60:
+        return 1
+    if score < 80:
+        return 2
+    return 3
+
+
+def _advice_action(score, r_now):
+    """把「分数 + 浮盈」翻译成可执行的动作。
+
+    返回 (action, advice)：
+      half  平一半（锁一半利润，剩下的让系统跑）
+      full  全平
+      hold  没浮盈，不掺和，交给系统止损
+      watch 观望
+      None  不用提醒
+    """
+    if score >= 60:
+        return None, None
+    if score < 40:
+        if r_now >= 1.0:
+            return "half", "走势力竭但浮盈够厚：平一半锁利润，剩下交给系统"
+        if r_now >= 0.3:
+            return "full", "走势力竭且利润薄：扛不住回撤，建议全平"
+        return "hold", "走势力竭但没浮盈：不掺和，交给系统止损"
+    # 40 ~ 60
+    if r_now >= 1.5:
+        return "half", "走势转弱但浮盈够厚：可以考虑平一半落袋"
+    return "watch", "走势转弱：观望，等下一轮确认"
+
+
+def check_alert(row):
+    """一行新分数进来，判断要不要叫。
+
+    只在【跨档往下掉】时叫，并且有冷却，避免刷屏。
+    返回 alert 记录（没叫则 None）。
+    """
+    sym, ts, score = row["symbol"], row["ts"], row["score"]
+    lvl = _level_of(score)
+    c = conn()
+    prev = c.execute(
+        "SELECT score FROM radar_history WHERE symbol=? AND ts<? ORDER BY ts DESC LIMIT 1",
+        (sym, ts)).fetchone()
+    if prev is None:
+        # 第一次见到这个币，只记状态不叫（没有"变化"可言）
+        _alert_state[sym] = {"level": lvl, "ts": ts}
+        return None
+    prev_lvl = _level_of(prev["score"])
+    _alert_state[sym] = {"level": lvl, "ts": ts}
+    if lvl >= prev_lvl:
+        return None                                  # 没跨档，不叫
+
+    action, advice = _advice_action(score, row["r_now"])
+    if not action:
+        return None
+
+    # 冷却：同一币 30 分钟内不重复叫 —— 但如果这次比上次更严重（档位更低），
+    # 必须放行。否则「55 掉到 55」不刷屏的目的达到了，
+    # 却会把「55 再掉到 35」这种真正要命的情况一起吞掉。
+    last = c.execute(
+        "SELECT ts, level FROM radar_alerts WHERE symbol=? ORDER BY ts DESC LIMIT 1",
+        (sym,)).fetchone()
+    if last and ts - last["ts"] < ALERT_COOLDOWN and lvl >= last["level"]:
+        return None
+
+    rec = {"ts": ts, "symbol": sym, "side": row["side"], "from_level": prev_lvl,
+           "level": lvl, "score": round(score, 1), "r_at_alert": row["r_now"],
+           "action": action, "advice": advice}
+    with c:
+        c.execute("""INSERT INTO radar_alerts
+            (ts, symbol, side, from_level, level, score, r_at_alert, action, advice)
+            VALUES (:ts,:symbol,:side,:from_level,:level,:score,:r_at_alert,:action,:advice)""", rec)
+    log.info("RADAR ALERT %s %s %.0f分 %s", sym, row["side"], score, action)
+    return rec
+
+
+async def evaluate_alerts():
+    """回填警报效果：这条提醒发出后 1h / 4h，行情是继续不利还是反转了。
+
+    eval_*_r = 从提醒那一刻起，朝【持仓有利方向】的 R 变化。
+      负数 -> 之后继续朝不利方向走 -> 提醒是对的
+      正数 -> 之后反弹了 -> 提醒早了
+    """
+    c = conn()
+    pending = [dict(r) for r in c.execute(
+        "SELECT * FROM radar_alerts WHERE eval_ts IS NULL AND ts < ? ORDER BY ts DESC LIMIT 20",
+        (int(time.time()) - 3600,))]
+    for a in pending:
+        try:
+            ks = await binance.klines(a["symbol"], "5m", 60)
+        except Exception:  # noqa: BLE001
+            continue
+        if not ks:
+            continue
+        # 注意：binance.klines 返回的 ts 已经是【秒】，不是毫秒
+        base = None
+        for k in ks:
+            if k["ts"] >= a["ts"]:
+                base = float(k["open"])
+                break
+        if not base:
+            continue
+        sign = 1 if a["side"] == "long" else -1
+        entry_stop = None
+        # 用当时记录的 r 反推 1R 价格距离不方便，这里直接用百分比变化评判
+        e1 = e4 = None
+        for k in ks:
+            mins = (k["ts"] - a["ts"]) / 60
+            chg = (float(k["close"]) / base - 1) * 100 * sign
+            if e1 is None and mins >= 60:
+                e1 = chg
+            if mins >= 240:
+                e4 = chg
+                break
+        with c:
+            c.execute("UPDATE radar_alerts SET eval_1h_r=?, eval_4h_r=?, eval_ts=? WHERE id=?",
+                      (round(e1, 3) if e1 is not None else None,
+                       round(e4, 3) if e4 is not None else None, int(time.time()), a["id"]))
+    return len(pending)
+
+
+def alerts(limit=100, symbol=None):
+    c = conn()
+    if symbol:
+        rows = c.execute("SELECT * FROM radar_alerts WHERE symbol=? ORDER BY ts DESC LIMIT ?",
+                         (symbol, limit))
+    else:
+        rows = c.execute("SELECT * FROM radar_alerts ORDER BY ts DESC LIMIT ?", (limit,))
+    return [dict(r) for r in rows]
+
+
 async def scan_once():
-    """扫一遍当前持仓。空仓直接返回（不扫全市场，省流量）。"""
+    """扫一遍当前持仓。空仓直接返回（不扫全市场，省流量）。
+
+    注意：mark_price 必须现取（factors.mark_price_of），
+    positions 原始行里没有这个字段，直接 p.get() 会恒为 None，
+    导致浮盈恒为 0、所有动作建议全部走错分支。
+    """
     try:
         poss = db.open_positions()
     except Exception:  # noqa: BLE001
         return []
     out = []
-    now = time.time()
     for p in poss:
         sym = p["symbol"]
         side = p["side"]
-        entry = float(p.get("entry_price") or 0)
-        mark = float(p.get("mark_price") or 0) or entry
-        stop = float(p.get("stop_price") or 0)
-        risk = abs(entry - stop) or entry * 0.01
-        r_now = (mark - entry) / risk * (1 if side == "long" else -1) if risk else 0
-        slow = now - _last_slow.get(sym, 0) >= SLOW_SEC
         try:
-            r = await sample(sym, side, r_now, slow=slow)
+            entry = float(p.get("entry_price") or 0)
+            mark = factors.mark_price_of(sym) or entry
+            stop = float(p.get("stop_price") or 0)
+            risk = abs(entry - stop) or entry * 0.01
+            r_now = (mark - entry) / risk * (1 if side == "long" else -1) if risk else 0
+            r = await sample(sym, side, r_now)
             if r:
                 out.append(r)
-                if slow:
-                    _last_slow[sym] = now
+                try:
+                    check_alert(r)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("radar alert %s: %s", sym, exc)
         except Exception as exc:  # noqa: BLE001
             log.warning("radar scan %s: %s", sym, exc)
     return out
@@ -333,9 +503,14 @@ async def loop():
         return
     _running = True
     log.info("radar loop started (%ss)", SCAN_SEC)
+    tick = 0
     while True:
         try:
             await scan_once()
+            tick += 1
+            # 每 15 分钟回填一次警报效果（要等 1h/4h 才够，不用勤跑）
+            if tick % 15 == 0:
+                await evaluate_alerts()
         except Exception as exc:  # noqa: BLE001
             log.warning("radar loop: %s", exc)
         await asyncio.sleep(SCAN_SEC)

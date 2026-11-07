@@ -325,6 +325,20 @@ async def api_radar(symbol: str = ""):
         return {"rows": [], "error": str(exc)}
 
 
+@app.get("/api/radar/alerts")
+async def api_radar_alerts(limit: int = 50, symbol: str = ""):
+    """雷达警报记录：什么时候叫过、什么建议、后来准不准。
+
+    eval_1h_r / eval_4h_r = 提醒后朝【持仓有利方向】的涨跌幅(%)。
+      负数 -> 之后继续不利 -> 提醒是对的
+      正数 -> 之后反弹了   -> 提醒早了
+    """
+    try:
+        return {"rows": radar.alerts(limit=limit, symbol=symbol or None)}
+    except Exception as exc:  # noqa: BLE001
+        return {"rows": [], "error": str(exc)}
+
+
 @app.get("/api/positions")
 async def api_positions():
     cfg = config.load_strategies()
