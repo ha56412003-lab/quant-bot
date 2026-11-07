@@ -105,7 +105,7 @@ export default function ShadowPanel({ shadow }) {
       title={
         <span>
           {t('shadow.title')}
-          <span style={{ fontSize: 11, color: 'var(--mute, #8c8c8c)', marginLeft: 8, fontWeight: 400 }}>
+          <span className="shadow-sub" style={{ fontSize: 11, marginLeft: 8, fontWeight: 400 }}>
             {t('shadow.subtitle')}
           </span>
         </span>

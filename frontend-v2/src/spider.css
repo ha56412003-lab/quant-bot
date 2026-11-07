@@ -580,3 +580,21 @@ html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-nav-ope
 html:not([data-theme]) .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-nav-more {
   display: none !important;
 }
+
+
+/* ══════════════════════════════════════════════════════════════════
+   因子影子模式 · 副标题（"用因子打分但不干预交易 · 2周后…"）
+   全主题默认保持灰色说明字；玫红深色下改红色强调。
+   注意：.ant-card-head-title > span 带 color:var(--ink)!important，
+        必须用更深的 "> span > .shadow-sub" 才能压回来。
+   ══════════════════════════════════════════════════════════════════ */
+.shadow-sub {
+  color: var(--mute, #8c8c8c);
+}
+html:not([data-theme]) .spider-root .ant-card-head-title > span > .shadow-sub {
+  color: var(--bad) !important;
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  letter-spacing: 0 !important;
+  font-family: var(--cjk) !important;
+}
