@@ -634,3 +634,63 @@ html:not([data-theme]) .spider-root .close-all-fab {
   border-radius: 3px !important;
   background: rgba(7, 8, 13, .92) !important;
 }
+
+
+/* ══════════════════════════════════════════════════════════════════
+   空仓时：数据区（净值/浮盈/已实现 + 五小格）撑满表格收缩后的空位
+   原来 .stage > div:nth-child(3) 用 !important 把数据区锁在 420px，
+   空仓后表格从 420 收到 34，底部就剩 ~230px 死空白。
+   这里用 data-empty 精确选中：空仓 → 放开高度锁，flex 撑满。
+   ══════════════════════════════════════════════════════════════════ */
+html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] {
+  flex: 1 1 auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+/* 空仓时净值大块也放开，让 CHIEF 有地方居中放大 */
+html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .stats-big3 {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+}
+
+/* 空仓时净值块内容跟着放大（空间撑开了，字也要撑起来） */
+html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .sbig.equity .val {
+  font-size: 64px !important;
+  letter-spacing: -.03em !important;
+}
+html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .sbig.equity .val small {
+  font-size: 24px !important;
+}
+html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .sbig.equity .lb {
+  font-size: 13px !important;
+  letter-spacing: .32em !important;
+}
+html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .sbig .lb {
+  font-size: 12px !important;
+}
+html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .sbig.pnl .val,
+html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .sbig.real .val {
+  font-size: 40px !important;
+}
+html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .stats-small5 {
+  padding-top: 14px !important;
+}
+html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .stats-small5 .ssm .lb {
+  font-size: 11px !important;
+}
+html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .stats-small5 .ssm .v {
+  font-size: 17px !important;
+}
+
+/* 空仓时 CHIEF 放大：原 CSS 用 !important 锁死 299x151，这里按 430x217 放开 */
+html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .sbig.equity > .chief-wrap {
+  width: 430px !important;
+  height: 217px !important;
+  right: -170px !important;
+  bottom: 4px !important;
+}
+html:not([data-theme]) .spider-root .stage > .stats[data-empty="1"] .sbig.equity > .chief-wrap canvas {
+  width: 430px !important;
+  height: 217px !important;
+}

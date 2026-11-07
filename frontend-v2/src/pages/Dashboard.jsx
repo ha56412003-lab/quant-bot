@@ -408,7 +408,7 @@ export default function Dashboard({ status }) {
           </div>
 
           {/* ══════════ 下半：8 项数据统一排版（无框体，直接压空白）══════════ */}
-          <div className="stats">
+          <div className="stats" data-empty={pos.length ? '0' : '1'}>
             {(() => {
               const totalMargin = pos.reduce((s, p) => s + (p.margin || 0), 0)
               const totalUpnl = pos.reduce((s, p) => s + (p.unrealized_pnl || 0), 0)
@@ -428,7 +428,7 @@ export default function Dashboard({ status }) {
                   {/* 三大项：净值占左大块，右侧上下两项 */}
                   <div className="stats-big3">
                     <div className="sbig equity">
-                      <div className="chief-wrap"><ChiefDesk width={299} /></div>
+                      <div className="chief-wrap"><ChiefDesk width={pos.length ? 299 : 430} /></div>
                       <div className="radar-wrap"><IntakeRadar width={124} /></div>
                       <div className="lb">账 户 净 值</div>
                       <div className="val"><PopNum text={equity.toFixed(2)} /><small>U</small></div>

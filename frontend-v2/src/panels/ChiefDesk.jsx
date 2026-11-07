@@ -100,7 +100,8 @@ export default function ChiefDesk({ width = 238, lookMode = 'idle' }) {
   useEffect(() => {
     const cv = ref.current
     if (!cv) return
-    const dpr = 2
+    // 像素密度跟随显示宽度：空仓放大到 430px 时 dpr 升到 4，避免位图糊
+    const dpr = Math.max(2, Math.ceil((width / W) * 2))
     cv.width = W * dpr
     cv.height = H * dpr
     const c = cv.getContext('2d')
