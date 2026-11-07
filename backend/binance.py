@@ -186,6 +186,73 @@ async def set_leverage(symbol, leverage):
         return None
 
 
+async def set_margin_type(symbol, margin_type="ISOLATED"):
+    """把该币种保证金模式设成指定值 —— 接实盘的生死线（浩哥 2026-11-07 定）。
+
+    币安跟 OKX/Bitget 不一样：保证金模式不是下单时带，而是 symbol 级单独设，
+    设一次就记住。所以只需在「即将开仓的那个币」上设，不需要预设整个监控池。
+
+    返回：
+      "changed"  本次改成功
+      "already"  本来就是目标模式（币安 -4046，不是错误）
+
+    其他任何异常都往外抛，由调用方决定是否中止开仓。
+    注意 -4047 = 该币还有挂单不让改；-4061 = 持仓方向不匹配。
+    """
+    try:
+        await _signed("POST", FUT, "/fapi/v1/marginType",
+                      {"symbol": symbol, "marginType": margin_type})
+        return "changed"
+    except Exception as exc:  # noqa: BLE001
+        # httpx 的 raise_for_status() 异常文本不含 response body，
+        # 币安的错误码在 body 里，必须自己掏出来看，否则 -4046 认不出来。
+        body = ""
+        resp = getattr(exc, "response", None)
+        if resp is not None:
+            try:
+                body = resp.text or ""
+            except Exception:  # noqa: BLE001
+                body = ""
+        msg = f"{exc} {body}"
+        if "-4046" in msg or "No need to change" in msg:
+            return "already"
+        raise
+
+
+async def position_risk(symbol=None):
+    """仓位风险查询：含 positionSide / marginType / leverage / liquidationPrice。
+
+    这是逐仓验收最硬的依据 —— 改没改成功直接读 marginType 字段，
+    不用看网页、不用靠"我觉得应该对了"。
+    """
+    params = {"symbol": symbol} if symbol else None
+    return await _signed("GET", FUT, "/fapi/v2/positionRisk", params)
+
+
+async def margin_of(symbol):
+    """查某币当前实际保证金模式：'isolated' / 'crossed' / None（查不到）。"""
+    rows = await position_risk(symbol)
+    if isinstance(rows, dict):
+        rows = [rows]
+    for r in rows or []:
+        if r.get("symbol") == symbol:
+            v = str(r.get("marginType") or "").lower()
+            return v or None
+    return None
+
+
+async def position_mode():
+    """账户持仓模式：True=双向(hedge，下单必须带 positionSide)，False=单向。"""
+    r = await _signed("GET", FUT, "/fapi/v1/positionSide/dual")
+    return bool(r.get("dualSidePosition"))
+
+
+async def multi_assets_mode():
+    """账户多资产模式：True=多资产（会绕开逐仓隔离，接实盘前必须关成 False）。"""
+    r = await _signed("GET", FUT, "/fapi/v1/multiAssetsMargin")
+    return bool(r.get("multiAssetsMargin"))
+
+
 async def exchange_info():
     return await _get(FUT, "/fapi/v1/exchangeInfo")
 

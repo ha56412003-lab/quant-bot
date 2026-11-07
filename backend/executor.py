@@ -101,9 +101,30 @@ async def open_position(sig, qty, price, leverage=None):
                 qty = binance.round_step(qty, step)
                 if qty <= 0:
                     return None
+                # 逐仓是接实盘的生死线（浩哥 2026-11-07 定）：
+                # 一个币爆仓不能带崩整个账户。设不了就不开这个仓 ——
+                # 宁可错过一次机会，也不能在全仓里悄悄开出去。
+                # 注：联保模式（多资产模式）下币安不允许逐仓，必须先切单币保证金模式。
+                try:
+                    await binance.set_margin_type(sig.symbol, "ISOLATED")
+                except Exception as exc:  # noqa: BLE001
+                    db.log("error",
+                           f"live[binance] 设逐仓失败，放弃开仓 {sig.symbol} {sig.side}: {exc}"
+                           f"（若提示联保模式，请先切「单币保证金模式」）")
+                    return None
                 if leverage:
                     await binance.set_leverage(sig.symbol, leverage)
                 order = await binance.place_market_order(sig.symbol, side, qty)
+                # 事后核对：钱已经进去了，万一实际不是逐仓只能告警 + 留痕，
+                # 不能装作没发生。自检本身失败不阻断主流程。
+                try:
+                    actual = await binance.margin_of(sig.symbol)
+                    if actual and actual != "isolated":
+                        db.log("error",
+                               f"live[binance] 严重 {sig.symbol} 实际保证金模式={actual}，"
+                               f"不是逐仓！该仓暴露在全仓连带风险下，请立刻人工处理")
+                except Exception:  # noqa: BLE001
+                    pass
             else:
                 if leverage:
                     await exchanges.set_leverage(venue, sig.symbol, leverage)
