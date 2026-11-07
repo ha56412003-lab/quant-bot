@@ -1105,7 +1105,7 @@ html[data-theme="paper"] .stage tbody td > .rdot.lv1 { color:#b8303c !important;
 .rp-h .rp-m {
   font-size: 10px;
   letter-spacing: 1px;
-  color: var(--joint, #ff3f8e);
+  color: var(--dim2, #767c92);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -1121,7 +1121,7 @@ html[data-theme="paper"] .stage tbody td > .rdot.lv1 { color:#b8303c !important;
 }
 .rp-f li {
   display: grid;
-  grid-template-columns: 46px 58px 38px 92px 40px 40px;
+  grid-template-columns: 46px 58px 38px 92px 40px 62px 34px minmax(0, 1fr);
   gap: 7px;
   align-items: center;
   padding: 0 4px;
@@ -1130,6 +1130,8 @@ html[data-theme="paper"] .stage tbody td > .rdot.lv1 { color:#b8303c !important;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+/* 档位/分数/动作不再各上各的颜色（浩哥：特色颜色太多了），
+   只有币种名走糖果色；强弱靠末尾那条 bar 表达 */
 /* 滚动条：细，跟终端感一致，不抢内容 */
 .rp-f::-webkit-scrollbar { width: 6px }
 .rp-f::-webkit-scrollbar-track { background: transparent }
@@ -1180,10 +1182,6 @@ html[data-theme="paper"] .stage tbody td > .rdot.lv1 { color:#b8303c !important;
 .rp-act { font-weight: 700 }
 
 /* 档位四色 —— 跟币种列的分数徽章同一套语义 */
-.rp-f li em.lv4, .rp-f li .rp-sc.lv4, .rp-f li .rp-act.lv4 { color: #2fd27a }
-.rp-f li em.lv3, .rp-f li .rp-sc.lv3, .rp-f li .rp-act.lv3 { color: #ffd23f }
-.rp-f li em.lv2, .rp-f li .rp-sc.lv2, .rp-f li .rp-act.lv2 { color: #ff9a1f }
-.rp-f li em.lv1, .rp-f li .rp-sc.lv1, .rp-f li .rp-act.lv1 { color: #ff4458 }
 
 /* 底部图例：把四档颜色和"不干预"说清楚，顺便把面板底部收住 */
 .rp-foot {
@@ -1221,16 +1219,12 @@ html[data-theme="mac-light"] .rp { border-color: #e2e0e6; background: #fbf9fb }
 :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-h .rp-m.rp-m-idle {
   color: #8a99aa;
 }
-.rp-h .rp-m { color: #b8303c }
+.rp-h .rp-m { color: #8a8983 }
 :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li time { color: #8a8983 }
 :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li + li { border-top-color: rgba(21, 21, 21, .07) }
 :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-r { color: #3a3934 }
 :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-bar { background: #d6d3ca }
 :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-foot { border-top-color: #d2d0c9; color: #8a8983 }
-:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li em.lv4, :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li .rp-sc.lv4, :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li .rp-act.lv4 { color: #1f7a4d }
-:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li em.lv3, :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li .rp-sc.lv3, :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li .rp-act.lv3 { color: #6b4a00 }
-:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li em.lv2, :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li .rp-sc.lv2, :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li .rp-act.lv2 { color: #b35400 }
-:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li em.lv1, :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li .rp-sc.lv1, :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li .rp-act.lv1 { color: #b8303c }
 /* 空仓：面板被 .stats 撑得很高，用居中的待命态收住，别让一行字飘在顶上 */
 .rp-f li.rp-idle {
   display: flex !important;

@@ -1,6 +1,7 @@
 """FastAPI app: dashboard API + engine background task + static frontend."""
 import asyncio
 import faulthandler
+import json
 import logging
 import signal
 import time
@@ -318,6 +319,11 @@ async def api_radar(symbol: str = ""):
         out = []
         for r in rows:
             r = dict(r)
+            try:
+                det = json.loads(r.get("detail") or "{}")
+            except Exception:  # noqa: BLE001
+                det = {}
+            r["reason"] = radar.reason_of(det)
             r["history"] = radar.history(r["symbol"], 36)
             out.append(r)
         return {"rows": out}

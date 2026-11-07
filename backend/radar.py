@@ -228,6 +228,59 @@ def verdict_of(score, r_now):
     return "走势力竭", advice
 
 
+def reason_of(detail):
+    """把各分项原始数字翻成一句人话 —— 挑最拖后腿的那一项说。
+
+    浩哥要求：每行末尾括一句「凭什么这么判」，别只给个分数让人猜。
+    只解释"为什么变弱"，走强的那一侧没有解释的必要（很强的行不带依据）。
+    """
+    cands = []          # (严重度 0~3, 文本)
+
+    t = detail.get("taker") or {}
+    v = t.get("taker_15m")
+    if v is not None:
+        if v < 0.55:
+            cands.append((3, f"15分钟主动买卖比 {v}，卖盘是买盘两倍"))
+        elif v < 0.80:
+            cands.append((2, f"15分钟主动买卖比 {v}，卖盘明显占优"))
+        elif v < 1.00:
+            cands.append((1, f"15分钟主动买卖比 {v}，卖盘略占优"))
+
+    c = detail.get("cvd") or {}
+    if "cvd_up" in c:
+        cu, pu = c.get("cvd_up"), c.get("px_up")
+        if pu and not cu:
+            cands.append((3, "价格在涨但 CVD 在跌，虚涨没有真资金"))
+        elif (not pu) and cu:
+            cands.append((1, "价格在跌但 CVD 在涨，有人在低位吸"))
+
+    o = detail.get("oi") or {}
+    oi, px = o.get("oi_chg_10m_pct"), o.get("px_chg_10m_pct")
+    if oi is not None and px is not None:
+        if px > 0 and oi < -0.05:
+            cands.append((2, f"价涨 {px:.2f}% 但 OI 减 {abs(oi):.2f}%，靠空头回补推的"))
+        elif px < 0 and oi > 0.05:
+            cands.append((2, f"价跌 {abs(px):.2f}% 但 OI 增 {oi:.2f}%，对手在加仓"))
+
+    l = detail.get("liq") or {}
+    if l.get("long_ratio") is not None and (l.get("liq_total") or 0) >= 200_000:
+        r = l["long_ratio"]
+        if r > 0.70:
+            cands.append((3, f"清算里多头占 {r:.0%}，多头正在被打爆"))
+        elif r < 0.30:
+            cands.append((1, f"清算里空头占 {1 - r:.0%}，空头在挨打"))
+
+    b = detail.get("book") or {}
+    br = b.get("bid_ask_ratio")
+    if br is not None and br < 0.60:
+        cands.append((1, f"盘口买盘只有卖盘的 {br:.2f}"))
+
+    if not cands:
+        return ""
+    cands.sort(key=lambda x: -x[0])
+    return cands[0][1]
+
+
 async def sample(symbol, side, r_now=0.0, slow=True):
     """采一轮因子并打分，写 radar_history。
 

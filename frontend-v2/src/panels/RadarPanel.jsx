@@ -10,7 +10,10 @@ import { coinColor } from '../coinColors'
  * 数据：/api/radar，后端每分钟扫一次持仓，只提示不干预交易
  *
  * 行的读法（从左到右）：
- *   时间 · 币种 · 档位 · 方向 · 浮盈R · 分数+趋势 · 强弱条 · 动作
+ *   时间 · 币种 · 档位 · 方向+浮盈 · 分数+趋势 · 强弱条 · 动作 ·（判断依据）
+ *
+ * 配色（浩哥定）：只有币种名走糖果色 + 加粗，其余一律 LIVE FEED 的素色。
+ *   以前档位/方向/分数/动作各自上色，一整行五颜六色反而看不出重点。
  *
  * 排序：分数低的排在上 —— 最危险的先看到，不用往下翻
  */
@@ -81,21 +84,25 @@ export default function RadarPanel({ rows = [] }) {
           const arrow = prev == null ? '' : sc > prev + 2 ? '↑' : sc < prev - 2 ? '↓' : '→'
           const rn = Number(r.r_now) || 0
           const name = (r.symbol || '').replace('USDT', '')
+          // 依据只有转弱/力竭才显示 —— 很强的行解释了反而啰嗦
+          const why = sc < 60 ? (r.reason || '') : ''
           return (
             <li key={r.symbol + r.side} title={r.advice || ''}>
               <time>{hhmm(r.ts)}</time>
               <b style={{ color: coinColor(name) }}>{name}</b>
-              <em className={lv}>{(r.verdict || '—').slice(-2)}</em>
+              <em>{(r.verdict || '—').slice(-2)}</em>
               <span className="rp-r">
-                <i className={r.side === 'long' ? 'rp-dir c-red' : 'rp-dir c-green'}>
-                  {r.side === 'long' ? '多' : '空'}
-                </i>
+                {r.side === 'long' ? '多' : '空'}
                 {' '}{rn >= 0 ? '+' : ''}{rn.toFixed(2)}R
               </span>
-              <span className={'rp-sc ' + lv}>
+              <span className="rp-sc">
                 {Math.round(sc)}{arrow}
               </span>
-              <span className={'rp-act ' + lv}>{ACT[r.verdict] || '—'}</span>
+              <span className="rp-bar">
+                <i className={'bar-' + lv} style={{ width: `${sc}%` }} />
+              </span>
+              <span className="rp-act">{ACT[r.verdict] || '—'}</span>
+              <span className="rp-why">{why ? `（${why}）` : ''}</span>
             </li>
           )
         })}
