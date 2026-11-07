@@ -72,6 +72,13 @@ export default function Dashboard({ status }) {
   const [events] = usePoll(api.events, 60000) // 经济事件：静默窗口要准，1min 刷一次
   const [pool] = usePoll(api.pool, 30000)
   const [shadow] = usePoll(api.shadow, 30000)
+  // 持仓强弱雷达：独立侧车，15 秒刷一次（后端每分钟算一次，够用）
+  const [radar] = usePoll(api.radar, 15000)
+  const radarMap = React.useMemo(() => {
+    const m = {}
+    ;(radar?.rows || []).forEach((r) => { m[r.symbol] = r })
+    return m
+  }, [radar])
 
   const pos = positions?.positions || []
   const [marginInput, setMarginInput] = React.useState({})
@@ -210,6 +217,25 @@ export default function Dashboard({ status }) {
                     <tr key={p.id} style={{ borderBottom: '1px solid #151824' }}>
                       <td style={{ padding: '7px 8px', fontWeight: 700 }}>
                         {(p.symbol || '').replace('USDT', '')}
+                        {(() => {
+                          const r = radarMap[p.symbol]
+                          if (!r) return null
+                          const sc = Number(r.score) || 0
+                          // 档位用 class 控制配色（纸面主题要压深，不能靠内联色）
+                          const lv = sc >= 80 ? 'lv4' : sc >= 60 ? 'lv3' : sc >= 40 ? 'lv2' : 'lv1'
+                          // 趋势箭头：跟自己上一条比，变化 <2 分算走平
+                          const prev = r.history && r.history[1] ? Number(r.history[1].score) : null
+                          const arrow = prev == null ? '' : sc > prev + 2 ? '↑' : sc < prev - 2 ? '↓' : '→'
+                          return (
+                            <span
+                              className={`rdot ${lv}`}
+                              title={`雷达 ${sc.toFixed(1)} 分 · ${r.verdict}
+${r.advice}`}
+                            >
+                              {Math.round(sc)}{arrow}
+                            </span>
+                          )
+                        })()}
                       </td>
                       <td style={{ padding: '7px 8px', color: long ? 'var(--red, #ff4d5e)' : 'var(--green, #35e08a)' }}>
                         {long ? '多' : '空'}

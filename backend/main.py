@@ -14,7 +14,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import binance, config, daily_target, db, engine, executor, factors, pool, quality, risk, shadow, strategies, ws
+from . import binance, config, daily_target, db, engine, executor, factors, pool, quality, radar, risk, shadow, strategies, ws
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -133,6 +133,8 @@ async def lifespan(app: FastAPI):
              asyncio.create_task(quality.loop(
                  lambda: config.UNIVERSE,
                  lambda: config.pools().get("monitor", {}))),
+             # 持仓强弱雷达：只提示不干预，独立循环，不参与心跳监督
+             asyncio.create_task(radar.loop()),
              _mk_supervisor(supervised)]
     try:
         yield
@@ -300,6 +302,27 @@ async def api_events():
         "rows": rows[:40],
         "total": len(rows),
     }
+
+
+@app.get("/api/radar")
+async def api_radar(symbol: str = ""):
+    """持仓强弱雷达：每币最新一条分数 + 最近 3 小时走势。
+
+    只读，不影响交易。空仓时返回空列表。
+    """
+    try:
+        if symbol:
+            rows = radar.latest(symbol)
+            return {"rows": rows, "history": radar.history(symbol, 36)}
+        rows = radar.latest()
+        out = []
+        for r in rows:
+            r = dict(r)
+            r["history"] = radar.history(r["symbol"], 36)
+            out.append(r)
+        return {"rows": out}
+    except Exception as exc:  # noqa: BLE001
+        return {"rows": [], "error": str(exc)}
 
 
 @app.get("/api/positions")

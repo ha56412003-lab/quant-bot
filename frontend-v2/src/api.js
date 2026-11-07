@@ -24,6 +24,7 @@ export const api = {
   positions: () => get('/api/positions'),
   pool: () => get('/api/pool'),
   shadow: () => get('/api/shadow'),
+  radar: () => get('/api/radar'),
   trades: (limit = 100) => get(`/api/trades?limit=${limit}`),
   signals: (limit = 50) => get(`/api/signals?limit=${limit}`),
   gates: () => get('/api/gates'),

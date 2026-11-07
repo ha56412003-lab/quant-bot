@@ -1006,3 +1006,41 @@ html[data-theme="paper"] .spider-root .ant-card-body span:not([style*="color"]) 
   align-content: end !important;
   padding-bottom: 6px !important;
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   持仓强弱雷达徽章（2026-11-07）
+   位置：持仓表格「币种」单元格内，币种名右侧
+   内容：分数 + 趋势箭头（↑ 变强 / ↓ 转弱 / → 走平）
+   语义：这是「走势强弱」不是「盈亏」，所以配色独立于红涨绿跌，
+         用四档危险度色阶（青绿安全 → 黄 → 橙 → 红力竭）。
+   数据：backend/radar.py，5 分钟级订单流因子，只提示不干预交易。
+   ══════════════════════════════════════════════════════════════════ */
+.rdot {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 0 3px;
+  border: 1px solid;
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 800;
+  vertical-align: middle;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  cursor: help;
+  transition: background .2s, color .2s;
+}
+/* 档位①强势 80+ */
+.rdot.lv4 { color:#2fd27a !important; border-color:rgba(47,210,122,.45) !important; background:rgba(47,210,122,.12) !important }
+/* 档位②放缓 60-80 */
+.rdot.lv3 { color:#ffd23f !important; border-color:rgba(255,210,63,.45) !important; background:rgba(255,210,63,.12) !important }
+/* 档位③观望 40-60 */
+.rdot.lv2 { color:#ff9a1f !important; border-color:rgba(255,154,31,.45) !important; background:rgba(255,154,31,.12) !important }
+/* 档位④力竭 <40 */
+.rdot.lv1 { color:#ff4458 !important; border-color:rgba(255,68,88,.45) !important; background:rgba(255,68,88,.12) !important }
+
+/* 纸面主题：浅底必须压深，同一档换深色版，否则 1.6:1 看不见 */
+html[data-theme="paper"] .stage tbody td > .rdot.lv4 { color:#1f7a4d !important; border-color:rgba(31,122,77,.62) !important; background:rgba(31,122,77,.13) !important }
+html[data-theme="paper"] .stage tbody td > .rdot.lv3 { color:#6b4a00 !important; border-color:rgba(107,74,0,.62) !important; background:rgba(107,74,0,.13) !important }
+html[data-theme="paper"] .stage tbody td > .rdot.lv2 { color:#b35400 !important; border-color:rgba(179,84,0,.62) !important; background:rgba(179,84,0,.13) !important }
+html[data-theme="paper"] .stage tbody td > .rdot.lv1 { color:#b8303c !important; border-color:rgba(184,48,60,.62) !important; background:rgba(184,48,60,.13) !important }
