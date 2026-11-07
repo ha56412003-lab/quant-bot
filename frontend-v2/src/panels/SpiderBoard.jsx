@@ -131,14 +131,12 @@ function PosCard({ p, avatar }) {
       {/* 行1：头像 + 币种 + 方向标签 + 浮盈 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
         <img className="av" src={avatar} alt="" />
-        <b style={{ fontSize: 15, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{sym}</b>
+        <b className="k">{sym}</b>
         <em className="tg" style={{
           color: long ? 'var(--red, #ff4d5e)' : 'var(--green, #35e08a)',
           borderColor: long ? 'rgba(255,77,94,.55)' : 'rgba(53,224,138,.55)',
         }}>{long ? 'LONG' : 'SHORT'}</em>
-        <span key={Math.round(upnl * 100)} className="pnl-num" style={{
-          marginLeft: 'auto', fontWeight: 900,
-          fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
+        <span key={Math.round(upnl * 100)} className="pc pnl-num" style={{
           color: win ? 'var(--red, #ff4d5e)' : 'var(--green, #35e08a)',
         }}>
           {win ? '+' : ''}{upnl.toFixed(2)}
@@ -146,9 +144,9 @@ function PosCard({ p, avatar }) {
       </div>
 
       {/* 行2：开仓价 → 现价 + 收益率 */}
-      <div style={{
+      <div className="row2" style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-        fontSize: 11, color: '#8b90a6', fontVariantNumeric: 'tabular-nums',
+        fontVariantNumeric: 'tabular-nums',
       }}>
         <span style={{ whiteSpace: 'nowrap' }}>{fmtPx(entry)} → {fmtPx(px)}</span>
         <span style={{
@@ -248,7 +246,7 @@ function EmptyCard({ avatar }) {
       {/* 行1：与正常卡一致 —— 专属图标 + 名字位 + 标签 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
         <img className="av" src={avatar || avatars[avatars.length - 1]} alt="" style={{ opacity: .45 }} />
-        <b style={{ fontSize: 15, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>待进场</b>
+        <b className="k">待进场</b>
         <em className="tg" style={{
           color: 'rgba(236,79,174,.5)',
           borderColor: 'rgba(236,79,174,.28)',

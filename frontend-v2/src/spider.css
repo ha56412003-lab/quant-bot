@@ -170,3 +170,57 @@
 
 /* 系列水印：作战室左下角，和舞台里的小字同一套等宽字 */
 .wm{position:absolute;left:30px;bottom:9px;font:500 8.5px/1 var(--mono);letter-spacing:.2em;color:var(--dim);pointer-events:none;white-space:nowrap}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   持仓卡内部元素 —— 基础层
+   作用：吃掉原先写死在 JSX inline 里的字号/字重，让所有主题有统一基线。
+   MAC 两套 / 纸面 的视觉与改造前完全一致（15px 常规、900 字重浮盈、11px 副标题）。
+   ══════════════════════════════════════════════════════════════════ */
+.card .k{font-size:15px;letter-spacing:.05em;white-space:nowrap;font-weight:700}
+.card .pc{margin-left:auto;font-weight:900;font-variant-numeric:tabular-nums;white-space:nowrap}
+.card .row2{font-size:11px;color:#8b90a6}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   持仓卡内部元素 —— 玫红深色（默认主题）专用
+   严格对齐 F:/agent-display/index.html#spider 的 .cl 卡片：
+     左侧 3px 色条 / 等宽粗体币种名走主题色 / 副标题次要色
+     右侧数字等宽右对齐 / 进度条 3px 带 8px 光晕 / idle 降透明度
+   选择器 html:not([data-theme]) 精确命中默认主题 ——
+   ThemeSwitch 对 dark 是做 removeAttribute，paper/mac-* 才会写 data-theme。
+   ══════════════════════════════════════════════════════════════════ */
+html:not([data-theme]) .spider-root .card{position:relative;padding-left:13px;border-radius:0;background:linear-gradient(90deg,rgba(4,7,13,.72),rgba(4,7,13,.3))}
+
+/* 图标：头像换成左侧 3px 彩色竖条（对应 .cl .sw，跨三行） */
+html:not([data-theme]) .spider-root .card .av{display:none}
+html:not([data-theme]) .spider-root .card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--c);opacity:.35;transition:opacity .3s}
+html:not([data-theme]) .spider-root .card.work::before{opacity:1}
+
+/* 币种名：等宽 800 / 12.5px / .06em / 主题色（对应 .cl .k） */
+html:not([data-theme]) .spider-root .cards .card .k{font:800 12.5px/26px var(--mono) !important;letter-spacing:.06em;color:var(--c) !important}
+html:not([data-theme]) .spider-root .card.idle .k{opacity:.6}
+
+/* 浮盈数字：等宽 700 / 12px / tabular-nums / 右对齐（对应 .cl .pc） */
+/* v2.css 里 .pnl-num 写死 20px !important，这里必须同等优先级压回去 */
+html:not([data-theme]) .spider-root .cards .card .pc{font:700 15px/26px var(--mono) !important;text-align:right;color:var(--ink);letter-spacing:-.01em}
+html:not([data-theme]) .spider-root .card.idle .pc{color:var(--dim)}
+
+/* 副标题（开仓价 → 现价）：10px / --ink-2（对应 .cl .z） */
+html:not([data-theme]) .spider-root .card .row2{font:500 10px/15px var(--cjk);color:var(--ink-2)}
+
+/* 进度条：底 rgba(186,212,240,.1)、填充 8px 光晕（对应 .cl .bar / .bar i） */
+html:not([data-theme]) .spider-root .card .bar{background:rgba(186,212,240,.1)}
+html:not([data-theme]) .spider-root .card .bar i{box-shadow:0 0 4px var(--c)}
+
+/* 状态行：10px 基线，工作中由 --mute 提到 --ink-2（对应 .cl .st） */
+html:not([data-theme]) .spider-root .card .c4{font:500 10px/13px var(--cjk)}
+html:not([data-theme]) .spider-root .card .c4 .st{font:400 10px/13px var(--cjk);color:var(--mute)}
+html:not([data-theme]) .spider-root .card.work .c4 .st{color:var(--ink-2)}
+
+/* 空卡主题色：让竖条/名字有颜色，否则 --c 落回白色看不见 */
+html:not([data-theme]) .spider-root .card.idle{--c:rgba(236,79,174,.72)}
+html:not([data-theme]) .spider-root .cards .card.idle{background:linear-gradient(90deg,rgba(4,7,13,.62),rgba(4,7,13,.26)) !important;border-color:rgba(236,79,174,.26) !important}
+html:not([data-theme]) .spider-root .cards .card.idle .idle-big{color:rgba(236,79,174,.58)}
+html:not([data-theme]) .spider-root .cards .card.idle::before{opacity:.75}
+html:not([data-theme]) .spider-root .cards .card.idle .k{opacity:.85}
