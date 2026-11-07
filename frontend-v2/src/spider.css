@@ -609,17 +609,19 @@ html:not([data-theme]) .spider-root .ant-card-head-title > span > .shadow-sub {
 html:not([data-theme]) .spider-root .th-chip {
   display: inline-block;
   box-sizing: border-box;
-  padding: 1px 3px;
-  border-radius: 3px;
+  padding: 3px 7px;
+  border-radius: 0 !important;
   background: var(--c);
   color: #101218 !important;
   font-family: var(--mono) !important;
-  font-size: 9px !important;
+  font-size: 11px !important;
   font-weight: 800 !important;
-  letter-spacing: -.02em !important;
-  line-height: 1.45;
+  letter-spacing: -.01em !important;
+  line-height: 1.25;
   white-space: nowrap;
   vertical-align: middle;
+  box-shadow: none !important;
+  text-shadow: none !important;
 }
 
 /* 「一键全平」收成小胶囊，浮在状态带右侧 */
