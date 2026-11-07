@@ -218,17 +218,25 @@ async def _api_guard(request: Request, call_next):
 
 
 @app.get("/api/status")
-async def api_status():
-    eq, bal, upnl = await executor.equity()
+async def api_status(mode: str = ""):
+    """mode: 留空 = 当前实际运行模式；传 paper/live = 看指定模式的口径。
+
+    2026-11-07 浩哥发现：切到「实盘 LIVE」看曲线时，权益卡浮框里的
+    「今日已实现 +182.87」还挂着纸面的数。因为这里不接 mode，
+    永远返回当前运行模式（paper）的数字。前端 EquityChart 现在会
+    按自己当前选中的模式来问这个接口。
+    """
+    m = mode if mode in ("paper", "live") else None
+    eq, bal, upnl = await executor.equity(m)
     cfg = config.load_strategies()
-    day_pnl = risk.daily_realized_pnl()
+    day_pnl = risk.daily_realized_pnl(m or "auto")
     return {
-        "mode": executor.mode(),
+        "mode": m or executor.mode(),
         "equity": eq, "balance": bal, "unrealized": upnl,
         "daily_realized_pnl": day_pnl,
         "halted": risk.halted(),
         "event_quiet": risk.event_quiet(cfg["global"]),
-        "open_positions": len(db.open_positions()),
+        "open_positions": len(db.open_positions(mode=m or "auto")),
         "universe": config.UNIVERSE,
         # 2026-11-06 自检修复：前端把 universe（候选池 200）当"监控标的"显示，
         # 实际监控池是 quality 维护的 ≤23 名单。这里单独给一个字段。

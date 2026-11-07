@@ -44,14 +44,15 @@ def _adjust_paper_balance(delta):
     db.set_meta("paper_balance", paper_balance() + delta)
 
 
-async def equity():
-    """(equity, balance, unrealized) in USDT for the active mode.
+async def equity(m=None):
+    """(equity, balance, unrealized) in USDT for the given mode (default: active).
 
     live 模式下取不到账户数据时返回 (0, 0, 0) —— 绝不回退到纸面余额。
     用纸面余额给实盘算仓位会导致超配（例如实盘只有 5000 却按 10000 下单）。
     调用方必须检查 equity<=0 并停止开仓（见 engine.py）。
     """
-    if mode() == "live":
+    m = m or mode()
+    if m == "live":
         try:
             venue = exchange()
             if venue == "binance":
@@ -69,7 +70,7 @@ async def equity():
     upnl = 0.0
     missing = []
     total = 0
-    for p in db.open_positions():
+    for p in db.open_positions(mode=m):
         total += 1
         price = factors.mark_price_of(p["symbol"])
         if price:

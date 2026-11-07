@@ -72,6 +72,7 @@ export default function EquityChart({ activeMode, upnl = 0, realized = 0 }) {
   const { t, lang } = useI18n()
   const [view, setView] = useState(null)          // null until activeMode known
   const [series, setSeries] = useState([])
+  const [stat, setStat] = useState(null)   // 非当前模式的状态（见下面 useEffect）
   const mode = view || activeMode || 'paper'
 
   // 主题跟着 <html data-theme> 走；每次渲染重读，切主题即时换色
@@ -89,11 +90,32 @@ export default function EquityChart({ activeMode, upnl = 0, realized = 0 }) {
     return () => { alive = false; clearInterval(timer) }
   }, [mode])
 
+  // 2026-11-07 浩哥：切到「实盘 LIVE」后，浮框里「今日已实现 +182.87」还挂着纸面的数。
+  // 根因是三样数字一直用 Dashboard 传进来的 props（那是当前运行模式的口径），
+  // 只有曲线跟着 mode 走。这里补一句：看的模式和实际跑的模式不一致时，
+  // 单独问一次对应模式的状态。/api/status 现在支持 ?mode=。
+  const active = activeMode || 'paper'
+  useEffect(() => {
+    let alive = true
+    if (mode === active) { setStat(null); return () => { alive = false } }
+    const load = () => fetch(`/api/status?mode=${mode}`).then((r) => r.json())
+      .then((d) => alive && setStat(d)).catch(() => {})
+    load()
+    const timer = setInterval(load, 30000)
+    return () => { alive = false; clearInterval(timer) }
+  }, [mode, active])
+
+  // 看的模式和跑的模式一致 -> 用外面传的（同一份数，省请求）；
+  // 不一致（比如正在看实盘）-> 用单拉回来的，没数据就是 0，绝不留纸面的残留
+  const upnlShown = stat ? Number(stat.unrealized || 0) : upnl
+  const realizedShown = stat ? Number(stat.daily_realized_pnl || 0) : realized
+
   const titleStyle = isMac
     ? { fontSize: 12, fontWeight: 600, color: theme === 'mac-light' ? '#a81850' : '#e58bb4', letterSpacing: 0 }
     : CARD_TITLE
 
-  const last = series.length ? Number(series[series.length - 1].equity) : null
+  const last = series.length ? Number(series[series.length - 1].equity)
+    : (stat && stat.equity > 0 ? Number(stat.equity) : null)
   const P0 = palette(theme)
 
   const option = useMemo(() => {
@@ -171,20 +193,22 @@ export default function EquityChart({ activeMode, upnl = 0, realized = 0 }) {
         <div className="eq-row">
           <span className="eq-lb">净值</span>
           <b className="eq-v eq-g">
-            {last !== null ? last.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '--'}
-            <i>U</i>
+            {/* 没数据时连单位一起省掉，别显示成「--U」 */}
+            {last !== null
+              ? <>{last.toLocaleString('en-US', { maximumFractionDigits: 2 })}<i>U</i></>
+              : '--'}
           </b>
         </div>
         <div className="eq-row">
           <span className="eq-lb">浮动盈亏</span>
           <b className="eq-v eq-r eq-big">
-            {(upnl >= 0 ? '+' : '') + Number(upnl || 0).toFixed(2)}<i>U</i>
+            {(upnlShown >= 0 ? '+' : '') + upnlShown.toFixed(2)}<i>U</i>
           </b>
         </div>
         <div className="eq-row">
           <span className="eq-lb">今日已实现</span>
           <b className="eq-v eq-o">
-            {(realized >= 0 ? '+' : '') + Number(realized || 0).toFixed(2)}<i>U</i>
+            {(realizedShown >= 0 ? '+' : '') + realizedShown.toFixed(2)}<i>U</i>
           </b>
         </div>
       </div>

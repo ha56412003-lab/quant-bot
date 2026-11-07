@@ -29,8 +29,14 @@ def _day_start():
                                           microsecond=0).timestamp())
 
 
-def daily_realized_pnl():
-    return sum(p["pnl"] or 0 for p in db.closed_positions_today(_day_start()))
+def daily_realized_pnl(mode="auto"):
+    """今日已实现（按模式分）。
+
+    2026-11-07 浩哥发现：切到实盘后「今日已实现」还挂着纸面的 +182.87。
+    根因是这里不接 mode，永远算当前运行模式。db.closed_positions_today
+    本来就支持 mode 参数，传下去即可。
+    """
+    return sum(p["pnl"] or 0 for p in db.closed_positions_today(_day_start(), mode))
 
 
 def halted():
