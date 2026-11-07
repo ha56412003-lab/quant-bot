@@ -67,7 +67,7 @@ export default function PoolTable({ pool }) {
         const col = coinColor(sym)
         return (
           <span style={{ whiteSpace: 'nowrap' }}>
-            <Text strong style={{ color: col, textShadow: '0 0 12px ' + col + ', 0 0 3px #000' }}>{sym}</Text>
+            <Text style={{ color: col, fontWeight: 800, textShadow: 'none' }}>{sym}</Text>
             {r.held && (
               <Tag color="green" style={{ marginLeft: 3, fontSize: 9, padding: '0 3px', lineHeight: '14px' }}>持</Tag>
             )}
