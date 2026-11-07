@@ -4,7 +4,6 @@ import { api } from '../api'
 import { usePoll } from '../hooks'
 import EquityChart from '../panels/EquityChart'
 import ServerRack from '../panels/ServerRack'
-import ChiefDesk from '../panels/ChiefDesk'
 import IntakeRadar from '../panels/IntakeRadar'
 import PriceChart from '../panels/PriceChart'
 import PoolTable from '../panels/PoolTable'
@@ -431,10 +430,8 @@ export default function Dashboard({ status }) {
                   {/* 三大项：净值占左大块，右侧上下两项 */}
                   <div className="stats-big3">
                     <div className="sbig equity">
-                      <div className="chief-wrap"><ChiefDesk width={pos.length ? 299 : 430} /></div>
                       <div className="lb">账 户 净 值</div>
                       <div className="val"><PopNum text={equity.toFixed(2)} /><small>U</small></div>
-                      <div className="sub">EQUITY · {status?.mode === 'live' ? 'LIVE 实盘' : 'PAPER 模拟盘'}</div>
                     </div>
                     <div className={'sbig pnl ' + (totalUpnl >= 0 ? 'c-red' : 'c-green')}>
                       <div className="lb">浮 动 盈 亏</div>

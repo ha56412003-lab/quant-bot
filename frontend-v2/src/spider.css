@@ -923,3 +923,86 @@ html[data-theme="paper"] .spider-root .bot > .pnl:has(.ant-tabs) .ant-tabs-tab +
 html[data-theme="paper"] .spider-root .ant-card-body span:not([style*="color"]) {
   color: #5f5e58 !important;
 }
+
+
+/* ══════════════════════════════════════════════════════════════════
+   净值 / 浮动盈亏 / 今日已实现 —— 排成一条长横线
+   原来 v2.css 是 2x2 网格（净值左列跨两行、右侧两块上下叠），
+   总调度台删掉后不需要那块竖空间了，改成三列等宽一行。
+   MAC 两套保持原网格不动。
+   ══════════════════════════════════════════════════════════════════ */
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage .stats-big3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  grid-template-rows: 1fr !important;
+  column-gap: 26px !important;
+  row-gap: 0 !important;
+  align-items: center !important;
+}
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage .sbig.equity {
+  grid-row: auto !important;
+  grid-column: auto !important;
+  position: static !important;
+}
+/* 三项都靠左对齐，中间用竖线分隔，形成一条横线 */
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage .sbig.pnl,
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage .sbig.real {
+  border-left: 1px solid var(--line) !important;
+  padding-left: 22px !important;
+}
+
+/* 三项统一撑满行高 + 内部垂直居中 —— 否则各块高低不同，分隔竖线会悬空 */
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage .stats-big3 > .sbig {
+  align-self: stretch !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+}
+/* ★ 净值块在左下角，正好压住钉在左下的雷达 —— 两态都要让出雷达宽度
+   （有持仓时三项横排在底部、空仓时贴底，都会撞上雷达） */
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage > .stats .stats-big3 {
+  padding-left: 136px !important;
+}
+
+/* 三项结构统一成「标题 + 数字」：标题贴顶、数字贴底 → 数字基线对齐，成一条横线 */
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage > .stats[data-empty="0"] .stats-big3 > .sbig {
+  justify-content: space-between !important;
+}
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage > .stats[data-empty="1"] .stats-big3 > .sbig {
+  justify-content: center !important;
+  gap: 8px !important;
+}
+/* 净值标题行右侧挂副标题 */
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage .sbig .lb {
+  display: flex !important;
+  align-items: baseline !important;
+  gap: 9px !important;
+}
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage .sbig .lb-sub {
+  font-size: 9px !important;
+  font-weight: 600 !important;
+  letter-spacing: .04em !important;
+  opacity: .62 !important;
+  color: var(--mute) !important;
+  white-space: nowrap !important;
+}
+
+/* 盈亏两项字号从 26px 提到 40px：跟净值 56px 差距从 2.15x 收到 1.4x，
+   底部对齐后才像同一条横线上的三项，而不是一大两小 */
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage .sbig.pnl .val,
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage .sbig.real .val {
+  font-size: 40px !important;
+  letter-spacing: -.02em !important;
+}
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage .sbig.pnl .val small,
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage .sbig.real .val small {
+  font-size: 15px !important;
+  margin-left: 4px !important;
+}
+
+/* 空仓：三项别浮在整块正中（删掉总调度台后那块没人填，浮空显得散），
+   改成贴底，和底部五小格连成一组 */
+:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage > .stats[data-empty="1"] .stats-big3 {
+  grid-template-rows: auto !important;
+  align-content: end !important;
+  padding-bottom: 6px !important;
+}
