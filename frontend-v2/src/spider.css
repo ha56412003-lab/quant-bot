@@ -644,7 +644,10 @@
    空仓后表格从 420 收到 34，底部就剩 ~230px 死空白。
    这里用 data-empty 精确选中：空仓 → 放开高度锁，flex 撑满。
    ══════════════════════════════════════════════════════════════════ */
-:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .stage > .stats[data-empty="1"] {
+/* 空仓撑高：MAC 两套也要（2026-11-07 浩哥指出 MAC 下雷达和小指标都挤在顶上，
+   下面空一大片 —— 因为这条规则当初只写了玫红和纸面，MAC 还锁在 420px） */
+:is(html:not([data-theme]), html[data-theme="paper"],
+    html[data-theme="mac-dark"], html[data-theme="mac-light"]) .spider-root .stage > .stats[data-empty="1"] {
   flex: 1 1 auto !important;
   height: auto !important;
   min-height: 0 !important;
@@ -1293,7 +1296,7 @@ html[data-theme="mac-light"] .rp { border-color: #e2e0e6; background: #fbf9fb }
 }
 :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-scan circle,
 :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-scan > line {
-  stroke: #d5d2ca;
+  stroke: #a8a396;
 }
 :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-scan .rp-dot {
   fill: var(--grid, #3d4559);
