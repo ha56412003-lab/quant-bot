@@ -45,6 +45,13 @@ const TH = {
   whiteSpace: 'nowrap', fontSize: 10.5, letterSpacing: '0.04em',
 }
 
+// 列头芯片糖果色 —— 13 列各一色，取自 agent-display 的 agent 调色板
+const TH_CHIP = [
+  '#a774ff', '#2fd27a', '#ff9a1f', '#ff4458', '#3b7cff',
+  '#25d6f0', '#ffd23f', '#ff5cae', '#b5ef3a', '#62e6c7',
+  '#ff7b54', '#ff3f8e', '#f3f4f8',
+]
+
 const PANEL_TITLE = {
   fontSize: 11.5, fontWeight: 700, color: 'var(--cyan, #45e6f5)',
   marginBottom: 6, letterSpacing: '0.06em',
@@ -135,7 +142,7 @@ export default function Dashboard({ status }) {
   return (
     <>
       <section className="mid">
-        <main className="stage" style={{ display: 'flex', flexDirection: 'column', padding: 0 }}>
+        <main className="stage" style={{ display: 'flex', flexDirection: 'column', padding: 0, position: 'relative' }}>
           {/* 滚动小绿字状态带（参考网站风格） */}
           <div className="ticker">
             <span>
@@ -151,22 +158,16 @@ export default function Dashboard({ status }) {
           </div>
 
 
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px',
-            borderBottom: '1px solid var(--line)', flex: '0 0 auto', height: 34,
-          }}>
-            <b style={{ color: 'var(--cyan, #45e6f5)', fontSize: 12, letterSpacing: '0.08em' }}>持仓操作区</b>
-            <span style={{ fontSize: 11, color: 'var(--mute, #73788e)' }}>{pos.length} 单</span>
-            <span style={{ marginLeft: 'auto' }}>
-              {pos.length > 0 && (
-                <Popconfirm title={'确定全平 ' + pos.length + ' 单？'} onConfirm={closeAll}>
-                  <button className="btn" style={{ borderColor: 'var(--red, #ff4d5e)', color: 'var(--red, #ff4d5e)' }}>
-                    一键全平
-                  </button>
-                </Popconfirm>
-              )}
-            </span>
-          </div>
+          {/* 「持仓操作区 0 单」整行已取消；一键全平收成小胶囊，浮在状态带右侧，仅持仓时出现 */}
+          {pos.length > 0 && (
+            <div style={{ position: 'absolute', top: 3, right: 8, zIndex: 6 }}>
+              <Popconfirm title={'确定全平 ' + pos.length + ' 单？'} onConfirm={closeAll}>
+                <button className="btn close-all-fab" style={{ borderColor: 'var(--red, #ff4d5e)', color: 'var(--red, #ff4d5e)' }}>
+                  一键全平
+                </button>
+              </Popconfirm>
+            </div>
+          )}
 
           <div style={{ flex: '0 0 auto', height: 420, overflow: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5, tableLayout: 'fixed' }}>
@@ -192,8 +193,10 @@ export default function Dashboard({ status }) {
                     ['策略', 'left'], ['开仓价', 'right'], ['现价', 'right'], ['数量', 'right'],
                     ['持仓金额', 'right'], ['保证金', 'right'], ['补保证金', 'center'],
                     ['浮盈', 'right'], ['操作', 'center'],
-                  ].map(([h, al]) => (
-                    <th key={h} style={{ ...TH, textAlign: al }}>{h}</th>
+                  ].map(([h, al], i) => (
+                    <th key={h} style={{ ...TH, textAlign: al }}>
+                      <span className="th-chip" style={{ '--c': TH_CHIP[i % TH_CHIP.length] }}>{h}</span>
+                    </th>
                   ))}
                 </tr>
               </thead>

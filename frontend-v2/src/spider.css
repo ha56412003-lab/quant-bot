@@ -598,3 +598,39 @@ html:not([data-theme]) .spider-root .ant-card-head-title > span > .shadow-sub {
   letter-spacing: 0 !important;
   font-family: var(--cjk) !important;
 }
+
+
+/* ══════════════════════════════════════════════════════════════════
+   持仓表格列头 —— 改成糖果色芯片（每个列头独立一色）
+   与信息流翻页按钮同一套语言：实心糖果底 + 深色字 + 3px 圆角。
+   注意：表格 table-layout:fixed，列宽锁死，芯片必须压在列宽内，
+        所以字号降到 9px、左右 padding 3px、字距 -.02em。
+   ══════════════════════════════════════════════════════════════════ */
+html:not([data-theme]) .spider-root .th-chip {
+  display: inline-block;
+  box-sizing: border-box;
+  padding: 1px 3px;
+  border-radius: 3px;
+  background: var(--c);
+  color: #101218 !important;
+  font-family: var(--mono) !important;
+  font-size: 9px !important;
+  font-weight: 800 !important;
+  letter-spacing: -.02em !important;
+  line-height: 1.45;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/* 「一键全平」收成小胶囊，浮在状态带右侧 */
+html:not([data-theme]) .spider-root .close-all-fab {
+  font-family: var(--mono) !important;
+  font-size: 9px !important;
+  font-weight: 800 !important;
+  letter-spacing: .04em !important;
+  padding: 2px 9px !important;
+  line-height: 1.5 !important;
+  border-width: 1px !important;
+  border-radius: 3px !important;
+  background: rgba(7, 8, 13, .92) !important;
+}
