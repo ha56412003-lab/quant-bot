@@ -91,7 +91,7 @@ export default function PriceChart({ universe }) {
       return {
         coord: [idx >= 0 ? idx : cat.length - 1, m.price],
         value: isOpen ? t('dash.openMark') : t('dash.closeMark'),
-        itemStyle: { color: isBuy ? 'var(--red, #d4595e)' : 'var(--green, #3fa86a)' },
+        itemStyle: { color: isBuy ? '#ff5a6e' : '#3fd18b' },
         symbol: isOpen ? 'triangle' : 'circle',
         symbolRotate: isOpen && !isBuy ? 180 : 0,
         symbolSize: 11,
@@ -107,8 +107,8 @@ export default function PriceChart({ universe }) {
               { gridIndex: 1, axisLabel: { show: false }, splitLine: { show: false } }],
       series: [
         { name: symbol, type: 'candlestick', data: ohlc, xAxisIndex: 0, yAxisIndex: 0,
-          itemStyle: { color: 'var(--red, #d4595e)', color0: 'var(--green, #3fa86a)',
-                       borderColor: 'var(--red, #d4595e)', borderColor0: 'var(--green, #3fa86a)' },
+          itemStyle: { color: '#ff5a6e', color0: '#3fd18b',
+                       borderColor: '#ff5a6e', borderColor0: '#3fd18b' },
           markPoint: { data: marks, label: { fontSize: 9, color: '#fff' } } },
         { name: t('dash.volume'), type: 'bar', data: vols, xAxisIndex: 1, yAxisIndex: 1,
           itemStyle: {
@@ -117,8 +117,8 @@ export default function PriceChart({ universe }) {
               const k = ks[params.dataIndex]
               if (!k) return '#3a4553'
               return k.close >= k.open
-                ? 'rgba(212, 89, 94, 0.8)'
-                : 'rgba(63, 168, 106, 0.8)'
+                ? 'rgba(255, 90, 110, 0.8)'
+                : 'rgba(63, 209, 139, 0.8)'
             },
           } },
       ],

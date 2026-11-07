@@ -16,31 +16,31 @@ function palette(theme) {
     return { line: '#c22b3a', glow: 'rgba(194,43,58,0)', dot: '#c22b3a',
              bg: '#f6f5f1', label: '#8a8880', tipBg: 'rgba(251,250,247,.97)',
              tipBorder: 'rgba(184,48,60,.35)', tipText: '#2a2a26',
-             blur: 0, halo: 0, width: 1.7, dotR: 2.3, dotSize: 8 }
+             blur: 0, halo: 0, width: 2.3, dotR: 3.8, dotSize: 10 }
   }
   if (theme === 'mac-dark') {
     return { line: '#e58bb4', glow: 'rgba(229,139,180,0)', dot: '#e58bb4',
              bg: '#17161b', label: '#8b8496', tipBg: 'rgba(35,33,41,.98)',
              tipBorder: '#322f3c', tipText: '#f5f3f7',
-             blur: 0, halo: 0, width: 1.4, dotR: 2.3, dotSize: 8 }
+             blur: 0, halo: 0, width: 2.1, dotR: 3.8, dotSize: 10 }
   }
   if (theme === 'mac-light') {
     return { line: '#b71c5a', glow: 'rgba(183,28,90,0)', dot: '#b71c5a',
              bg: '#ffffff', label: '#726a7a', tipBg: 'rgba(255,255,255,.99)',
              tipBorder: '#e6dae6', tipText: '#1c1b1f',
-             blur: 0, halo: 0, width: 1.4, dotR: 2.3, dotSize: 8 }
+             blur: 0, halo: 0, width: 2.1, dotR: 3.8, dotSize: 10 }
   }
   // 注意：canvas 不解析 CSS 变量，line 必须写死色值（曾用 var(--cyan) 导致曲线变黑）
   return { line: '#22c9e8', glow: 'rgba(69,230,245,0)', dot: '#22c9e8',
            bg: '#0b0c12', label: 'rgba(150,160,180,.75)', tipBg: 'rgba(8,10,16,.94)',
            tipBorder: 'rgba(69,230,245,.35)', tipText: '#d8dde9',
-           blur: 0, halo: 0, width: 1.7, dotR: 2.3, dotSize: 8 }
+           blur: 0, halo: 0, width: 2.3, dotR: 3.8, dotSize: 10 }
 }
 
 // 半调点阵 tile —— 每列从上到下圆点逐渐变小（顶部实、底部疏淡），纯色不透明
 // 高 = size * rows，配合 repeat-x 使用：水平平铺、垂直拉伸到整个面积
 function dotTile(color, size = 8, radius = 2.3, rows = 56) {
-  const rBot = 0.55                      // 最底部半径：留一点存在感，不做成消失
+  const rBot = 1.6                       // 最底部半径：缩得缓和些，底部仍是实点
   const c = document.createElement('canvas')
   c.width = size; c.height = size * rows
   const g = c.getContext('2d')
@@ -132,7 +132,7 @@ export default function EquityChart({ activeMode }) {
           lineStyle: {
             color: P.line, width: P.width,
           },
-          emphasis: { lineStyle: { width: 2.2 } },
+          emphasis: { lineStyle: { width: 3.2 } },
           tooltip: {
             valueFormatter: (v) => Number(v).toLocaleString('en-US',
               { maximumFractionDigits: 2 }) + ' U',
