@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Card, Table, Tag, Tooltip, Typography } from 'antd'
 import { useI18n } from '../i18n'
 import { fmtPnl } from '../api'
+import { coinColor } from '../coinColors'
 
 const { Text } = Typography
 
@@ -61,14 +62,18 @@ export default function PoolTable({ pool }) {
       // 列宽按 1920 窗口下容器 602px 反推：8 列合计 572px，留 30px 余量。
       // 不再 fixed:'left' —— 横向滚动没了，fixed 列没有意义。
       title: t('pool.col.symbol'), dataIndex: 'symbol', width: 80,
-      render: (v, r) => (
-        <span style={{ whiteSpace: 'nowrap' }}>
-          <Text strong>{v.replace('USDT', '')}</Text>
-          {r.held && (
-            <Tag color="green" style={{ marginLeft: 3, fontSize: 9, padding: '0 3px', lineHeight: '14px' }}>持</Tag>
-          )}
-        </span>
-      ),
+      render: (v, r) => {
+        const sym = v.replace('USDT', '')
+        const col = coinColor(sym)
+        return (
+          <span style={{ whiteSpace: 'nowrap' }}>
+            <Text strong style={{ color: col, textShadow: '0 0 12px ' + col + ', 0 0 3px #000' }}>{sym}</Text>
+            {r.held && (
+              <Tag color="green" style={{ marginLeft: 3, fontSize: 9, padding: '0 3px', lineHeight: '14px' }}>持</Tag>
+            )}
+          </span>
+        )
+      },
     },
     {
       title: t('pool.col.price'), dataIndex: 'price', align: 'right', width: 78,
