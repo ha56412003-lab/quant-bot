@@ -511,7 +511,9 @@ ${r.advice}`}
             // 外层只做定位 + 圆角裁切；框和背景由内部 Card 承担（标题已搬进 Card head）
             position: 'relative', overflow: 'hidden', borderRadius: 5,
           }}>
-            <EquityChart activeMode={status?.mode} />
+            <EquityChart activeMode={status?.mode}
+                          upnl={pos.reduce((a, p) => a + (p.unrealized_pnl || 0), 0)}
+                          realized={status?.daily_realized_pnl ?? 0} />
           </div>
           <div style={{
             // 同上：外层只做定位 + 圆角裁切，标题和框都在 Card 里

@@ -68,7 +68,7 @@ function hexA(hex, a) {
 
 // Paper and live equity are different universes ($10k virtual vs real wallet):
 // the curve is stored per mode and NEVER mixed; default view = active mode.
-export default function EquityChart({ activeMode }) {
+export default function EquityChart({ activeMode, upnl = 0, realized = 0 }) {
   const { t, lang } = useI18n()
   const [view, setView] = useState(null)          // null until activeMode known
   const [series, setSeries] = useState([])
@@ -163,21 +163,31 @@ export default function EquityChart({ activeMode }) {
             },
             body: { flex: 1, minHeight: 0, padding: 0, position: 'relative' },
           }}>
-      {/* 左上角数值：参考图那个浅灰数字，压在画布上而不是占一行 */}
-      {last !== null && (
-        <div style={{
-          position: 'absolute', top: 8, left: 10, zIndex: 3, pointerEvents: 'none',
-          fontFamily: isMac
-            ? '-apple-system, BlinkMacSystemFont, SF Pro Text, PingFang SC, sans-serif'
-            : 'Cascadia Mono, Consolas, monospace',
-          fontSize: isPaper ? 15 : (isMac ? 17 : 14),
-          fontWeight: isMac ? 600 : 500,
-          fontVariantNumeric: 'tabular-nums',
-          color: P0.label, letterSpacing: '0.01em',
-        }}>
-          {last.toLocaleString('en-US', { maximumFractionDigits: 1 })} U
+      {/* 半透明浮框：净值 / 浮动盈亏 / 今日已实现 竖排
+          浩哥 2026-11-07 定：曲线卡里原来只压了个净值小字，三项数字没地方看；
+          改成毛玻璃浮框，压在左上角，不占画布。浮盈字号最大 —— 当下最关心这个。
+          配色：净值苹果绿 / 浮盈玫红 / 今日已实现果冻橙 */}
+      <div className="eq-float">
+        <div className="eq-row">
+          <span className="eq-lb">净值</span>
+          <b className="eq-v eq-g">
+            {last !== null ? last.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '--'}
+            <i>U</i>
+          </b>
         </div>
-      )}
+        <div className="eq-row">
+          <span className="eq-lb">浮动盈亏</span>
+          <b className="eq-v eq-r eq-big">
+            {(upnl >= 0 ? '+' : '') + Number(upnl || 0).toFixed(2)}<i>U</i>
+          </b>
+        </div>
+        <div className="eq-row">
+          <span className="eq-lb">今日已实现</span>
+          <b className="eq-v eq-o">
+            {(realized >= 0 ? '+' : '') + Number(realized || 0).toFixed(2)}<i>U</i>
+          </b>
+        </div>
+      </div>
       <Chart option={option} height="100%" />
     </Card>
   )

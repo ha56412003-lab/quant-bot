@@ -1307,3 +1307,87 @@ html[data-theme="mac-light"] .rp { border-color: #e2e0e6; background: #fbf9fb }
 }
 :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-h .rp-m.rp-m-idle { color: #8a8983 }
 :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-h .rp-m.rp-m-idle { color: #6f6e68 }
+
+/* ═══ 账户权益曲线 · 左上角半透明浮框（2026-11-07 浩哥定） ═══
+   原来只在画布上压一行净值小字，浮动盈亏和今日已实现没地方显示（三项原本
+   在下方数据区，被雷达面板顶掉了）。改成毛玻璃浮框，压在画布左上角。
+   配色：净值苹果绿 / 浮动盈亏玫红（字号最大）/ 今日已实现果冻橙 */
+.eq-float {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 3;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 13px 10px;
+  border-radius: 8px;
+  background: rgba(8, 10, 16, 0.46);
+  -webkit-backdrop-filter: blur(9px) saturate(1.1);
+  backdrop-filter: blur(9px) saturate(1.1);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.28);
+  font-family: Cascadia Mono, Consolas, monospace;
+}
+
+.eq-float .eq-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1;
+}
+
+.eq-float .eq-lb {
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  color: rgba(206, 212, 224, 0.62);
+}
+
+.eq-float .eq-v {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.eq-float .eq-v i {
+  font-style: normal;
+  font-size: 0.62em;
+  font-weight: 600;
+  opacity: 0.72;
+  margin-left: 2px;
+}
+
+/* 净值 · 苹果绿 */
+.eq-float .eq-g { font-size: 15px; color: #8ce24a; }
+/* 浮动盈亏 · 玫红 · 全场最大 */
+.eq-float .eq-r { font-size: 23px; color: #ff3f8e; }
+/* 今日已实现 · 果冻橙 */
+.eq-float .eq-o { font-size: 13px; color: #ffa04d; }
+
+/* MAC 深色：底子是 #17161b，浮框压得更深一点才分得开 */
+html[data-theme="mac-dark"] .eq-float {
+  background: rgba(12, 11, 15, 0.5);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+/* MAC 浅色：白底上毛玻璃要反过来 —— 用浅色半透明 + 深字 */
+html[data-theme="mac-light"] .eq-float {
+  background: rgba(250, 249, 251, 0.78);
+  border-color: rgba(0, 0, 0, 0.14);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.07);
+}
+html[data-theme="mac-light"] .eq-float .eq-lb { color: rgba(52, 48, 58, 0.8); }
+html[data-theme="mac-light"] .eq-float .eq-g { color: #2f6b0a; }   /* 苹果绿压深 6.45:1 */
+html[data-theme="mac-light"] .eq-float .eq-r { color: #b71c5a; }
+html[data-theme="mac-light"] .eq-float .eq-o { color: #9c5800; }   /* 5.47:1 */
+
+/* 纸面：米白底，同 MAC 浅色思路，绿/橙再压一档 */
+html[data-theme="paper"] .eq-float {
+  background: rgba(252, 251, 247, 0.78);
+  border-color: rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.06);
+}
+html[data-theme="paper"] .eq-float .eq-lb { color: rgba(52, 50, 44, 0.8); }
+html[data-theme="paper"] .eq-float .eq-g { color: #2e640c; }       /* 6.90:1 */
+html[data-theme="paper"] .eq-float .eq-r { color: #b8303c; }
+html[data-theme="paper"] .eq-float .eq-o { color: #96520a; }       /* 5.9:1 */
