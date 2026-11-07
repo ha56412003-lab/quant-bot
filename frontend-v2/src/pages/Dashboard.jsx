@@ -4,10 +4,10 @@ import { api } from '../api'
 import { usePoll } from '../hooks'
 import EquityChart from '../panels/EquityChart'
 import ServerRack from '../panels/ServerRack'
-import IntakeRadar from '../panels/IntakeRadar'
 import PriceChart from '../panels/PriceChart'
 import PoolTable from '../panels/PoolTable'
 import ShadowPanel from '../panels/ShadowPanel'
+import RadarPanel from '../panels/RadarPanel'
 import ActivityTabs from '../panels/ActivityTabs'
 
 function fmtPx(v) {
@@ -453,21 +453,8 @@ ${r.advice}`}
                 : 0
               return (
                 <>
-                  {/* 三大项：净值占左大块，右侧上下两项 */}
-                  <div className="stats-big3">
-                    <div className="sbig equity">
-                      <div className="lb">账 户 净 值</div>
-                      <div className="val"><PopNum text={equity.toFixed(2)} /><small>U</small></div>
-                    </div>
-                    <div className={'sbig pnl ' + (totalUpnl >= 0 ? 'c-red' : 'c-green')}>
-                      <div className="lb">浮 动 盈 亏</div>
-                      <div className="val"><PopNum text={(totalUpnl >= 0 ? '+' : '') + totalUpnl.toFixed(2)} /><small>U</small></div>
-                    </div>
-                    <div className={'sbig real ' + (realized >= 0 ? 'c-red' : 'c-green')}>
-                      <div className="lb">今 日 已 实 现</div>
-                      <div className="val"><PopNum text={(realized >= 0 ? '+' : '') + realized.toFixed(2)} /><small>U</small></div>
-                    </div>
-                  </div>
+                  {/* 持仓强弱雷达 —— 取代原来的「净值 / 浮动盈亏 / 今日已实现」三项 */}
+                  <RadarPanel rows={radar && radar.rows} />
 
                   {/* 五项小数据 */}
                   <div className="stats-small5">
@@ -512,7 +499,6 @@ ${r.advice}`}
           <i className="cnr cnr-bl" /><i className="cnr cnr-br" />
 
           {/* 服务器机柜（照原版 canvas 绘制坐标复刻：14 机位 + GPU ×8） */}
-          <div className="radar-wrap"><IntakeRadar width={124} /></div>
 
           <div className="srv-wrap">
             <ServerRack width={62} />

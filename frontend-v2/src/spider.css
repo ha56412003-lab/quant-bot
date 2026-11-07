@@ -1044,3 +1044,246 @@ html[data-theme="paper"] .stage tbody td > .rdot.lv4 { color:#1f7a4d !important;
 html[data-theme="paper"] .stage tbody td > .rdot.lv3 { color:#6b4a00 !important; border-color:rgba(107,74,0,.62) !important; background:rgba(107,74,0,.13) !important }
 html[data-theme="paper"] .stage tbody td > .rdot.lv2 { color:#b35400 !important; border-color:rgba(179,84,0,.62) !important; background:rgba(179,84,0,.13) !important }
 html[data-theme="paper"] .stage tbody td > .rdot.lv1 { color:#b8303c !important; border-color:rgba(184,48,60,.62) !important; background:rgba(184,48,60,.13) !important }
+
+/* ══════════════════════════════════════════════════════════════════
+   持仓强弱雷达面板（2026-11-07）
+   位置：持仓操作区下边 —— 取代原来的「净值 / 浮动盈亏 / 今日已实现」
+   视觉：照 agent-display #spider 的 LIVE FEED 任务流模块
+        标题大写字母 + 中文副标 + 右侧统计 → 等宽小字日志行
+   行结构：时间 · 币种 · 档位 · 方向 · 浮盈R · 分数 · 强弱条 · 动作
+   ══════════════════════════════════════════════════════════════════ */
+.rp {
+  border: 1px solid var(--line, #1b1e2a);
+  background: var(--panel, #0b0c12);
+  border-radius: 5px;
+  padding: 9px 12px 8px;
+  overflow: hidden;
+  min-height: 96px;
+  /* .stats 是固定高度 + space-between 的 flex 列：卸掉三大项之后中间会空出
+     100 多像素，让面板自己吃掉 —— 有仓显示完整列表，空仓留着大窗口。 */
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+.rp-h {
+  /* .stats div 有全局 display:grid（v2.css:1993 那条），这两个都是 div，
+     不加 !important 会被压成单列 —— 右侧统计会掉到标题下面 */
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+.rp-h h2 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.76px;
+  color: var(--ink, #eef0f7);
+  line-height: 1.2;
+}
+.rp-h h2 i {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: .66px;
+  color: var(--mute, #73788e);
+  margin-left: 6px;
+}
+/* 右侧统计 —— 跟 LIVE FEED 的「21 tasks · 9 live」同一语言：粉红小字 */
+.rp-h .rp-m.rp-m-idle {
+  color: #8a99aa;
+}
+.rp-h .rp-m {
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--joint, #ff3f8e);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* 日志行：八列固定节奏，最后两条吃掉剩余宽度 */
+.rp-f {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  flex: 1 1 auto;
+}
+.rp-f li {
+  display: grid;
+  grid-template-columns: 44px 62px 40px 30px 58px 46px minmax(80px, 1fr) 42px;
+  gap: 8px;
+  align-items: center;
+  padding: 0 4px;
+  font-size: 10.5px;
+  line-height: 21px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.rp-f li + li { border-top: 1px solid rgba(255, 255, 255, .035) }
+.rp-f li time { color: var(--dim2, #767c92) }
+.rp-f li b {
+  font-weight: 800;
+  letter-spacing: .42px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rp-f li em {
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: .3px;
+}
+.rp-dir { font-weight: 700 }
+.rp-r { color: var(--ink-2, #b8bccb) }
+.rp-sc { font-weight: 700 }
+/* 强弱条：0-100 横向填充，颜色跟档位一致 */
+.rp-bar {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-2, #262a39);
+  overflow: hidden;
+}
+.rp-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  transition: width .35s ease;
+}
+/* 条的颜色走 class 不走内联 —— 浅底主题要换深色版，内联色改不动 */
+.rp-bar i.bar-lv4 { background: #2fd27a }
+.rp-bar i.bar-lv3 { background: #ffd23f }
+.rp-bar i.bar-lv2 { background: #ff9a1f }
+.rp-bar i.bar-lv1 { background: #ff4458 }
+.rp-act { font-weight: 700; text-align: right }
+
+/* 档位四色 —— 跟币种列的分数徽章同一套语义 */
+.rp-f li em.lv4, .rp-f li .rp-sc.lv4, .rp-f li .rp-act.lv4 { color: #2fd27a }
+.rp-f li em.lv3, .rp-f li .rp-sc.lv3, .rp-f li .rp-act.lv3 { color: #ffd23f }
+.rp-f li em.lv2, .rp-f li .rp-sc.lv2, .rp-f li .rp-act.lv2 { color: #ff9a1f }
+.rp-f li em.lv1, .rp-f li .rp-sc.lv1, .rp-f li .rp-act.lv1 { color: #ff4458 }
+
+/* 底部图例：把四档颜色和"不干预"说清楚，顺便把面板底部收住 */
+.rp-foot {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center;
+  margin-top: auto;
+  padding-top: 6px;
+  border-top: 1px solid var(--line, #1b1e2a);
+  font-size: 9.5px;
+  color: var(--dim2, #767c92);
+  letter-spacing: .3px;
+}
+.rp-lg i {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  margin: 0 4px 0 10px;
+  vertical-align: middle;
+}
+.rp-lg i:first-child { margin-left: 0 }
+.rp-lg i.lg4 { background: #2fd27a }
+.rp-lg i.lg3 { background: #ffd23f }
+.rp-lg i.lg2 { background: #ff9a1f }
+.rp-lg i.lg1 { background: #ff4458 }
+.rp-note { white-space: nowrap }
+
+/* ── 纸面：浅底换深色字，四档换深色版 ── */
+html[data-theme="paper"] .rp { border-color: #d2d0c9; background: #f6f5f1 }
+/* MAC 浅色的页面底色是冷白 rgb(242,241,245)，套米白会色相不搭 —— 单独给 */
+html[data-theme="mac-light"] .rp { border-color: #e2e0e6; background: #fbf9fb }
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-h h2 { color: #151515 }
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-h h2 i { color: #5f5e58 }
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-h .rp-m.rp-m-idle {
+  color: #8a99aa;
+}
+.rp-h .rp-m { color: #b8303c }
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li time { color: #8a8983 }
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li + li { border-top-color: rgba(21, 21, 21, .07) }
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-r { color: #3a3934 }
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-bar { background: #d6d3ca }
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-foot { border-top-color: #d2d0c9; color: #8a8983 }
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li em.lv4, :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li .rp-sc.lv4, :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li .rp-act.lv4 { color: #1f7a4d }
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li em.lv3, :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li .rp-sc.lv3, :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li .rp-act.lv3 { color: #6b4a00 }
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li em.lv2, :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li .rp-sc.lv2, :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li .rp-act.lv2 { color: #b35400 }
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li em.lv1, :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li .rp-sc.lv1, :is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-f li .rp-act.lv1 { color: #b8303c }
+/* 空仓：面板被 .stats 撑得很高，用居中的待命态收住，别让一行字飘在顶上 */
+.rp-f li.rp-idle {
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  flex: 1 1 auto;
+  height: 100%;
+  border-top: 0;
+}
+.rp-idle-t {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: var(--mute, #73788e);
+}
+.rp-idle-s {
+  font-size: 10px;
+  letter-spacing: .4px;
+  color: var(--dim2, #767c92);
+}
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-idle-t { color: #3a3934 }
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-idle-s { color: #6f6e68 }
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-bar i.bar-lv4 { background: #1f7a4d }
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-bar i.bar-lv3 { background: #8a6100 }
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-bar i.bar-lv2 { background: #b35400 }
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-bar i.bar-lv1 { background: #b8303c }
+/* 空仓时的雷达扫描占位 —— 大面板里只有两行字会显得像没加载完 */
+.rp-scan {
+  width: 244px;
+  height: 244px;
+  opacity: .9;
+  flex: 0 0 auto;
+  margin-bottom: 4px;
+}
+.rp-scan circle {
+  fill: none;
+  stroke: var(--grid, #3d4559);
+  stroke-width: 1;
+}
+.rp-scan > line {
+  stroke: var(--grid, #3d4559);
+  stroke-width: 1;
+  stroke-dasharray: 3 5;
+}
+.rp-scan .rp-sweep-line {
+  transform-origin: 100px 100px;
+  animation: rp-spin 4s linear infinite;
+}
+.rp-scan .rp-dot {
+  fill: var(--grid, #3d4559);
+  stroke: none;
+}
+.rp-scan .rp-sweep-arm {
+  stroke: #ff3f8e;
+  stroke-width: 1.2;
+  opacity: .85;
+}
+@keyframes rp-spin {
+  from { transform: rotate(0deg) }
+  to { transform: rotate(360deg) }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rp-scan .rp-sweep-line { animation: none }
+}
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-scan circle,
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-scan > line {
+  stroke: #d5d2ca;
+}
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-scan .rp-dot {
+  fill: var(--grid, #3d4559);
+  stroke: none;
+}
+.rp-scan .rp-sweep-arm {
+  stroke: #b8303c;
+}
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-h .rp-m.rp-m-idle { color: #8a8983 }
+:is(html[data-theme="paper"], html[data-theme="mac-light"]) .rp-h .rp-m.rp-m-idle { color: #6f6e68 }
