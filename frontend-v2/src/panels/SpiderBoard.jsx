@@ -3,6 +3,19 @@ import { useEffect, useRef, useState } from 'react'
 import '../spider.css'
 import avatars from '../avatars.json'
 
+// 币种专属色 —— 抄 agent-display #spider 的 agent 调色板（14 个 agent 各有专属色，
+// 那正是整个界面的"颜色丰富度"来源）。同一个币永远同一个色，不同币大概率不同色。
+const COIN_COLORS = [
+  '#2fd27a', '#a774ff', '#ff4458', '#ff5cae', '#3b7cff', '#25d6f0', '#ff9a1f',
+  '#ffd23f', '#ff7b54', '#b5ef3a', '#62e6c7', '#45e6f5',
+]
+function coinColor(sym) {
+  if (!sym) return COIN_COLORS[0]
+  let h = 0
+  for (let i = 0; i < sym.length; i++) h = (h * 31 + sym.charCodeAt(i)) >>> 0
+  return COIN_COLORS[h % COIN_COLORS.length]
+}
+
 function useFitScale() {
   const ref = useRef(null)
   const [s, setS] = useState(0.5)
@@ -127,7 +140,7 @@ function PosCard({ p, avatar }) {
   const retPct = entry ? ((long ? px - entry : entry - px) / entry) * 100 : 0
 
   return (
-    <article className="card work" style={{ '--c': win ? 'var(--red, #ff4d5e)' : 'var(--green, #35e08a)' }}>
+    <article className="card work" style={{ '--c': coinColor(sym) }}>
       {/* 行1：头像 + 币种 + 方向标签 + 浮盈 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
         <img className="av" src={avatar} alt="" />
