@@ -1320,14 +1320,19 @@ html[data-theme="mac-light"] .rp { border-color: #e2e0e6; background: #fbf9fb }
   pointer-events: none;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 9px 13px 10px;
-  border-radius: 8px;
-  background: rgba(8, 10, 16, 0.46);
-  -webkit-backdrop-filter: blur(9px) saturate(1.1);
-  backdrop-filter: blur(9px) saturate(1.1);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.28);
+  gap: 13px;
+  padding: 20px 26px 22px;
+  border-radius: 14px;
+  /* 框体半透 —— 底下的点阵和曲线能透出来一点，才像浮在上面 */
+  background: rgba(8, 10, 16, 0.42);
+  -webkit-backdrop-filter: blur(14px) saturate(1.25);
+  backdrop-filter: blur(14px) saturate(1.25);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  /* 浮出：远投影 + 近投影 + 顶部内高光，三层叠出厚度 */
+  box-shadow:
+    0 18px 52px rgba(0, 0, 0, 0.58),
+    0 6px 16px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.11);
   font-family: Cascadia Mono, Consolas, monospace;
 }
 
@@ -1339,9 +1344,9 @@ html[data-theme="mac-light"] .rp { border-color: #e2e0e6; background: #fbf9fb }
 }
 
 .eq-float .eq-lb {
-  font-size: 9px;
-  letter-spacing: 0.09em;
-  color: rgba(206, 212, 224, 0.62);
+  font-size: 14px;
+  letter-spacing: 0.1em;
+  color: #c3cad8;            /* 实心，不再半透 */
 }
 
 .eq-float .eq-v {
@@ -1354,40 +1359,48 @@ html[data-theme="mac-light"] .rp { border-color: #e2e0e6; background: #fbf9fb }
   font-style: normal;
   font-size: 0.62em;
   font-weight: 600;
-  opacity: 0.72;
-  margin-left: 2px;
+  opacity: 0.9;              /* 单位也实心一点 */
+  margin-left: 3px;
 }
 
 /* 净值 · 苹果绿 */
-.eq-float .eq-g { font-size: 15px; color: #8ce24a; }
+.eq-float .eq-g { font-size: 30px; color: #8ce24a; }
 /* 浮动盈亏 · 玫红 · 全场最大 */
-.eq-float .eq-r { font-size: 23px; color: #ff3f8e; }
+.eq-float .eq-r { font-size: 46px; color: #ff3f8e; }
 /* 今日已实现 · 果冻橙 */
-.eq-float .eq-o { font-size: 13px; color: #ffa04d; }
+.eq-float .eq-o { font-size: 25px; color: #ffa04d; }
 
 /* MAC 深色：底子是 #17161b，浮框压得更深一点才分得开 */
 html[data-theme="mac-dark"] .eq-float {
-  background: rgba(12, 11, 15, 0.5);
-  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(12, 11, 15, 0.46);
+  border-color: rgba(255, 255, 255, 0.14);
 }
 /* MAC 浅色：白底上毛玻璃要反过来 —— 用浅色半透明 + 深字 */
 html[data-theme="mac-light"] .eq-float {
-  background: rgba(250, 249, 251, 0.78);
-  border-color: rgba(0, 0, 0, 0.14);
-  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.07);
+  background: rgba(252, 251, 253, 0.72);
+  border-color: rgba(0, 0, 0, 0.2);
+  box-shadow:
+    0 20px 56px rgba(0, 0, 0, 0.2),
+    0 8px 20px rgba(0, 0, 0, 0.14),
+    0 2px 5px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.98);
 }
-html[data-theme="mac-light"] .eq-float .eq-lb { color: rgba(52, 48, 58, 0.8); }
+html[data-theme="mac-light"] .eq-float .eq-lb { color: #55505f; }
 html[data-theme="mac-light"] .eq-float .eq-g { color: #2f6b0a; }   /* 苹果绿压深 6.45:1 */
 html[data-theme="mac-light"] .eq-float .eq-r { color: #b71c5a; }
 html[data-theme="mac-light"] .eq-float .eq-o { color: #9c5800; }   /* 5.47:1 */
 
 /* 纸面：米白底，同 MAC 浅色思路，绿/橙再压一档 */
 html[data-theme="paper"] .eq-float {
-  background: rgba(252, 251, 247, 0.78);
-  border-color: rgba(0, 0, 0, 0.15);
-  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.06);
+  background: rgba(252, 251, 247, 0.72);
+  border-color: rgba(0, 0, 0, 0.21);
+  box-shadow:
+    0 20px 56px rgba(0, 0, 0, 0.19),
+    0 8px 20px rgba(0, 0, 0, 0.13),
+    0 2px 5px rgba(0, 0, 0, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.98);
 }
-html[data-theme="paper"] .eq-float .eq-lb { color: rgba(52, 50, 44, 0.8); }
+html[data-theme="paper"] .eq-float .eq-lb { color: #57554c; }
 html[data-theme="paper"] .eq-float .eq-g { color: #2e640c; }       /* 6.90:1 */
 html[data-theme="paper"] .eq-float .eq-r { color: #b8303c; }
 html[data-theme="paper"] .eq-float .eq-o { color: #96520a; }       /* 5.9:1 */
