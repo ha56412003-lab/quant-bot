@@ -25,12 +25,15 @@ html[data-theme="mac-dark"] {
   --m-text: #f5f5f7;
   --m-text-2: #c7c7cc;
   --m-text-3: #98989d;
-  --m-text-4: #636366;
+  --m-text-4: #9a9aa0;
 
   /* 唯一强调色 + 语义色（苹果系统色板） */
-  --m-accent: #0a84ff;
+  --m-accent: #0a84ff;        /* 纯黑底 5.6:1，可直接用于文字 */
+  --m-accent-text: #0a84ff;
+  --m-up-text: #ff6961;
+  --m-down-text: #30d158;
   --m-accent-dim: rgba(10, 132, 255, .16);
-  --m-up: #ff453a;
+  --m-up: #ff6961;
   --m-down: #30d158;
   --m-warn: #ff9f0a;
 
@@ -57,14 +60,17 @@ html[data-theme="mac-light"] {
   --m-surface-3: #f0f0f2;
 
   --m-text: #1d1d1f;
-  --m-text-2: #424245;
-  --m-text-3: #6e6e73;
-  --m-text-4: #aeaeb2;
+  --m-text-2: #3a3a3c;
+  --m-text-3: #52525b;
+  --m-text-4: #6e6e73;
 
-  --m-accent: #007aff;
+  --m-accent: #007aff;        /* 图形 / 大字 / 控件 */
+  --m-accent-text: #0062cc;   /* 小号文字专用：白底 5.9:1 */
   --m-accent-dim: rgba(0, 122, 255, .10);
   --m-up: #d70015;
-  --m-down: #248a3d;
+  --m-up-text: #c40013;
+  --m-down: #1f7a35;
+  --m-down-text: #1a7132;     /* 白底 5.4:1 */
   --m-warn: #c93400;
 
   --m-line: rgba(0, 0, 0, .075);
@@ -114,7 +120,12 @@ html[data-theme^="mac-"] .spider-root.spider-root.spider-root {
   --dim: var(--m-text-4);
 
   /* 语义色：红涨绿跌保留，但用系统色板 */
-  --cyan: var(--m-accent);
+  --cyan: var(--m-accent-text);
+  /* 语义色必须一起接上，否则 var(--green) 之类会落回 v2.css 的荧光绿 */
+  --green: var(--m-down);
+  --red: var(--m-up);
+  --amber: var(--m-warn);
+  --warn: var(--m-warn);
   --joint: var(--m-accent);
   --good: var(--m-down);
   --bad: var(--m-up);
@@ -740,3 +751,97 @@ html[data-theme^="mac-"] .ant-segmented-item-selected {
 
 /* Progress / 细进度条 */
 html[data-theme^="mac-"] .ant-progress-bg { border-radius: 999px !important; }
+
+/* ══════════════════ 十六、对比度兜底（WCAG：正文 4.5:1 / 大字 3:1）══════════════════ */
+/* v2.css 里这些规则是 4 个 class 的硬编码亮色，为深色底设计，
+   在浅色主题上直接失明。统一改用语义变量。 */
+
+/* 语义色类 —— 用三重 .spider-root 压过 v2.css 的 .spider-root .stage .c-xxx */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .c-cyan,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .stage .c-cyan {
+  color: var(--m-accent) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .c-green,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .stage .c-green {
+  color: var(--m-down) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .c-red,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .stage .c-red {
+  color: var(--m-up) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .c-amber,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .stage .c-amber,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .c-yellow,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .stage .c-yellow {
+  color: var(--m-warn) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .c-mute,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .c-dim,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .stage .c-mute,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .stage .c-dim {
+  color: var(--m-text-3) !important;
+}
+
+/* .val.plain：原为 #c8cddd（深色底专用亮灰蓝），浅色主题下等于隐形 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .ssm .val.plain,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .stage .ssm .val.plain {
+  color: var(--m-text) !important;
+}
+
+/* 小号数据标签统一抬到可读档（原 --m-text-4 用于装饰，不用于文字）*/
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .sbig .sub,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .sbig .lb,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .ssm .lb,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .stage small {
+  color: var(--m-text-3) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card.idle .tg,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card.idle .idle-mid {
+  color: var(--m-text-3) !important;
+}
+
+/* 大字（≥24px 或 ≥18.6px 加粗）走 3:1 即可，让它保持次级灰但别失明 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .sbig .val {
+  color: var(--m-text) !important;
+}
+
+/* ══════════════════ 十七、小号文字专用色（WCAG 4.5:1）══════════════════ */
+/* Apple 标准蓝 #007aff 在白底只有 4.02:1 —— 大元素够（3:1），
+   11px 的小字不够。所以文字专用 --m-accent-text（#0062cc），
+   图形、按钮、选中态继续用标准蓝，MAC 味道不丢。 */
+
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .c-cyan,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .stage .c-cyan,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .c4-mid {
+  color: var(--m-accent-text) !important;
+}
+
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .c-green,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .stage .c-green {
+  color: var(--m-down-text) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .c-red,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .stage .c-red {
+  color: var(--m-up-text) !important;
+}
+
+/* antd 语义标签：颜色按文字用，填充去掉（原 363 个「通过」标签全部 4.4:1，差一点）*/
+html[data-theme^="mac-"] .ant-tag-green,
+html[data-theme^="mac-"] .ant-tag-success {
+  color: var(--m-down-text) !important;
+}
+html[data-theme^="mac-"] .ant-tag-red,
+html[data-theme^="mac-"] .ant-tag-error,
+html[data-theme^="mac-"] .ant-tag-volcano {
+  color: var(--m-up-text) !important;
+}
+html[data-theme^="mac-"] .ant-tag-gold,
+html[data-theme^="mac-"] .ant-tag-orange,
+html[data-theme^="mac-"] .ant-tag-warning {
+  color: var(--m-warn) !important;
+}
+
+/* antd Statistic：valueStyle 由调用方内联，这里兜底文字级 */
+html[data-theme^="mac-"] .ant-statistic-content {
+  color: var(--m-text) !important;
+}

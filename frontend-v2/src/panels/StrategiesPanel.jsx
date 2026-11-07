@@ -223,7 +223,7 @@ export default function StrategiesPanel({ data, universe, known, onToggle, onInt
         return (
           <span style={{ fontSize: 12 }}>
             {s.closed}{t('strat.trades')}·{t('strat.winRate')}{wr}%·
-            <span style={{ color: s.pnl >= 0 ? '#3fa86a' : '#d4595e' }}>
+            <span style={{ color: s.pnl >= 0 ? 'var(--green, #3fa86a)' : 'var(--red, #d4595e)' }}>
               {s.pnl >= 0 ? '+' : ''}{s.pnl.toFixed(1)}U</span>
           </span>
         )

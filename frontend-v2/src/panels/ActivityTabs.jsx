@@ -114,7 +114,7 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
         if (r.pos_status === 'closed') {
           const p = r.pos_pnl
           return <Tag color="default">{t('act.closed')}{p == null ? '' : ' '}
-            {p != null && <span style={{ color: p >= 0 ? '#d4595e' : '#3fa86a' }}>{fmtPnl(p)}</span>}
+            {p != null && <span style={{ color: p >= 0 ? 'var(--red, #d4595e)' : 'var(--green, #3fa86a)' }}>{fmtPnl(p)}</span>}
           </Tag>
         }
         return <Tag color="blue">{t('act.executed')}</Tag>
@@ -131,7 +131,7 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
     { title: t('dash.col.qty'), dataIndex: 'qty', width: 80, render: (v) => v?.toPrecision(4) },
     { title: t('journal.col.pnl'), dataIndex: 'pnl', width: 80,
       render: (v) => v == null ? '-' :
-        <span style={{ color: v >= 0 ? '#d4595e' : '#3fa86a' }}>{fmtPnl(v)}</span> },
+        <span style={{ color: v >= 0 ? 'var(--red, #d4595e)' : 'var(--green, #3fa86a)' }}>{fmtPnl(v)}</span> },
     { title: t('journal.col.mode'), dataIndex: 'mode', width: 60,
       render: (v) => <Tag color={v === 'live' ? 'red' : 'blue'} style={{ fontSize: 10 }}>{v}</Tag> },
   ]
@@ -153,30 +153,30 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
     { title: t('gate.col.dir'), dataIndex: 'dir', width: 40,
       render: (v) => <Tag color={v === '多' ? 'red' : 'green'} style={{ margin: 0, padding: '0 4px' }}>{v}</Tag> },
     { title: t('gate.col.ce'), dataIndex: 'ce', width: 52, align: 'center',
-      render: (v) => v ? <span style={{ color: '#52c41a' }}>✓</span> : <span style={{ color: '#8c8c8c' }}>✗</span> },
+      render: (v) => v ? <span style={{ color: 'var(--green, #52c41a)' }}>✓</span> : <span style={{ color: 'var(--mute, #8c8c8c)' }}>✗</span> },
     { title: t('gate.col.ha'), dataIndex: 'ha', width: 52, align: 'center',
-      render: (v) => v ? <span style={{ color: '#52c41a' }}>✓</span> : <span style={{ color: '#8c8c8c' }}>✗</span> },
+      render: (v) => v ? <span style={{ color: 'var(--green, #52c41a)' }}>✓</span> : <span style={{ color: 'var(--mute, #8c8c8c)' }}>✗</span> },
     { title: t('gate.col.bbw'), dataIndex: 'bbw', width: 88, align: 'right',
       render: (v, r) => {
-        if (v == null) return <span style={{ color: '#8c8c8c' }}>-</span>
+        if (v == null) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
         const pass = v >= (r.bbw_thr || 70)
-        return <span style={{ color: pass ? '#52c41a' : '#8c8c8c', fontSize: 12 }}>
+        return <span style={{ color: pass ? 'var(--green, #52c41a)' : 'var(--mute, #8c8c8c)', fontSize: 12 }}>
           {v.toFixed(0)}%<span style={{ fontSize: 9 }}>/{r.bbw_thr || 70}</span>
         </span>
       } },
     { title: t('gate.col.why'), dataIndex: 'why', width: 115,
       render: (v, r) => r.ok
         ? <Tag color="green" style={{ margin: 0 }}>{t('gate.opened')}</Tag>
-        : <span style={{ fontSize: 12, color: '#8c8c8c', whiteSpace: 'normal' }}>{v}</span> },
+        : <span style={{ fontSize: 12, color: 'var(--mute, #8c8c8c)', whiteSpace: 'normal' }}>{v}</span> },
   ]
   const evCols = [
     { title: t('ev.col.time'), dataIndex: 'ts', width: 96, render: ts },
     { title: t('ev.col.cd'), dataIndex: 'minutes', width: 70, align: 'right',
       render: (v) => {
         if (v == null) return '-'
-        if (v < 0) return <span style={{ color: '#8c8c8c', fontSize: 11 }}>已开始</span>
+        if (v < 0) return <span style={{ color: 'var(--mute, #8c8c8c)', fontSize: 11 }}>已开始</span>
         const hot = v <= 30
-        return <span style={{ color: hot ? '#d4595e' : undefined, fontWeight: hot ? 600 : 400 }}>
+        return <span style={{ color: hot ? 'var(--red, #d4595e)' : undefined, fontWeight: hot ? 600 : 400 }}>
           {fmtCd(v)}
         </span>
       } },
@@ -184,7 +184,7 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
       render: (v) => {
         const n = Math.max(1, Math.min(3, Number(v) || 1))
         return <span style={{
-          color: n >= 3 ? '#d4595e' : n === 2 ? '#d4a95e' : '#8c8c8c',
+          color: n >= 3 ? 'var(--red, #d4595e)' : n === 2 ? 'var(--amber, #d4a95e)' : 'var(--mute, #8c8c8c)',
           fontSize: 11, letterSpacing: '-1px',
         }}>{'★'.repeat(n)}</span>
       } },
@@ -193,7 +193,7 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
         <span>
           {lang === 'en' ? (v?.length > 40 ? v.slice(0, 40) + '…' : v) : evName(v)}
           {r.count > 1 && (
-            <span style={{ color: '#8c8c8c', fontSize: 10 }}> +{r.count - 1}</span>
+            <span style={{ color: 'var(--mute, #8c8c8c)', fontSize: 10 }}> +{r.count - 1}</span>
           )}
         </span>
       ) },
@@ -212,7 +212,7 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
   const quietNow = ev.quiet || ''
   // 标签直接带状态：静默时变红字，平时显示事件条数 —— 不用点进去也知道
   const evLabel = quietNow
-    ? <span style={{ color: '#d4595e', fontWeight: 600 }}>⏸ {t('ev.quietNow')}</span>
+    ? <span style={{ color: 'var(--red, #d4595e)', fontWeight: 600 }}>⏸ {t('ev.quietNow')}</span>
     : `${t('act.events')}${evRows.length ? ` (${evRows.length})` : ''}`
 
   // 「经济事件」放到最后一个标签（2026-11-06 浩哥要求）。
@@ -222,20 +222,20 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
         <div>
           <div data-act-status style={{ fontSize: 12, marginBottom: 6 }}>
             {quietNow
-              ? <span style={{ color: '#d4595e', fontWeight: 600 }}>
+              ? <span style={{ color: 'var(--red, #d4595e)', fontWeight: 600 }}>
                   ⏸ {t('ev.quietTitle')}：{evName(quietNow)} —— 暂停开新仓，已有持仓照常管理（止损/平半/时间止损不受影响）
                 </span>
               : ev.next_ts
-                ? <span style={{ color: '#8c8c8c' }}>
+                ? <span style={{ color: 'var(--mute, #8c8c8c)' }}>
                     {t('ev.next')}：<b style={{ color: '#151515' }}>{evName(ev.next_title)}</b>
                     {' '}还有 {fmtCd(ev.next_minutes)} · {t('ev.window')} {ev.window_min} 分钟
                   </span>
-                : <span style={{ color: '#8c8c8c' }}>{t('ev.none')}</span>}
+                : <span style={{ color: 'var(--mute, #8c8c8c)' }}>{t('ev.none')}</span>}
           </div>
           {evRows.length
             ? <Table rowKey="ts" dataSource={evRows} columns={evCols} size="small"
                      pagination={false} scroll={{ y: scrollY }} />
-            : <div style={{ color: '#8c8c8c', fontSize: 12, padding: '20px 0', textAlign: 'center' }}>
+            : <div style={{ color: 'var(--mute, #8c8c8c)', fontSize: 12, padding: '20px 0', textAlign: 'center' }}>
                 {t('ev.none')}
               </div>}
         </div>
@@ -246,7 +246,7 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
       label: `${t('act.gates')} ${gateRows.length ? `(${g.passed || 0}/${gateRows.length})` : ''}`,
       children: (
         <div>
-          <div data-act-status style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 6 }}>
+          <div data-act-status style={{ fontSize: 12, color: 'var(--mute, #8c8c8c)', marginBottom: 6 }}>
             {t('gate.bar')} {gateBar} · {t('gate.summary')({
               ce: g.ce_n || 0, ha: g.ha_n || 0, bbw: g.bbw_n || 0, n: gateRows.length,
             })}

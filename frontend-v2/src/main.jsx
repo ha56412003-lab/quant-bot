@@ -15,8 +15,8 @@ const DARK_THEME = {
   token: {
     colorPrimary: '#c1207e',
     colorInfo: '#1fa8c4',
-    colorSuccess: '#3fa86a',
-    colorError: '#d4595e',
+    colorSuccess: 'var(--green, #3fa86a)',
+    colorError: 'var(--red, #d4595e)',
     colorWarning: '#d0a03a',
     colorLink: '#1fa8c4',
     colorBgBase: '#05070a',

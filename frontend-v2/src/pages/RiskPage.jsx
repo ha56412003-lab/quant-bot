@@ -46,7 +46,7 @@ function GlobalRisk({ data, onSaved }) {
       <Row gutter={[16, 12]}>
         {fields.map(([k, label, tip]) => (
           <Col xs={12} md={8} key={k}>
-            <div style={{ fontSize: 12, color: '#7d8590', marginBottom: 4 }}>{label}</div>
+            <div style={{ fontSize: 12, color: 'var(--mute, #7d8590)', marginBottom: 4 }}>{label}</div>
             <InputNumber size="small" style={{ width: '100%' }} value={v[k]}
                          onChange={(x) => setV((s) => ({ ...s, [k]: x }))} />
             <div style={{ fontSize: 11, color: '#4d5661', marginTop: 2 }}>{tip}</div>
@@ -192,7 +192,7 @@ export default function RiskPage() {
           <Card size="small">
             <Statistic title={t('dash.equity')} value={risk?.equity ?? '-'}
                        formatter={(v) => (v === '-' ? '-' : fmtUsd(Number(v)))}
-                       valueStyle={{ color: '#3fa86a' }} />
+                       valueStyle={{ color: 'var(--green, #3fa86a)' }} />
           </Card>
         </Col>
         <Col xs={24} md={16}>

@@ -78,7 +78,7 @@ export default function PoolTable({ pool }) {
       title: t('pool.col.vol'), dataIndex: 'qv', align: 'right', width: 72,
       sorter: (a, b) => (a.qv || 0) - (b.qv || 0),
       render: (v) => (
-        <span style={{ color: v != null && v < 1e7 ? '#d4595e' : undefined }}>{fmtVol(v)}</span>
+        <span style={{ color: v != null && v < 1e7 ? 'var(--red, #d4595e)' : undefined }}>{fmtVol(v)}</span>
       ),
     },
     {
@@ -92,7 +92,7 @@ export default function PoolTable({ pool }) {
         const cap = pool?.max_spike ?? 4.0
         const over = v != null && v > cap
         return (
-          <span style={{ color: over ? '#d4595e' : undefined, fontWeight: over ? 700 : 400 }}>
+          <span style={{ color: over ? 'var(--red, #d4595e)' : undefined, fontWeight: over ? 700 : 400 }}>
             {v != null ? v.toFixed(2) : '-'}
           </span>
         )
@@ -150,24 +150,24 @@ export default function PoolTable({ pool }) {
           // 否则读出来是「空 · 空头方向已达上限」——白占 2 个字的宽度还别扭
           let full = (r.last_sig_skip || t('pool.skipped')).replace(/^(空头|多头|做空|做多)/, '')
           const short = full.length > 6 ? `${full.slice(0, 6)}…` : full
-          body = <Tooltip title={r.last_sig_skip || t('pool.skipped')}><span style={{ color: '#8c8c8c' }}>{short}</span></Tooltip>
+          body = <Tooltip title={r.last_sig_skip || t('pool.skipped')}><span style={{ color: 'var(--mute, #8c8c8c)' }}>{short}</span></Tooltip>
         } else if (r.last_sig_pos === 'closed') {
           const p = r.last_sig_pnl
           body = (
-            <span style={{ color: '#8c8c8c' }}>
+            <span style={{ color: 'var(--mute, #8c8c8c)' }}>
               {t('act.closed')}{' '}
-              {p != null && <span style={{ color: p >= 0 ? '#c4182c' : '#0f7a3d' }}>{fmtPnl(p)}</span>}
+              {p != null && <span style={{ color: p >= 0 ? 'var(--red, #c4182c)' : 'var(--green, #0f7a3d)' }}>{fmtPnl(p)}</span>}
             </span>
           )
         } else if (r.last_sig_pos === 'open') {
-          body = <span style={{ color: '#52c41a' }}>{t('pool.held')}</span>
+          body = <span style={{ color: 'var(--green, #52c41a)' }}>{t('pool.held')}</span>
         } else {
           body = <span style={{ color: '#1677ff' }}>{t('pool.acted')}</span>
         }
         return (
           <div style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
             <div>{sideTag}{body}</div>
-            <div style={{ color: '#8c8c8c', fontSize: 10 }}>{ago(r.last_sig_ts)}</div>
+            <div style={{ color: 'var(--mute, #8c8c8c)', fontSize: 10 }}>{ago(r.last_sig_ts)}</div>
           </div>
         )
       },
@@ -179,13 +179,13 @@ export default function PoolTable({ pool }) {
       size="small"
       title={`${t('pool.title')}`}
       extra={
-        <span style={{ fontSize: 12, color: '#8c8c8c' }}>
-          <span style={{ color: '#7d8590' }}>候选</span> <b style={{ color: '#e6edf3' }}>{pool?.candidate_n ?? rows.length}</b>
-          <span style={{ margin: '0 4px', color: '#30363d' }}>→</span>
-          <span style={{ color: '#7d8590' }}>监控</span> <b style={{ color: '#45e6f5' }}>{pool?.monitor_n ?? '-'}</b>
-          <span style={{ margin: '0 4px', color: '#30363d' }}>→</span>
-          <span style={{ color: '#7d8590' }}>持仓</span> <b style={{ color: '#ff4d5e' }}>{pool?.position_n ?? held}</b>
-          {pool?.ts ? <span style={{ marginLeft: 10, color: '#7d8590' }}>{ago(pool.ts)}{t('pool.updated')}</span> : null}
+        <span style={{ fontSize: 12, color: 'var(--mute, #8c8c8c)' }}>
+          <span style={{ color: 'var(--mute, #7d8590)' }}>候选</span> <b style={{ color: 'var(--ink, #e6edf3)' }}>{pool?.candidate_n ?? rows.length}</b>
+          <span style={{ margin: '0 4px', color: 'var(--dim, #30363d)' }}>→</span>
+          <span style={{ color: 'var(--mute, #7d8590)' }}>监控</span> <b style={{ color: 'var(--cyan, #45e6f5)' }}>{pool?.monitor_n ?? '-'}</b>
+          <span style={{ margin: '0 4px', color: 'var(--dim, #30363d)' }}>→</span>
+          <span style={{ color: 'var(--mute, #7d8590)' }}>持仓</span> <b style={{ color: 'var(--red, #ff4d5e)' }}>{pool?.position_n ?? held}</b>
+          {pool?.ts ? <span style={{ marginLeft: 10, color: 'var(--mute, #7d8590)' }}>{ago(pool.ts)}{t('pool.updated')}</span> : null}
         </span>
       }
     >

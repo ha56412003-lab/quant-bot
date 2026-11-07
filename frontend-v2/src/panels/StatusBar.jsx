@@ -11,18 +11,18 @@ export function StatusCards({ status, positions }) {
   const equity = Number(status?.equity) || 0
   const marginRatio = equity > 0 ? (marginUsed / equity) * 100 : 0
   const marginFree = equity - marginUsed
-  const ratioColor = marginRatio >= 60 ? '#d4595e' : marginRatio >= 40 ? '#d48806' : '#3fa86a'
+  const ratioColor = marginRatio >= 60 ? 'var(--red, #d4595e)' : marginRatio >= 40 ? '#d48806' : 'var(--green, #3fa86a)'
   const cards = [
     { title: t('dash.equity'), value: status?.equity, formatter: (v) => fmtUsd(v) },
-    { title: t('dash.upnl'), value: upnl, color: upnl >= 0 ? '#d4595e' : '#3fa86a',
+    { title: t('dash.upnl'), value: upnl, color: upnl >= 0 ? 'var(--red, #d4595e)' : 'var(--green, #3fa86a)',
       formatter: (v) => `${v >= 0 ? '+' : ''}${fmtUsd(v)}` },
     { title: t('dash.dayPnl'), value: status?.daily_realized_pnl,
-      color: (status?.daily_realized_pnl || 0) >= 0 ? '#d4595e' : '#3fa86a',
+      color: (status?.daily_realized_pnl || 0) >= 0 ? 'var(--red, #d4595e)' : 'var(--green, #3fa86a)',
       formatter: (v) => `${v >= 0 ? '+' : ''}${fmtUsd(v)}` },
     { title: t('dash.posCount'), value: positions.length, formatter: (v) => v },
     { title: t('dash.marginUsage'), value: marginRatio, suffix: '%', color: ratioColor,
       formatter: (v) => Number(v).toFixed(1) },
-    { title: t('dash.marginFree'), value: marginFree, color: '#3fa86a',
+    { title: t('dash.marginFree'), value: marginFree, color: 'var(--green, #3fa86a)',
       formatter: (v) => fmtUsd(v) },
   ]
   return (

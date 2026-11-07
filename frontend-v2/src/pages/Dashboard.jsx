@@ -160,7 +160,7 @@ export default function Dashboard({ status }) {
             <span style={{ marginLeft: 'auto' }}>
               {pos.length > 0 && (
                 <Popconfirm title={'确定全平 ' + pos.length + ' 单？'} onConfirm={closeAll}>
-                  <button className="btn" style={{ borderColor: '#ff4d5e', color: '#ff4d5e' }}>
+                  <button className="btn" style={{ borderColor: 'var(--red, #ff4d5e)', color: 'var(--red, #ff4d5e)' }}>
                     一键全平
                   </button>
                 </Popconfirm>
@@ -206,7 +206,7 @@ export default function Dashboard({ status }) {
                       <td style={{ padding: '7px 8px', fontWeight: 700 }}>
                         {(p.symbol || '').replace('USDT', '')}
                       </td>
-                      <td style={{ padding: '7px 8px', color: long ? '#ff4d5e' : '#35e08a' }}>
+                      <td style={{ padding: '7px 8px', color: long ? 'var(--red, #ff4d5e)' : 'var(--green, #35e08a)' }}>
                         {long ? '多' : '空'}
                         {p.half_closed ? (
                           <span
@@ -275,7 +275,7 @@ export default function Dashboard({ status }) {
                         </div>
                         <div style={{
                           fontSize: 9,
-                          color: (p.liq_dist_pct || 99) < 20 ? '#ff4d5e' : '#6b7183',
+                          color: (p.liq_dist_pct || 99) < 20 ? 'var(--red, #ff4d5e)' : 'var(--mute, #6b7183)',
                         }}>距 {(p.liq_dist_pct || 0).toFixed(0)}%</div>
                       </td>
                       <td style={{ padding: '7px 8px' }}>
@@ -334,7 +334,7 @@ export default function Dashboard({ status }) {
                       </td>
                       <td style={{
                         padding: '7px 8px', textAlign: 'right', fontWeight: 700,
-                        color: win ? '#ff4d5e' : '#35e08a',
+                        color: win ? 'var(--red, #ff4d5e)' : 'var(--green, #35e08a)',
                       }}>
                         {win ? '+' : ''}{(p.unrealized_pnl || 0).toFixed(2)}
                         <span style={{ fontSize: 9, opacity: .55, marginLeft: 1 }}>U</span>
@@ -449,7 +449,7 @@ export default function Dashboard({ status }) {
                       <div className="bar-line">
                         <i style={{
                           width: `${Math.min(100, marginUse)}%`,
-                          background: marginUse < 40 ? 'var(--cyan, #45e6f5)' : marginUse < 60 ? '#ffb454' : '#ff4d5e',
+                          background: marginUse < 40 ? 'var(--cyan, #45e6f5)' : marginUse < 60 ? 'var(--amber, #ffb454)' : 'var(--red, #ff4d5e)',
                         }} />
                       </div>
                     </div>

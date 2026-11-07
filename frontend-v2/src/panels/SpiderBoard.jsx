@@ -127,19 +127,19 @@ function PosCard({ p, avatar }) {
   const retPct = entry ? ((long ? px - entry : entry - px) / entry) * 100 : 0
 
   return (
-    <article className="card work" style={{ '--c': win ? '#ff4d5e' : '#35e08a' }}>
+    <article className="card work" style={{ '--c': win ? 'var(--red, #ff4d5e)' : 'var(--green, #35e08a)' }}>
       {/* 行1：头像 + 币种 + 方向标签 + 浮盈 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
         <img className="av" src={avatar} alt="" />
         <b style={{ fontSize: 15, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{sym}</b>
         <em className="tg" style={{
-          color: long ? '#ff4d5e' : '#35e08a',
+          color: long ? 'var(--red, #ff4d5e)' : 'var(--green, #35e08a)',
           borderColor: long ? 'rgba(255,77,94,.55)' : 'rgba(53,224,138,.55)',
         }}>{long ? 'LONG' : 'SHORT'}</em>
         <span key={Math.round(upnl * 100)} className="pnl-num" style={{
           marginLeft: 'auto', fontWeight: 900,
           fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
-          color: win ? '#ff4d5e' : '#35e08a',
+          color: win ? 'var(--red, #ff4d5e)' : 'var(--green, #35e08a)',
         }}>
           {win ? '+' : ''}{upnl.toFixed(2)}
         </span>
@@ -153,7 +153,7 @@ function PosCard({ p, avatar }) {
         <span style={{ whiteSpace: 'nowrap' }}>{fmtPx(entry)} → {fmtPx(px)}</span>
         <span style={{
           fontWeight: 700, whiteSpace: 'nowrap',
-          color: win ? '#ff4d5e' : '#35e08a',
+          color: win ? 'var(--red, #ff4d5e)' : 'var(--green, #35e08a)',
         }}>
           {retPct >= 0 ? '+' : ''}{retPct.toFixed(2)}%
         </span>
@@ -312,7 +312,7 @@ export default function SpiderBoard({ status, positions = [], nav, activeNav, on
               {/* 运行指示灯：运行中绿点 / 停盘红点 */}
               <span className="runled">
                 <i style={{
-                  background: status ? '#35e08a' : '#ff4d5e',
+                  background: status ? 'var(--green, #35e08a)' : 'var(--red, #ff4d5e)',
                   boxShadow: status ? '0 0 8px #35e08a' : '0 0 8px #ff4d5e',
                 }} />
                 {status ? '运行中' : '停盘'}

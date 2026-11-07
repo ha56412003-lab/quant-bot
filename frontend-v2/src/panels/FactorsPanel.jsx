@@ -24,25 +24,25 @@ export default function FactorsPanel({ data, bare = false }) {
 
     const items = [
       { t: t('fp.funding'), val: btcFunding, fmt: (x) => `${(x * 100).toFixed(4)}%`,
-        color: btcFunding > 0.0003 ? '#d4595e' : btcFunding < -0.0001 ? '#3fa86a' : undefined,
+        color: btcFunding > 0.0003 ? 'var(--red, #d4595e)' : btcFunding < -0.0001 ? 'var(--green, #3fa86a)' : undefined,
         tip: t('fp.fundingTip') },
       { t: t('fp.lsr'), val: btcLsr, fmt: (x) => x.toFixed(2), tip: t('fp.lsrTip') },
       { t: t('fp.topLsr'), val: btcTopLsr, fmt: (x) => x.toFixed(2), tip: t('fp.topLsrTip') },
       { t: t('fp.oi'), val: btcOi, fmt: (x) => `${x >= 0 ? '+' : ''}${x.toFixed(2)}%`,
-        color: btcOi > 0 ? '#3fa86a' : '#d4595e', tip: t('fp.oiTip') },
+        color: btcOi > 0 ? 'var(--green, #3fa86a)' : 'var(--red, #d4595e)', tip: t('fp.oiTip') },
       { t: t('fp.taker'), val: btcTaker, fmt: (x) => x.toFixed(2),
-        color: btcTaker > 1.1 ? '#3fa86a' : btcTaker < 0.9 ? '#d4595e' : undefined,
+        color: btcTaker > 1.1 ? 'var(--green, #3fa86a)' : btcTaker < 0.9 ? 'var(--red, #d4595e)' : undefined,
         tip: t('fp.takerTip') },
       { t: t('fp.basis'), val: basis, fmt: (x) => `${x.toFixed(3)}%`, tip: t('fp.basisTip') },
       { t: t('fp.liq'), val: liq,
         fmt: (x) => `${(x.long_1h / 1e6).toFixed(1)}M / ${(x.short_1h / 1e6).toFixed(1)}M`,
         tip: t('fp.liqTip') },
       { t: t('fp.cbprem'), val: cbPrem, fmt: (x) => `${Number(x).toFixed(4)}`,
-        color: cbPrem > 0 ? '#3fa86a' : '#d4595e', tip: t('fp.cbpremTip') },
+        color: cbPrem > 0 ? 'var(--green, #3fa86a)' : 'var(--red, #d4595e)', tip: t('fp.cbpremTip') },
       { t: t('fp.fg'), val: fg, fmt: (x) => x.toFixed(0),
-        color: fg >= 85 || fg <= 15 ? '#d4595e' : undefined, tip: t('fp.fgTip') },
+        color: fg >= 85 || fg <= 15 ? 'var(--red, #d4595e)' : undefined, tip: t('fp.fgTip') },
       { t: t('fp.etf'), val: etf, fmt: (x) => `${x >= 0 ? '+' : ''}${(x / 1e6).toFixed(0)}M`,
-        color: etf >= 0 ? '#3fa86a' : '#d4595e', tip: t('fp.etfTip') },
+        color: etf >= 0 ? 'var(--green, #3fa86a)' : 'var(--red, #d4595e)', tip: t('fp.etfTip') },
     ]
     return items.filter((i) => i.val !== undefined && i.val !== null)
   }, [data, t])

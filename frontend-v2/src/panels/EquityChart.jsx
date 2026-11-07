@@ -6,7 +6,7 @@ import { useI18n } from '../i18n'
 // 标题视觉跟 Dashboard 右侧两张卡的 Card head 对齐（11.5px / 700 / 青色 / 字距 0.06em）。
 // 从外层条搬到 Card head 里，看起来还是同一个标题，只是不再多占一层容器
 const CARD_TITLE = {
-  fontSize: 11.5, fontWeight: 700, color: '#45e6f5', letterSpacing: '0.06em',
+  fontSize: 11.5, fontWeight: 700, color: 'var(--cyan, #45e6f5)', letterSpacing: '0.06em',
 }
 
 // 按主题取色。纸面主题卡片底是 #f6f5f1，亮荧光色在上面会发飘，整体压深一档。
@@ -26,11 +26,11 @@ function palette(theme) {
   }
   if (theme === 'mac-light') {
     return { line: '#007aff', glow: 'rgba(0,122,255,0)', dot: 'rgba(0,122,255,.16)',
-             bg: '#ffffff', label: '#8e8e93', tipBg: 'rgba(255,255,255,.99)',
+             bg: '#ffffff', label: '#6e6e73', tipBg: 'rgba(255,255,255,.99)',
              tipBorder: 'rgba(0,0,0,.12)', tipText: '#1d1d1f',
              blur: 0, halo: 0, width: 1.4, dotR: 0.85, dotSize: 7 }
   }
-  return { line: '#45e6f5', glow: 'rgba(69,230,245,.90)', dot: 'rgba(69,230,245,.55)',
+  return { line: 'var(--cyan, #45e6f5)', glow: 'rgba(69,230,245,.90)', dot: 'rgba(69,230,245,.55)',
            bg: '#0b0c12', label: 'rgba(150,160,180,.75)', tipBg: 'rgba(8,10,16,.94)',
            tipBorder: 'rgba(69,230,245,.35)', tipText: '#d8dde9',
            blur: 15, halo: 0.16, width: 1.7, dotR: 1.0, dotSize: 6 }
@@ -82,7 +82,7 @@ export default function EquityChart({ activeMode }) {
   }, [mode])
 
   const titleStyle = isMac
-    ? { fontSize: 12, fontWeight: 600, color: theme === 'mac-light' ? '#007aff' : '#0a84ff', letterSpacing: 0 }
+    ? { fontSize: 12, fontWeight: 600, color: theme === 'mac-light' ? '#0062cc' : '#0a84ff', letterSpacing: 0 }
     : CARD_TITLE
 
   const last = series.length ? Number(series[series.length - 1].equity) : null

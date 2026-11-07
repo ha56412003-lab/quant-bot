@@ -81,7 +81,7 @@ function Credentials() {
       <Row gutter={[16, 16]}>
         {CRED_FIELDS.map((f) => (
           <Col xs={24} md={f.span} key={f.key}>
-            <div style={{ fontSize: 12, color: '#7d8590', marginBottom: 4 }}>{f.label}</div>
+            <div style={{ fontSize: 12, color: 'var(--mute, #7d8590)', marginBottom: 4 }}>{f.label}</div>
             <Input.Password placeholder={t('config.keepEmpty')} autoComplete="off"
                             value={form[f.key] || ''}
                             onChange={(e) => setForm((s) => ({ ...s, [f.key]: e.target.value }))} />
@@ -139,7 +139,7 @@ function ExecutorExchange() {
           </Radio.Button>
         ))}
       </Radio.Group>
-      <div style={{ marginTop: 8, fontSize: 12, color: '#7d8590' }}>
+      <div style={{ marginTop: 8, fontSize: 12, color: 'var(--mute, #7d8590)' }}>
         {t('config.executorCur')}: <Tag color="green">{info.exchange.toUpperCase()}</Tag>
       </div>
     </Card>
@@ -191,7 +191,7 @@ function UniverseConfig() {
       <Alert type="info" showIcon style={{ marginBottom: 12, fontSize: 12 }}
         message="每天自动重建一次。组成 = 自选合约（优先级最高）+ 按成交额排名补满 100 只。"
         description={
-          <span style={{ fontSize: 11.5, color: '#7d8590' }}>
+          <span style={{ fontSize: 11.5, color: 'var(--mute, #7d8590)' }}>
             过滤：真加密货币 · USDT 本位 · 永续 · 在交易 · 30 天振幅 {cand?.min_amp_pct ?? 10}% ~ {cand?.max_amp_pct ?? 300}%
           </span>
         } />
@@ -211,12 +211,12 @@ function UniverseConfig() {
                     fontSize: 12, color: '#8b949e', lineHeight: 1.9 }}>
         <div>
           <span style={{ color: 'var(--cyan, #45e6f5)' }}>当前候选池</span>：
-          <b style={{ color: '#e6edf3' }}>{cand?.symbols?.length ?? 0}</b> 只
-          {cand?.size ? <span style={{ color: '#7d8590' }}> / 目标 {cand.size}</span> : null}
+          <b style={{ color: 'var(--ink, #e6edf3)' }}>{cand?.symbols?.length ?? 0}</b> 只
+          {cand?.size ? <span style={{ color: 'var(--mute, #7d8590)' }}> / 目标 {cand.size}</span> : null}
           <span style={{ marginLeft: 12 }}>构建于 {builtAt}</span>
         </div>
         {cand?.total_tradable ? (
-          <div style={{ color: '#7d8590' }}>
+          <div style={{ color: 'var(--mute, #7d8590)' }}>
             全市场真币 {cand.total_tradable} 个 → 扫描 {cand.scanned} 个 → 剔除 {cand.rejected_n} 个（振幅不合格）→ 留 {cand.symbols?.length} 只
           </div>
         ) : null}
@@ -225,7 +225,7 @@ function UniverseConfig() {
             ⚠ 白名单里这些币在币安不可交易，已跳过：{cand.whitelist_missing.join(', ')}
           </div>
         ) : null}
-        <div style={{ marginTop: 6, color: '#7d8590', wordBreak: 'break-all' }}>
+        <div style={{ marginTop: 6, color: 'var(--mute, #7d8590)', wordBreak: 'break-all' }}>
           {(cand?.symbols || []).slice(0, 40).map((s) => (
             <Tag key={s} style={{ marginBottom: 4, fontSize: 11 }}>{s.replace('USDT', '')}</Tag>
           ))}

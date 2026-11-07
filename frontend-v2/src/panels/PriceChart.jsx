@@ -13,7 +13,7 @@ const MAJORS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT',
 // 标题视觉跟 EquityChart 的 CARD_TITLE 一致（11.5px / 700 / 青色 / 字距 0.06em）：
 // 两张右侧卡的标题都在 Card head 里，视觉必须统一
 const CARD_TITLE = {
-  fontSize: 11.5, fontWeight: 700, color: '#45e6f5', letterSpacing: '0.06em',
+  fontSize: 11.5, fontWeight: 700, color: 'var(--cyan, #45e6f5)', letterSpacing: '0.06em',
 }
 
 export default function PriceChart({ universe }) {
@@ -91,7 +91,7 @@ export default function PriceChart({ universe }) {
       return {
         coord: [idx >= 0 ? idx : cat.length - 1, m.price],
         value: isOpen ? t('dash.openMark') : t('dash.closeMark'),
-        itemStyle: { color: isBuy ? '#d4595e' : '#3fa86a' },
+        itemStyle: { color: isBuy ? 'var(--red, #d4595e)' : 'var(--green, #3fa86a)' },
         symbol: isOpen ? 'triangle' : 'circle',
         symbolRotate: isOpen && !isBuy ? 180 : 0,
         symbolSize: 11,
@@ -107,8 +107,8 @@ export default function PriceChart({ universe }) {
               { gridIndex: 1, axisLabel: { show: false }, splitLine: { show: false } }],
       series: [
         { name: symbol, type: 'candlestick', data: ohlc, xAxisIndex: 0, yAxisIndex: 0,
-          itemStyle: { color: '#d4595e', color0: '#3fa86a',
-                       borderColor: '#d4595e', borderColor0: '#3fa86a' },
+          itemStyle: { color: 'var(--red, #d4595e)', color0: 'var(--green, #3fa86a)',
+                       borderColor: 'var(--red, #d4595e)', borderColor0: 'var(--green, #3fa86a)' },
           markPoint: { data: marks, label: { fontSize: 9, color: '#fff' } } },
         { name: t('dash.volume'), type: 'bar', data: vols, xAxisIndex: 1, yAxisIndex: 1,
           itemStyle: {

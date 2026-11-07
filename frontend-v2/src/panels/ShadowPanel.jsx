@@ -8,7 +8,7 @@ function RuleBox({ title, tip, pass, block, t }) {
   return (
     <Card size="small" style={{ height: '100%' }}>
       <Tooltip title={tip}>
-        <div style={{ fontSize: 13, marginBottom: 8, color: '#8c8c8c' }}>{title}</div>
+        <div style={{ fontSize: 13, marginBottom: 8, color: 'var(--mute, #8c8c8c)' }}>{title}</div>
       </Tooltip>
       {!has ? (
         <Text type="secondary" style={{ fontSize: 12 }}>{t('shadow.collecting')}</Text>
@@ -18,9 +18,9 @@ function RuleBox({ title, tip, pass, block, t }) {
             <Statistic
               title={<span style={{ fontSize: 11 }}>{t('shadow.pass')} ({pass.n})</span>}
               value={pass.n ? pass.win : 0} suffix="%" precision={1}
-              valueStyle={{ fontSize: 18, color: '#52c41a' }}
+              valueStyle={{ fontSize: 18, color: 'var(--green, #52c41a)' }}
             />
-            <div style={{ fontSize: 11, color: '#8c8c8c' }}>
+            <div style={{ fontSize: 11, color: 'var(--mute, #8c8c8c)' }}>
               {t('shadow.avgR')} {pass.n ? pass.avg_r.toFixed(3) : '-'}
             </div>
           </Col>
@@ -28,16 +28,16 @@ function RuleBox({ title, tip, pass, block, t }) {
             <Statistic
               title={<span style={{ fontSize: 11 }}>{t('shadow.block')} ({block.n})</span>}
               value={block.n ? block.win : 0} suffix="%" precision={1}
-              valueStyle={{ fontSize: 18, color: block.n && block.win < pass.win ? '#d4595e' : '#d48806' }}
+              valueStyle={{ fontSize: 18, color: block.n && block.win < pass.win ? 'var(--red, #d4595e)' : '#d48806' }}
             />
-            <div style={{ fontSize: 11, color: '#8c8c8c' }}>
+            <div style={{ fontSize: 11, color: 'var(--mute, #8c8c8c)' }}>
               {t('shadow.avgR')} {block.n ? block.avg_r.toFixed(3) : '-'}
             </div>
           </Col>
         </Row>
       )}
       {has && (
-        <div style={{ marginTop: 6, fontSize: 11, color: '#8c8c8c' }}>
+        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--mute, #8c8c8c)' }}>
           {block.n && pass.n
             ? (block.win < pass.win
                 ? t('shadow.ruleWorks')
@@ -90,7 +90,7 @@ export default function ShadowPanel({ shadow }) {
         return (
           <span style={{ fontSize: 11 }}>
             <Tag color={r.outcome === 'tp' ? 'green' : r.outcome === 'stop' ? 'red' : 'default'}>{r.outcome}</Tag>
-            <span style={{ color: pos ? '#52c41a' : '#d4595e' }}>
+            <span style={{ color: pos ? 'var(--green, #52c41a)' : 'var(--red, #d4595e)' }}>
               {r.outcome_r > 0 ? '+' : ''}{(r.outcome_r || 0).toFixed(2)}R
             </span>
           </span>
@@ -105,12 +105,12 @@ export default function ShadowPanel({ shadow }) {
       title={
         <span>
           {t('shadow.title')}
-          <span style={{ fontSize: 11, color: '#8c8c8c', marginLeft: 8, fontWeight: 400 }}>
+          <span style={{ fontSize: 11, color: 'var(--mute, #8c8c8c)', marginLeft: 8, fontWeight: 400 }}>
             {t('shadow.subtitle')}
           </span>
         </span>
       }
-      extra={<span style={{ fontSize: 12, color: '#8c8c8c' }}>{t('shadow.settled')} {settled}</span>}
+      extra={<span style={{ fontSize: 12, color: 'var(--mute, #8c8c8c)' }}>{t('shadow.settled')} {settled}</span>}
     >
       <Row gutter={[10, 10]}>
         <Col xs={24} md={8}>
@@ -130,7 +130,7 @@ export default function ShadowPanel({ shadow }) {
         <Col xs={24} md={8}>
           <Card size="small" style={{ height: '100%' }}>
             <Tooltip title={t('shadow.r3Tip')}>
-              <div style={{ fontSize: 13, marginBottom: 8, color: '#8c8c8c' }}>{t('shadow.r3')}</div>
+              <div style={{ fontSize: 13, marginBottom: 8, color: 'var(--mute, #8c8c8c)' }}>{t('shadow.r3')}</div>
             </Tooltip>
             {!s.r3_half?.n ? (
               <Text type="secondary" style={{ fontSize: 12 }}>{t('shadow.collecting')}</Text>
