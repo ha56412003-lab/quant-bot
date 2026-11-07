@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AGENT OPS · MAC 极简设计稿</title>
+<!--
+================================================================================
+  设计推理（给浩哥看的部分）
+================================================================================
+
+  【问题】这是个量化交易控制台，一天要盯十几个小时。信息极密：净值、持仓、
+  监控池 24 个币、因子影子 963 条信号、三滤光闸 61 个候选。原来的界面用颜色
+  和发光区分层级，结果一屏五套颜色互相打架，眼睛没地方落。
+
+  【调性】refined minimalism —— macOS 原生应用那种克制（活动监视器、Xcode、
+  Final Cut 的信息密度）+ 瑞士平面设计的分栏秩序。不做"科技感"，做"专业感"。
+
+  【让人记住的一点】数字是唯一的主角，其余全部退成回声。
+    净值 42px 极细字重 vs 标签 10px 全大写微字距灰 —— 这种极端的对比度
+    在同一个屏幕上建立秩序。所有装饰插图（卡通小人、雷达、机架）删掉，
+    让真实的数字和曲线成为界面上唯一的"图像"。
+
+  【空间】不做均匀网格，做非对称：
+    · 主区左宽右窄（持仓 1.62fr : 图表 1fr）—— 持仓是要操作的地方，图表是看的
+    · 留白比原版大 40%，卡片之间 12px，卡片内部 18px
+    · 卡片不用阴影，只用 1px 发丝边框 —— 阴影会让密集界面显脏
+
+  【色彩】灰度承担全部层级，系统蓝只出现在"可交互/当前选中"，
+    红绿只出现在盈亏数字上。不允许出现第五种颜色。
+
+  【排版】系统字体栈（SF Pro / 苹方）。数字一律 tabular-nums 等宽对齐。
+    字号阶梯：10 / 11 / 12 / 13 / 15 / 22 / 42，七档，不多不少。
+
+  【两套】同一套结构，只换令牌。深色用纯黑 #000 底 + #1c1c1e 卡片，
+    这是 macOS 深色模式的原生观感；浅色 #f2f2f7 底 + 纯白卡片。
+
+================================================================================
+-->
+<style>
+/* ═══════════════════════════════════════════════════════════════════════
+   令牌 · 浅色
+   ═══════════════════════════════════════════════════════════════════════ */
+:root {
+  --bg:        #f2f2f7;
+  --surface:   #ffffff;
+  --surface-2: #fafafa;
+  --surface-3: #f0f0f2;
+
+  --text:   #1d1d1f;
+  --text-2: #3a3a3c;
+  --text-3: #52525b;
+  --text-4: #6e6e73;
+
+  --accent:      #007aff;
+  --accent-text: #0062cc;
+  --accent-dim:  rgba(0, 122, 255, .09);
+
+  --up:   #d70015;
+  --down: #1f7a35;
+  --warn: #c93400;
+
+  --line:   rgba(0, 0, 0, .07);
+  --line-2: rgba(0, 0, 0, .13);
+
+  --r-card: 14px;
+  --r-ctl:  8px;
+  --r-tag:  6px;
+
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+          "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --chart-grid: rgba(0, 0, 0, .055);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   令牌 · 深色
+   ═══════════════════════════════════════════════════════════════════════ */
+[data-theme="dark"] {
+  --bg:        #000000;
+  --surface:   #1c1c1e;
+  --surface-2: #232325;
+  --surface-3: #2c2c2e;
+
+  --text:   #f5f5f7;
+  --text-2: #d1d1d6;
+  --text-3: #a1a1a6;
+  --text-4: #8e8e93;
+
+  --accent:      #0a84ff;
+  --accent-text: #4aa3ff;
+  --accent-dim:  rgba(10, 132, 255, .16);
+
+  --up:   #ff6961;
+  --down: #30d158;
+  --warn: #ff9f0a;
+
+  --line:   rgba(255, 255, 255, .075);
+  --line-2: rgba(255, 255, 255, .14);
+
+  --chart-grid: rgba(255, 255, 255, .06);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   基础
+   ═══════════════════════════════════════════════════════════════════════ */
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  padding: 20px 22px 28px;
+  transition: background .18s ease, color .18s ease;
+}
+
+.num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+/* 极小的全大写标签 —— 界面上的"回声"层 */
+.eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--text-4);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   顶栏 —— 不用卡片框，用一条发丝线划开
+   ═══════════════════════════════════════════════════════════════════════ */
+.topbar {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line-2);
+  margin-bottom: 18px;
+}
+
+.brand { flex: 0 0 auto; }
+
+.brand h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -.015em;
+  line-height: 1.25;
+  color: var(--text);
+}
+
+.brand .sub {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--text-4);
+  letter-spacing: .01em;
+}
+
+/* 状态 + 日目标 */
+.goal {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding-top: 2px;
+}
+
+.goal-figure { min-width: 0; }
+
+.goal-figure .v {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.goal-figure .v em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-4);
+  margin-left: 3px;
+}
+
+.goal-track {
+  flex: 1 1 auto;
+  max-width: 210px;
+  height: 4px;
+  background: var(--surface-3);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.goal-track i {
+  display: block;
+  height: 100%;
+  width: 47.5%;
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+/* 导航 */
+.nav {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.nav a {
+  display: block;
+  padding: 5px 10px;
+  border-radius: var(--r-ctl);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-3);
+  text-decoration: none;
+  transition: background .14s ease, color .14s ease;
+}
+
+.nav a:hover { background: var(--surface-3); color: var(--text); }
+
+.nav a.on {
+  background: var(--accent-dim);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.clock {
+  flex: 0 0 auto;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-4);
+  line-height: 1.5;
+}
+
+.clock b {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  letter-spacing: .01em;
+}
+
+/* 运行状态点 */
+.dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--down);
+  margin-right: 5px;
+  vertical-align: 1px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   十格槽位 —— 空就要空得干净
+   ═══════════════════════════════════════════════════════════════════════ */
+.slots {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.slot {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: 24px 16px;
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  text-align: center;
+}
+
+.slot .id {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .07em;
+  color: var(--text-4);
+}
+
+.slot .wait {
+  font-size: 11px;
+  color: var(--text-4);
+  opacity: .82;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   状态条
+   ═══════════════════════════════════════════════════════════════════════ */
+.statusline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  font-size: 11.5px;
+  color: var(--text-3);
+  margin-bottom: 14px;
+}
+
+.statusline b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.statusline .sep { color: var(--line-2); }
+.statusline .right { margin-left: auto; color: var(--text-4); font-size: 11px; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   卡片（通用）
+   ═══════════════════════════════════════════════════════════════════════ */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 16px 11px;
+  border-bottom: 1px solid var(--line);
+}
+
+.card-head h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  color: var(--text);
+}
+
+.card-head .aside {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--text-4);
+}
+
+.card-body { padding: 14px 16px; flex: 1 1 auto; min-height: 0; }
+.card-body.flush { padding: 0; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   主区：非对称
+   ═══════════════════════════════════════════════════════════════════════ */
+.main-grid {
+  display: grid;
+  grid-template-columns: 1.62fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.left-stack,
+.right-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   数据表（发丝线，无斑马纹）
+   ═══════════════════════════════════════════════════════════════════════ */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+
+thead th {
+  padding: 7px 10px;
+  text-align: left;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-4);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+tbody td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+tbody tr:last-child td { border-bottom: none; }
+
+tbody tr:hover td { background: var(--surface-2); }
+
+.sym { font-weight: 600; color: var(--text); letter-spacing: .01em; }
+
+/* 空状态 —— 一句安静的灰字，不画空表格 */
+.empty-row td {
+  padding: 34px 10px;
+  text-align: center;
+  color: var(--text-4);
+  font-size: 12px;
+  border-bottom: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   标签
+   ═══════════════════════════════════════════════════════════════════════ */
+.tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--r-tag);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.6;
+  border: 1px solid var(--line-2);
+  color: var(--text-3);
+  background: transparent;
+  white-space: nowrap;
+}
+
+.tag.ok   { color: var(--down); border-color: color-mix(in srgb, var(--down) 34%, transparent); }
+.tag.bad  { color: var(--up);   border-color: color-mix(in srgb, var(--up) 34%, transparent); }
+.tag.wait { color: var(--text-4); }
+.tag.info { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   账户摘要 —— 像 macOS「关于本机」：标签左、值右、发丝线分隔
+   ═══════════════════════════════════════════════════════════════════════ */
+.kv { display: flex; flex-direction: column; }
+
+.kv-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.kv-row:last-child { border-bottom: none; }
+
+.kv-row .k {
+  font-size: 11.5px;
+  color: var(--text-4);
+}
+
+.kv-row .v {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.kv-row .v.up   { color: var(--up); }
+.kv-row .v.down { color: var(--down); }
+.kv-row .v em {
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--text-4);
+  margin-left: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   净值大数字 —— 全屏唯一的主角
+   ═══════════════════════════════════════════════════════════════════════ */
+.equity-big {
+  padding: 4px 2px 14px;
+}
+
+.equity-big .v {
+  font-size: 42px;
+  font-weight: 300;
+  letter-spacing: -.03em;
+  line-height: 1.05;
+  color: var(--text);
+}
+
+.equity-big .v em {
+  font-style: normal;
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--text-4);
+  margin-left: 5px;
+  letter-spacing: 0;
+}
+
+.equity-big .meta {
+  margin-top: 7px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-4);
+}
+
+.equity-big .delta {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--up);
+}
+
+/* 曲线图容器 */
+.chart-wrap {
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   底部三栏
+   ═══════════════════════════════════════════════════════════════════════ */
+.bottom-grid {
+  display: grid;
+  grid-template-columns: 1.45fr 1.15fr 1fr;
+  gap: 12px;
+}
+
+/* 分段控件 */
+.segbar {
+  display: flex;
+  gap: 1px;
+  background: var(--surface-3);
+  padding: 2px;
+  border-radius: var(--r-ctl);
+  margin-left: auto;
+}
+
+.segbar span {
+  padding: 2px 9px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-3);
+  border-radius: 6px;
+  cursor: default;
+}
+
+.segbar span.on {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .10);
+}
+
+[data-theme="dark"] .segbar span.on { box-shadow: 0 1px 2px rgba(0, 0, 0, .5); }
+
+/* 滤光闸小结 */
+.gate-summary {
+  display: flex;
+  gap: 14px;
+  padding: 0 16px 10px;
+  font-size: 10.5px;
+  color: var(--text-4);
+}
+
+.gate-summary b { color: var(--text-2); font-weight: 600; }
+
+/* 因子卡 */
+.factor {
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  padding: 11px 13px;
+  margin-bottom: 8px;
+}
+
+.factor:last-child { margin-bottom: 0; }
+
+.factor .name {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.factor .note {
+  font-size: 10.5px;
+  color: var(--text-4);
+  margin-bottom: 9px;
+}
+
+.factor .metrics {
+  display: flex;
+  gap: 18px;
+}
+
+.factor .m .l {
+  font-size: 9.5px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--text-4);
+}
+
+.factor .m .n {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.factor .verdict {
+  margin-top: 8px;
+  font-size: 10.5px;
+  color: var(--down);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   主题开关
+   ═══════════════════════════════════════════════════════════════════════ */
+.switch {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 50;
+  display: flex;
+  gap: 1px;
+  padding: 3px;
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .10);
+}
+
+.switch button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 5px 12px;
+  border-radius: 7px;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.switch button.on {
+  background: var(--text);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+@media (max-width: 1400px) {
+  .main-grid { grid-template-columns: 1fr; }
+  .bottom-grid { grid-template-columns: 1fr 1fr; }
+  .slots { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+
+@media (max-width: 900px) {
+  .bottom-grid { grid-template-columns: 1fr; }
+  .slots { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .topbar { flex-wrap: wrap; gap: 14px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════ 顶栏 ══════════════════════════ -->
+<header class="topbar">
+  <div class="brand">
+    <h1>AGENT OPS</h1>
+    <div class="sub">趋势跟踪 · 风险优先 · 自动执行</div>
+  </div>
+
+  <div class="goal">
+    <div class="goal-figure">
+      <div class="eyebrow">今日盈亏</div>
+      <div class="v num">+95.32 <em>/ 200 U</em></div>
+    </div>
+    <div class="goal-track"><i></i></div>
+    <div class="goal-figure">
+      <div class="eyebrow">状态</div>
+      <div class="v"><span class="dot"></span>运行中</div>
+    </div>
+  </div>
+
+  <nav class="nav">
+    <a href="#" class="on">总览</a>
+    <a href="#">策略库</a>
+    <a href="#">因子库</a>
+    <a href="#">交易日志</a>
+    <a href="#">风控</a>
+    <a href="#">配置</a>
+  </nav>
+
+  <div class="clock">
+    <b class="num">09:12:47</b>
+    11 月 07 日 · 周五
+  </div>
+</header>
+
+<!-- ══════════════════════════ 十格槽位 ══════════════════════════ -->
+<section class="slots">
+  <div class="slot"><span class="id">IDLE</span><span class="wait">等待信号</span></div>
+  <div class="slot"><span class="id">IDLE</span><span class="wait">等待信号</span></div>
+  <div class="slot"><span class="id">IDLE</span><span class="wait">等待信号</span></div>
+  <div class="slot"><span class="id">IDLE</span><span class="wait">等待信号</span></div>
+  <div class="slot"><span class="id">IDLE</span><span class="wait">等待信号</span></div>
+  <div class="slot"><span class="id">IDLE</span><span class="wait">等待信号</span></div>
+  <div class="slot"><span class="id">IDLE</span><span class="wait">等待信号</span></div>
+  <div class="slot"><span class="id">IDLE</span><span class="wait">等待信号</span></div>
+  <div class="slot"><span class="id">IDLE</span><span class="wait">等待信号</span></div>
+  <div class="slot"><span class="id">IDLE</span><span class="wait">等待信号</span></div>
+</section>
+
+<!-- ══════════════════════════ 状态条 ══════════════════════════ -->
+<div class="statusline">
+  <span class="dot"></span>
+  <b>S15_CE_ZLSMA</b>
+  <span class="sep">·</span>
+  <span>扫描间隔 15m</span>
+  <span class="sep">·</span>
+  <span>15m K 线</span>
+  <span class="sep">·</span>
+  <span>引擎心跳正常</span>
+  <span class="right num">下一轮 224s</span>
+</div>
+
+<!-- ══════════════════════════ 主区 ══════════════════════════ -->
+<main class="main-grid">
+
+  <!-- 左：持仓 -->
+  <section class="left-stack">
+    <div class="card">
+      <div class="card-head">
+        <h2>持仓</h2>
+        <span class="aside num">0 单</span>
+      </div>
+      <div class="card-body flush">
+        <table>
+          <thead>
+            <tr>
+              <th>币种</th><th>方向</th><th>杠杆</th><th>爆仓价</th><th>开仓价</th>
+              <th>现价</th><th>数量</th><th>保证金</th><th>浮盈</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="empty-row">
+              <td colspan="10">当前无持仓</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 账户摘要 -->
+    <div class="card">
+      <div class="card-head">
+        <h2>账户</h2>
+        <span class="aside">PAPER 模拟盘</span>
+      </div>
+      <div class="card-body">
+        <div class="equity-big">
+          <div class="v num">10,196.87<em>U</em></div>
+          <div class="meta">
+            <span class="delta num">+182.87</span>
+            <span>今日已实现</span>
+          </div>
+        </div>
+
+        <div class="kv">
+          <div class="kv-row"><span class="k">资金使用率</span><span class="v num">0.0<em>%</em></span></div>
+          <div class="kv-row"><span class="k">可用保证金</span><span class="v num">10,197<em>U</em></span></div>
+          <div class="kv-row"><span class="k">持仓数</span><span class="v num">0</span></div>
+          <div class="kv-row"><span class="k">多空比</span><span class="v num">0 多 · 0 空</span></div>
+          <div class="kv-row"><span class="k">距爆仓距离</span><span class="v num">—</span></div>
+          <div class="kv-row"><span class="k">平均持仓</span><span class="v num">0.0<em>h</em></span></div>
+          <div class="kv-row"><span class="k">浮动盈亏</span><span class="v num">+0.00<em>U</em></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 右：图表 -->
+  <aside class="right-stack">
+    <div class="card">
+      <div class="card-head">
+        <h2>账户权益</h2>
+        <div class="segbar"><span class="on">PAPER</span><span>LIVE</span></div>
+      </div>
+      <div class="card-body">
+        <div class="chart-wrap">
+          <!-- 权益曲线：SVG，无坐标轴，只留走势 -->
+          <svg viewBox="0 0 400 150" width="100%" height="150" preserveAspectRatio="none" role="img" aria-label="账户权益曲线">
+            <defs>
+              <linearGradient id="eqFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%"   stop-color="var(--accent)" stop-opacity=".16"/>
+                <stop offset="70%"  stop-color="var(--accent)" stop-opacity=".02"/>
+                <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+
+            <!-- 极淡的水平参考线 -->
+            <line x1="0" y1="40"  x2="400" y2="40"  stroke="var(--chart-grid)" stroke-width="1"/>
+            <line x1="0" y1="80"  x2="400" y2="80"  stroke="var(--chart-grid)" stroke-width="1"/>
+            <line x1="0" y1="120" x2="400" y2="120" stroke="var(--chart-grid)" stroke-width="1"/>
+
+            <path d="M0,128 L26,124 L52,131 L78,118 L104,122 L130,109 L156,113 L182,96
+                     L208,101 L234,88 L260,92 L286,79 L312,84 L338,71 L364,66 L400,62
+                     L400,150 L0,150 Z"
+                  fill="url(#eqFill)"/>
+
+            <path d="M0,128 L26,124 L52,131 L78,118 L104,122 L130,109 L156,113 L182,96
+                     L208,101 L234,88 L260,92 L286,79 L312,84 L338,71 L364,66 L400,62"
+                  fill="none" stroke="var(--accent)" stroke-width="1.6"
+                  stroke-linejoin="round" stroke-linecap="round"/>
+
+            <circle cx="400" cy="62" r="2.6" fill="var(--accent)"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>行情与标记</h2>
+        <span class="aside">BTCUSDT · 15m</span>
+      </div>
+      <div class="card-body">
+        <!-- K 线：SVG 手绘，红涨绿跌 -->
+        <svg viewBox="0 0 400 150" width="100%" height="150" preserveAspectRatio="none" role="img" aria-label="BTCUSDT 15分钟K线">
+          <line x1="0" y1="35"  x2="400" y2="35"  stroke="var(--chart-grid)" stroke-width="1"/>
+          <line x1="0" y1="75"  x2="400" y2="75"  stroke="var(--chart-grid)" stroke-width="1"/>
+          <line x1="0" y1="115" x2="400" y2="115" stroke="var(--chart-grid)" stroke-width="1"/>
+          <g stroke="var(--down)" stroke-width="1.1">
+            <line x1="20"  y1="88"  x2="20"  y2="112"/><rect x="16"  y="92"  width="8" height="15" fill="var(--down)" stroke="none"/>
+            <line x1="60"  y1="80"  x2="60"  y2="104"/><rect x="56"  y="84"  width="8" height="16" fill="var(--down)" stroke="none"/>
+            <line x1="140" y1="62"  x2="140" y2="90"/><rect x="136" y="67"  width="8" height="18" fill="var(--down)" stroke="none"/>
+            <line x1="220" y1="48"  x2="220" y2="76"/><rect x="216" y="53"  width="8" height="19" fill="var(--down)" stroke="none"/>
+            <line x1="300" y1="30"  x2="300" y2="58"/><rect x="296" y="35"  width="8" height="18" fill="var(--down)" stroke="none"/>
+          </g>
+          <g stroke="var(--up)" stroke-width="1.1">
+            <line x1="40"  y1="84"  x2="40"  y2="116"/><rect x="36"  y="90"  width="8" height="20" fill="var(--up)" stroke="none"/>
+            <line x1="100" y1="72"  x2="100" y2="102"/><rect x="96"  y="78"  width="8" height="19" fill="var(--up)" stroke="none"/>
+            <line x1="180" y1="55"  x2="180" y2="84"/><rect x="176" y="61"  width="8" height="18" fill="var(--up)" stroke="none"/>
+            <line x1="260" y1="40"  x2="260" y2="68"/><rect x="256" y="46"  width="8" height="17" fill="var(--up)" stroke="none"/>
+            <line x1="340" y1="24"  x2="340" y2="52"/><rect x="336" y="30"  width="8" height="16" fill="var(--up)" stroke="none"/>
+          </g>
+          <!-- 平仓标记：一条极细的虚线，不抢戏 -->
+          <line x1="300" y1="8" x2="300" y2="150" stroke="var(--text-4)" stroke-width="1" stroke-dasharray="2 3" opacity=".5"/>
+          <circle cx="300" cy="44" r="2.4" fill="var(--accent)"/>
+        </svg>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<!-- ══════════════════════════ 底部三栏 ══════════════════════════ -->
+<div class="bottom-grid">
+
+  <!-- 监控池 -->
+  <section class="card">
+    <div class="card-head">
+      <h2>监控池</h2>
+      <span class="aside num">候选 200 → 监控 24 → 持仓 0 · 45 秒前</span>
+    </div>
+    <div class="card-body flush">
+      <table>
+        <thead>
+          <tr><th>币种</th><th>现价</th><th>24h 成交额</th><th>ATR%</th><th>插针</th><th>过滤</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="sym">CYBER</td><td class="num">1.284</td><td class="num">28.4 M</td><td class="num">1.82%</td><td class="num">1.4</td><td><span class="tag ok">通过</span></td></tr>
+          <tr><td class="sym">ONE</td><td class="num">0.0142</td><td class="num">21.7 M</td><td class="num">2.31%</td><td class="num">2.1</td><td><span class="tag ok">通过</span></td></tr>
+          <tr><td class="sym">INJ</td><td class="num">18.42</td><td class="num">96.2 M</td><td class="num">1.44%</td><td class="num">1.7</td><td><span class="tag ok">通过</span></td></tr>
+          <tr><td class="sym">LIT</td><td class="num">1.061</td><td class="num">12.9 M</td><td class="num">3.08%</td><td class="num">2.8</td><td><span class="tag bad">易插针</span></td></tr>
+          <tr><td class="sym">ICNT</td><td class="num">0.742</td><td class="num">18.3 M</td><td class="num">2.64%</td><td class="num">1.9</td><td><span class="tag ok">通过</span></td></tr>
+          <tr><td class="sym">LYN</td><td class="num">0.318</td><td class="num">15.1 M</td><td class="num">4.02%</td><td class="num">3.3</td><td><span class="tag bad">易插针</span></td></tr>
+          <tr><td class="sym">BTW</td><td class="num">2.914</td><td class="num">34.8 M</td><td class="num">1.97%</td><td class="num">1.5</td><td><span class="tag ok">通过</span></td></tr>
+          <tr><td class="sym">CAP</td><td class="num">0.0871</td><td class="num">41.6 M</td><td class="num">2.12%</td><td class="num">2.4</td><td><span class="tag wait">量小</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 因子影子 -->
+  <section class="card">
+    <div class="card-head">
+      <h2>因子影子</h2>
+      <span class="aside num">已结算 963</span>
+    </div>
+    <div class="card-body">
+      <div class="factor">
+        <div class="name">入场过滤<span style="color:var(--text-4);font-weight:400"> · 资金费率</span></div>
+        <div class="note">用因子打分但不干预交易 · 2 周后看哪条规则真的有用</div>
+        <div class="metrics">
+          <div class="m"><div class="l">放行</div><div class="n num">963 · 53.9%</div></div>
+          <div class="m"><div class="l">拦截</div><div class="n num">0 · 0.0%</div></div>
+          <div class="m"><div class="l">均 R</div><div class="n num">0.328</div></div>
+        </div>
+      </div>
+
+      <div class="factor">
+        <div class="name">方向确认<span style="color:var(--text-4);font-weight:400"> · 主动买卖比</span></div>
+        <div class="note">放行组与拦截组的胜率差</div>
+        <div class="metrics">
+          <div class="m"><div class="l">放行</div><div class="n num">586 · 57.3%</div></div>
+          <div class="m"><div class="l">拦截</div><div class="n num">377 · 48.5%</div></div>
+          <div class="m"><div class="l">均 R</div><div class="n num">0.420 / 0.186</div></div>
+        </div>
+        <div class="verdict">拦截组胜率更低 → 规则有效</div>
+      </div>
+
+      <div class="factor">
+        <div class="name">仓位成本<span style="color:var(--text-4);font-weight:400"> · 费率极端</span></div>
+        <div class="note">数据积累中</div>
+        <div class="metrics">
+          <div class="m"><div class="l">样本</div><div class="n num">—</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 三滤光闸 -->
+  <section class="card">
+    <div class="card-head">
+      <h2>三滤光闸</h2>
+      <span class="aside num">0 / 61</span>
+    </div>
+    <div class="gate-summary">
+      <span>CE 翻转 <b class="num">1/61</b></span>
+      <span>HA 形态 <b class="num">19/61</b></span>
+      <span>BBW 达标 <b class="num">2/61</b></span>
+    </div>
+    <div class="card-body flush">
+      <table>
+        <thead>
+          <tr><th>币种</th><th>①CE</th><th>②HA</th><th>③BBW</th><th>结论</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="sym">BOME</td><td><span class="tag bad">—</span></td><td><span class="tag ok">✓</span></td><td><span class="tag bad">—</span></td><td><span class="tag wait">CE 没翻转</span></td></tr>
+          <tr><td class="sym">EVAA</td><td><span class="tag bad">—</span></td><td><span class="tag ok">✓</span></td><td><span class="tag bad">—</span></td><td><span class="tag wait">CE 没翻转</span></td></tr>
+          <tr><td class="sym">BTW</td><td><span class="tag bad">—</span></td><td><span class="tag bad">—</span></td><td><span class="tag bad">—</span></td><td><span class="tag wait">CE 没翻转</span></td></tr>
+          <tr><td class="sym">ATOM</td><td><span class="tag bad">—</span></td><td><span class="tag ok">✓</span></td><td><span class="tag bad">—</span></td><td><span class="tag wait">CE 没翻转</span></td></tr>
+          <tr><td class="sym">RENDER</td><td><span class="tag bad">—</span></td><td><span class="tag ok">✓</span></td><td><span class="tag bad">—</span></td><td><span class="tag wait">CE 没翻转</span></td></tr>
+          <tr><td class="sym">DOT</td><td><span class="tag bad">—</span></td><td><span class="tag bad">—</span></td><td><span class="tag bad">—</span></td><td><span class="tag wait">CE 没翻转</span></td></tr>
+          <tr><td class="sym">STX</td><td><span class="tag bad">—</span></td><td><span class="tag ok">✓</span></td><td><span class="tag bad">—</span></td><td><span class="tag wait">CE 没翻转</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+
+<!-- ══════════════════════════ 主题开关 ══════════════════════════ -->
+<div class="switch">
+  <button id="btn-light" class="on" onclick="setTheme('light')">浅色</button>
+  <button id="btn-dark" onclick="setTheme('dark')">深色</button>
+</div>
+
+<script>
+function setTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  document.getElementById('btn-light').classList.toggle('on', t === 'light');
+  document.getElementById('btn-dark').classList.toggle('on', t === 'dark');
+  try { localStorage.setItem('design.theme', t); } catch (e) {}
+}
+try {
+  var saved = localStorage.getItem('design.theme');
+  if (saved) setTheme(saved);
+} catch (e) {}
+</script>
+</body>
+</html>

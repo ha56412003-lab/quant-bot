@@ -16,72 +16,72 @@ html[data-theme="mac-dark"] {
   color-scheme: dark;
 
   /* 系统表面色（macOS Dark 的 window/control 层次） */
-  --m-bg: #000000;
-  --m-surface: #1c1c1e;
-  --m-surface-2: #2c2c2e;
-  --m-surface-3: #3a3a3c;
+  --m-bg: #15171e;
+  --m-surface: #1b1e26;
+  --m-surface-2: #232935;
+  --m-surface-3: #2c3341;
 
   /* 文字四档 */
-  --m-text: #f5f5f7;
-  --m-text-2: #c7c7cc;
-  --m-text-3: #98989d;
-  --m-text-4: #9a9aa0;
+  --m-text: #d7dce6;
+  --m-text-2: #a9b0c0;
+  --m-text-3: #8a92a5;
+  --m-text-4: #8f97aa;
 
   /* 唯一强调色 + 语义色（苹果系统色板） */
-  --m-accent: #0a84ff;        /* 纯黑底 5.6:1，可直接用于文字 */
-  --m-accent-text: #0a84ff;
-  --m-up-text: #ff6961;
-  --m-down-text: #30d158;
-  --m-accent-dim: rgba(10, 132, 255, .16);
-  --m-up: #ff6961;
-  --m-down: #30d158;
-  --m-warn: #ff9f0a;
+  --m-accent: #e58bb4;        /* 纯黑底 5.6:1，可直接用于文字 */
+  --m-accent-text: #e58bb4;
+  --m-up-text: #ff6b7a;
+  --m-down-text: #3ddc97;
+  --m-accent-dim: rgba(229, 139, 180, .18);
+  --m-up: #ff6b7a;
+  --m-down: #3ddc97;
+  --m-warn: #e8c07a;
 
-  --m-line: rgba(255, 255, 255, .075);
-  --m-line-2: rgba(255, 255, 255, .12);
+  --m-line: #2f3644;
+  --m-line-2: #3a4252;
 
   /* 阴影：柔和、短距，不要辉光 */
-  --m-shadow-1: 0 1px 2px rgba(0, 0, 0, .55);
-  --m-shadow-2: 0 4px 16px rgba(0, 0, 0, .45);
+  --m-shadow-1: 0 1px 2px rgba(0, 0, 0, .34);
+  --m-shadow-2: 0 6px 20px rgba(0, 0, 0, .40);
 
   /* 圆角 */
-  --m-r-card: 12px;
-  --m-r-ctl: 8px;
-  --m-r-tag: 6px;
+  --m-r-card: 8px;
+  --m-r-ctl: 5px;
+  --m-r-tag: 3px;
 }
 
 /* ───────────────────────── 二、macOS 浅色 ───────────────────────── */
 html[data-theme="mac-light"] {
   color-scheme: light;
 
-  --m-bg: #f5f5f7;
+  --m-bg: #f2f1f5;
   --m-surface: #ffffff;
-  --m-surface-2: #fafafa;
-  --m-surface-3: #f0f0f2;
+  --m-surface-2: #f4f1f7;
+  --m-surface-3: #ebe6f0;
 
-  --m-text: #1d1d1f;
-  --m-text-2: #3a3a3c;
-  --m-text-3: #52525b;
-  --m-text-4: #6e6e73;
+  --m-text: #1a1a1f;
+  --m-text-2: #4a4652;
+  --m-text-3: #6b6478;
+  --m-text-4: #726a7a;
 
-  --m-accent: #007aff;        /* 图形 / 大字 / 控件 */
-  --m-accent-text: #0062cc;   /* 小号文字专用：白底 5.9:1 */
-  --m-accent-dim: rgba(0, 122, 255, .10);
-  --m-up: #d70015;
-  --m-up-text: #c40013;
-  --m-down: #1f7a35;
-  --m-down-text: #1a7132;     /* 白底 5.4:1 */
-  --m-warn: #c93400;
+  --m-accent: #b71c5a;        /* 图形 / 大字 / 控件 */
+  --m-accent-text: #a81850;   /* 小号文字专用：白底 5.9:1 */
+  --m-accent-dim: rgba(183, 28, 90, .07);
+  --m-up: #c62828;
+  --m-up-text: #b71f1f;
+  --m-down: #2e7d32;
+  --m-down-text: #26692a;     /* 白底 5.4:1 */
+  --m-warn: #a87000;
 
-  --m-line: rgba(0, 0, 0, .075);
-  --m-line-2: rgba(0, 0, 0, .12);
+  --m-line: #e2d8e7;
+  --m-line-2: #d2c4d8;
 
   --m-shadow-1: 0 1px 3px rgba(0, 0, 0, .07);
   --m-shadow-2: 0 4px 16px rgba(0, 0, 0, .10);
 
-  --m-r-card: 12px;
-  --m-r-ctl: 8px;
-  --m-r-tag: 6px;
+  --m-r-card: 8px;
+  --m-r-ctl: 5px;
+  --m-r-tag: 3px;
 }
 
 /* ══════════════════ 三、两套 MAC 主题的共同结构覆盖 ══════════════════ */
@@ -355,8 +355,8 @@ html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card .c4 .st {
 
 /* 空卡：虚线框、无阴影，一眼区分「占位」和「在用」 */
 html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card.idle {
-  background: transparent !important;
-  border: 1px dashed var(--m-line-2) !important;
+  background: var(--m-surface-2) !important;
+  border: 1px solid var(--m-line) !important;
   box-shadow: none !important;
 }
 html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card.idle .idle-big {
@@ -568,7 +568,7 @@ html[data-theme="mac-light"] .spider-root.spider-root.spider-root .stage {
 
 /* 浅色下空卡底色要能看出是「空」 */
 html[data-theme="mac-light"] .spider-root.spider-root.spider-root .card.idle {
-  background: rgba(0, 0, 0, .012) !important;
+  background: #fbf9fb !important;
 }
 
 /* 浅色下破均线小点/出局标记的对比度 */
@@ -676,8 +676,8 @@ html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card.idle .tg {
   border-color: var(--m-line-2) !important;
 }
 html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card.idle .idot {
-  color: var(--m-text-4) !important;
-  opacity: .7 !important;
+  color: var(--m-text-3) !important;
+  opacity: 1 !important;
 }
 
 /* antd 内置彩色 tag → 灰胶囊（红绿语义的保留） */
@@ -844,4 +844,174 @@ html[data-theme^="mac-"] .ant-tag-warning {
 /* antd Statistic：valueStyle 由调用方内联，这里兜底文字级 */
 html[data-theme^="mac-"] .ant-statistic-content {
   color: var(--m-text) !important;
+}
+
+/* ══════════════════ 十八、v5 收尾：净值用主色压住画面 ══════════════════
+   参考图里账户权益是这一屏的主角。上一版把 .sbig .val 统一改成近黑，
+   结果 56px 的净值跟旁边的空卡抢不动 —— 净值必须是唯一的重音。
+   净值 → 主色（粉紫）；浮盈/已实现 → 红绿语义色；其余数值 → 近黑。 */
+
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .sbig.equity .val {
+  color: var(--m-accent-text) !important;
+  font-weight: 700 !important;
+  letter-spacing: -.03em !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .sbig.equity .lb {
+  color: var(--m-text-2) !important;
+  font-weight: 600 !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .sbig.equity .val small {
+  color: var(--m-text-4) !important;
+}
+
+/* 浮盈 / 已实现：回到红绿语义色 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .sbig.pnl.c-red .val,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .sbig.real.c-red .val {
+  color: var(--m-up-text) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .sbig.pnl.c-green .val,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .sbig.real.c-green .val {
+  color: var(--m-down-text) !important;
+}
+
+/* 净值左侧那道竖条：跟着主色走，不再用青色 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .sbig.equity::before {
+  background: var(--m-accent) !important;
+  opacity: .9 !important;
+}
+
+/* 卡片边框在淡粉底上略弱，收一档让边界清楚但仍柔和 */
+html[data-theme="mac-light"] .spider-root.spider-root.spider-root .card {
+  border-color: #ebdfe9 !important;
+}
+
+/* ══════════════════ 十九、WyrdFlow 方案D「操盘 IDE」视觉移植 ══════════════════
+   来源：WyrdFlow-UI风格-方案D-20261106（SwiftUI 项目 + 风格说明）
+   只移植视觉手法，不改布局、不改功能、不改红涨绿跌。
+
+   移植的四件事：
+   ① 小盖标题 —— 方案D 的 cardTitle：9.5pt semibold + tracking 1.5 + 弱文字色
+      卡片标题不再是"大字加粗"，而是"小号、加宽字距、退到背景层"
+      这样数据才是主角，标题退成标签。
+   ② 全等宽数字 —— 方案D 把数据/状态栏全部用 .monospaced
+      表格里的数字用等宽，纵向小数点自动对齐，密集表格能横着扫。
+   ③ 扁平化 —— 方案D 主窗口零投影，只靠 1pt 描边分层
+      阴影全部撤掉，层级靠 bg→panel→panel2 三级明度递进。
+   ④ r8 圆角 —— 方案D 统一 8pt（原来是 6）。 */
+
+/* —— ① 小盖标题：卡片标题退成标签 —— */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .ant-card-head-title {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: .10em !important;
+  color: var(--m-text-3) !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .pnl > .hd,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .panel > .hd,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card > .hd {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: .10em !important;
+  color: var(--m-text-3) !important;
+}
+
+/* —— ② 全等宽数字：表格/指标数字统一等宽，纵向自动对齐 —— */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .ant-table-tbody td,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root table td {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .ssm .val,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .stats-small5 .val {
+  font-family: var(--mono) !important;
+  font-variant-numeric: tabular-nums;
+}
+/* 等宽字体栈兜底（方案D 用 .system(design: .monospaced)） */
+html[data-theme^="mac-"] {
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+}
+
+/* —— ③ 扁平化：撤掉全部阴影，只留 1pt 描边 —— */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .pnl,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .ant-card {
+  box-shadow: none !important;
+}
+/* 但保留「浮层」需要阴影：下拉、弹窗、tooltip */
+html[data-theme^="mac-"] .ant-select-dropdown,
+html[data-theme^="mac-"] .ant-modal-content,
+html[data-theme^="mac-"] .ant-tooltip-inner {
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .28) !important;
+}
+
+/* —— ④ 卡片内距对齐方案D 的 12pt —— */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .ant-card-body {
+  padding: 12px !important;
+}
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .ant-card-head {
+  padding: 0 12px !important;
+  min-height: 34px !important;
+  border-bottom: 1px solid var(--m-line) !important;
+}
+
+/* —— 深色：三级明度递进代替阴影，卡片浮起感靠 panel vs bg —— */
+html[data-theme="mac-dark"] .spider-root.spider-root.spider-root .card,
+html[data-theme="mac-dark"] .spider-root.spider-root.spider-root .pnl {
+  border-color: var(--m-line) !important;
+}
+/* 深色下嵌套块（表格行 hover、内部小卡）用 panel2，比卡片亮一档 */
+html[data-theme="mac-dark"] .spider-root.spider-root.spider-root .ant-table-tbody > tr:hover > td {
+  background: var(--m-surface-2) !important;
+}
+
+/* —— 浅色：卡片纯白压在灰底上，靠描边分，同样零阴影 —— */
+html[data-theme="mac-light"] .spider-root.spider-root.spider-root .card,
+html[data-theme="mac-light"] .spider-root.spider-root.spider-root .pnl {
+  background: var(--m-surface) !important;
+  border-color: var(--m-line) !important;
+}
+html[data-theme="mac-light"] .spider-root.spider-root.spider-root .ant-table-tbody > tr:hover > td {
+  background: var(--m-surface-2) !important;
+}
+
+/* —— 状态栏/底部小字：方案D 的 10pt 等宽底栏感 —— */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .hdr .goal,
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .hdr .sub {
+  font-variant-numeric: tabular-nums;
+}
+
+/* —— ⑤ 表头：方案D 的「列标签」质感 —— 小、700、退一档，和表体数据拉开 —— */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .ant-table-thead > tr > th {
+  font-size: 10.5px !important;
+  font-weight: 700 !important;
+  letter-spacing: .04em !important;
+  color: var(--m-text-3) !important;
+  background: var(--m-surface-2) !important;
+  border-bottom: 1px solid var(--m-line) !important;
+}
+/* 表体主数据比表头亮一档 —— 方案D 的核心：标题退、数据进 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .ant-table-tbody > tr > td {
+  color: var(--m-text-2) !important;
+}
+/* 数值列等宽 */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .ant-table-tbody > tr > td {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* —— ⑥ 深色下卡片头部用 panel 底色，和卡身同色但压一条线 —— 方案D 做法 —— */
+html[data-theme="mac-dark"] .spider-root.spider-root.spider-root .ant-card-head {
+  background: transparent !important;
+}
+
+/* —— ⑦ 待进场空卡的 IDLE 徽标：方案D 的「状态胶囊」质感 —— */
+html[data-theme^="mac-"] .spider-root.spider-root.spider-root .card.idle .idot {
+  letter-spacing: .14em;
+  font-weight: 600;
+}
+/* 浅色：卡片标题用 text-2，11px 在浅底上退到 text-3 会糊成噪点 */
+html[data-theme="mac-light"] .spider-root.spider-root.spider-root .ant-card-head-title,
+html[data-theme="mac-light"] .spider-root.spider-root.spider-root .card > .hd,
+html[data-theme="mac-light"] .spider-root.spider-root.spider-root .pnl > .hd {
+  color: var(--m-text-2) !important;
 }

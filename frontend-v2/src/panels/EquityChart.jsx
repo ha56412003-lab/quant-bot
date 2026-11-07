@@ -19,15 +19,15 @@ function palette(theme) {
              blur: 17, halo: 0.16, width: 1.7, dotR: 1.0, dotSize: 6 }
   }
   if (theme === 'mac-dark') {
-    return { line: '#0a84ff', glow: 'rgba(10,132,255,0)', dot: 'rgba(10,132,255,.26)',
-             bg: '#1c1c1e', label: '#8e8e93', tipBg: 'rgba(44,44,46,.98)',
-             tipBorder: 'rgba(255,255,255,.14)', tipText: '#f5f5f7',
+    return { line: '#e58bb4', glow: 'rgba(229,139,180,0)', dot: 'rgba(229,139,180,.30)',
+             bg: '#17161b', label: '#8b8496', tipBg: 'rgba(35,33,41,.98)',
+             tipBorder: '#322f3c', tipText: '#f5f3f7',
              blur: 0, halo: 0, width: 1.4, dotR: 0.85, dotSize: 7 }
   }
   if (theme === 'mac-light') {
-    return { line: '#007aff', glow: 'rgba(0,122,255,0)', dot: 'rgba(0,122,255,.16)',
-             bg: '#ffffff', label: '#6e6e73', tipBg: 'rgba(255,255,255,.99)',
-             tipBorder: 'rgba(0,0,0,.12)', tipText: '#1d1d1f',
+    return { line: '#b71c5a', glow: 'rgba(183,28,90,0)', dot: 'rgba(183,28,90,.18)',
+             bg: '#ffffff', label: '#726a7a', tipBg: 'rgba(255,255,255,.99)',
+             tipBorder: '#e6dae6', tipText: '#1c1b1f',
              blur: 0, halo: 0, width: 1.4, dotR: 0.85, dotSize: 7 }
   }
   return { line: 'var(--cyan, #45e6f5)', glow: 'rgba(69,230,245,.90)', dot: 'rgba(69,230,245,.55)',
@@ -82,7 +82,7 @@ export default function EquityChart({ activeMode }) {
   }, [mode])
 
   const titleStyle = isMac
-    ? { fontSize: 12, fontWeight: 600, color: theme === 'mac-light' ? '#0062cc' : '#0a84ff', letterSpacing: 0 }
+    ? { fontSize: 12, fontWeight: 600, color: theme === 'mac-light' ? '#a81850' : '#e58bb4', letterSpacing: 0 }
     : CARD_TITLE
 
   const last = series.length ? Number(series[series.length - 1].equity) : null

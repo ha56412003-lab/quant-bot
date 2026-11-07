@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AGENT OPS · 设计稿 v5（按参考图）</title>
+<!--
+================================================================================
+  v5：按浩哥发的参考图「洞察者交易台」1:1 复刻感觉
+================================================================================
+
+  【前面四版为什么全错】
+  我一直把「简约大气」理解成「留白大、字号大、元素少」，一路往空里做。
+  但参考图给的是完全相反的答案：
+
+    底色        冷灰蓝            → 极淡的粉灰 #F8F4F8（带紫调，柔和）
+    卡片        靠阴影浮起来      → 纯白 + 一圈极淡粉边框，几乎无阴影
+    圆角        18px 大圆角       → 5-6px 微圆角
+    间距        大留白            → 紧凑有序，卡间距 10px，卡内 14-16px
+    强调色      系统蓝            → 粉紫品红
+    信息密度    我一直在做减法    → 极高，一屏塞 50-80 个数据点
+    字号        42-68px 超大      → 26px 主数据 + 10px 微标，差距不大但层次清楚
+
+  【这张图真正的手法】
+    · 柔和配色降低盯盘疲劳 —— 底色带粉调，不用冷灰，长时间看不刺眼
+    · 卡片只靠「一线一底」勾勒，不用阴影不用大圆角，所以密但不乱
+    · 数字全部等宽 + 小数点对齐，密集表格里能横向扫读
+    · 强调色只给「当前选中 / 关键动作」，不铺开用
+    · 红涨绿跌，但用的是沉一点的红绿，不是荧光色
+
+  【v5 保留我们自己的信息结构，只换这套视觉语言】
+    顶部六指标 → 行情条 → 左持仓/右图表 → 底部三面板
+================================================================================
+-->
+<style>
+:root {
+  --bg:        #f7f3f7;
+  --surface:   #ffffff;
+  --surface-2: #fbf9fb;
+  --surface-3: #f4eff4;
+
+  --text:   #1c1b1f;
+  --text-2: #4a4550;
+  --text-3: #6e6678;
+  --text-4: #9a93a3;
+
+  --brand:      #b71c5a;
+  --brand-soft: #fceef4;
+  --brand-line: #f0dde8;
+
+  --up:   #c62828;
+  --down: #2e7d32;
+
+  --line:   #f0e7f0;
+  --line-2: #e6dae6;
+
+  --r-card: 6px;
+  --r-ctl:  4px;
+
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+          "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --shadow-panel: 0 1px 2px rgba(60, 40, 60, .035);
+}
+
+[data-theme="dark"] {
+  --bg:        #0e0d11;
+  --surface:   #17161b;
+  --surface-2: #1c1b21;
+  --surface-3: #232129;
+
+  --text:   #f5f3f7;
+  --text-2: #cbc5d3;
+  --text-3: #a9a2b4;
+  --text-4: #7c7586;
+
+  --brand:      #e58bb4;
+  --brand-soft: #2a1a24;
+  --brand-line: #3a2433;
+
+  --up:   #ff6b6b;
+  --down: #4ade80;
+
+  --line:   #262430;
+  --line-2: #322f3c;
+
+  --shadow-panel: 0 1px 2px rgba(0, 0, 0, .4);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 11.5px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body { padding: 12px 14px 20px; transition: background .18s ease, color .18s ease; }
+
+.num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-panel);
+  min-width: 0;
+}
+
+/* ═════════════════ 顶栏 ═════════════════ */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 2px 10px;
+}
+
+.logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, #d94b8a 0%, #8e2f8a 100%);
+  flex: 0 0 auto;
+}
+
+.brand-name {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  margin-right: 2px;
+}
+
+.brand-sub { font-size: 10.5px; color: var(--text-4); }
+
+.tb-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+
+.tb-stat {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+
+.tb-stat .tick {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #2e7d32;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+[data-theme="dark"] .tb-stat .tick { background: #4ade80; color: #0e0d11; }
+
+.tb-time {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.themebtn {
+  display: flex;
+  gap: 1px;
+  padding: 2px;
+  background: var(--surface-3);
+  border-radius: var(--r-ctl);
+}
+
+.themebtn button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 3px 9px;
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.themebtn button.on {
+  background: var(--surface);
+  color: var(--brand);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(60, 40, 60, .1);
+}
+
+/* ═════════════════ 六指标排 ═════════════════ */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.metric {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: 11px 14px 12px;
+  box-shadow: var(--shadow-panel);
+  min-width: 0;
+}
+
+.metric .k {
+  font-size: 10.5px;
+  color: var(--text-4);
+  margin-bottom: 3px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.metric .v {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -.022em;
+  line-height: 1.15;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.metric .v u {
+  text-decoration: none;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-4);
+  margin-left: 3px;
+  letter-spacing: 0;
+}
+
+.metric .v.up   { color: var(--up); }
+.metric .v.down { color: var(--down); }
+.metric .v.brand { color: var(--brand); }
+
+.metric .t {
+  margin-top: 3px;
+  font-size: 10px;
+  color: var(--text-4);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.metric .t b { color: var(--up); font-weight: 600; }
+
+/* ═════════════════ 行情条 ═════════════════ */
+.ticker {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.tk {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: 8px 11px 9px;
+  box-shadow: var(--shadow-panel);
+  min-width: 0;
+}
+
+.tk.on {
+  background: var(--brand-soft);
+  border-color: var(--brand-line);
+}
+
+.tk .s {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  letter-spacing: .01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tk.on .s { color: var(--brand); }
+
+.tk .p {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.01em;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.tk .c {
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tk .c.up   { color: var(--up); }
+.tk .c.down { color: var(--down); }
+
+/* ═════════════════ 主区 ═════════════════ */
+.main-grid {
+  display: grid;
+  grid-template-columns: 1.62fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+  align-items: start;
+}
+
+.stack { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+
+.phead {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 14px 8px;
+}
+
+.phead h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: .005em;
+}
+
+.phead .aside {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--text-4);
+  font-variant-numeric: tabular-nums;
+}
+
+.pbody { padding: 0 14px 12px; }
+.pbody.flush { padding: 0 0 4px; }
+
+/* ═════════════════ 表格 ═════════════════ */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  table-layout: fixed;
+}
+
+thead th {
+  padding: 7px 8px;
+  text-align: left;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-4);
+  background: var(--surface-2);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+thead th:first-child { padding-left: 14px; }
+tbody td:first-child { padding-left: 14px; }
+thead th:last-child { padding-right: 14px; }
+tbody td:last-child { padding-right: 14px; }
+
+thead th.r, tbody td.r { text-align: right; }
+
+tbody td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+tbody tr:last-child td { border-bottom: none; }
+tbody td.r { font-variant-numeric: tabular-nums; }
+tbody tr:hover td { background: var(--surface-2); }
+
+.sym { font-weight: 600; color: var(--text); }
+
+.empty-row td { padding: 24px 8px; text-align: center; }
+
+.empty-row .es {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-4);
+  font-size: 11px;
+}
+
+/* 状态文字 */
+.st { font-size: 10px; font-weight: 600; white-space: nowrap; }
+.st.ok   { color: var(--down); }
+.st.bad  { color: var(--up); }
+.st.wait { color: var(--text-4); }
+.st.brand { color: var(--brand); }
+
+/* ═════════════════ 图表 ═════════════════ */
+.chart-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 0 0 8px;
+  font-size: 10px;
+  color: var(--text-4);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-meta .cd {
+  margin-left: auto;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--up);
+}
+
+.chart-meta .cd.down { color: var(--down); }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 3px;
+  background: var(--surface-3);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  color: var(--text-3);
+}
+
+.badge.brand { background: var(--brand-soft); color: var(--brand); }
+
+/* ═════════════════ 底部三栏 ═════════════════ */
+.bottom-grid {
+  display: grid;
+  grid-template-columns: 1.42fr 1.16fr 1fr;
+  gap: 10px;
+}
+
+.gate-summary {
+  display: flex;
+  gap: 14px;
+  padding: 0 14px 10px;
+  font-size: 10px;
+  color: var(--text-4);
+  font-variant-numeric: tabular-nums;
+}
+
+.gate-summary b { color: var(--text-2); font-weight: 600; }
+
+.factor {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+
+.factor:last-child { margin-bottom: 0; }
+
+.factor .name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 1px;
+}
+
+.factor .name em {
+  font-style: normal;
+  font-weight: 400;
+  color: var(--text-4);
+}
+
+.factor .note { font-size: 10px; color: var(--text-4); margin-bottom: 8px; }
+
+.factor .metrics-row { display: flex; gap: 18px; }
+
+.factor .m .l {
+  font-size: 9.5px;
+  color: var(--text-4);
+  letter-spacing: .02em;
+}
+
+.factor .m .n {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.01em;
+}
+
+.factor .verdict { margin-top: 7px; font-size: 10px; color: var(--down); font-weight: 500; }
+
+@media (max-width: 1560px) {
+  .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ticker { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@media (max-width: 1200px) {
+  .main-grid { grid-template-columns: 1fr; }
+  .bottom-grid { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 880px) {
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ticker { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bottom-grid { grid-template-columns: 1fr; }
+  .topbar { flex-wrap: wrap; }
+}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M3 8.4l3.2 3.2L13 4.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 5v3.2l2.2 1.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+</defs></svg>
+
+<!-- ═════════ 顶栏 ═════════ -->
+<header class="topbar">
+  <div class="logo"></div>
+  <div>
+    <span class="brand-name">AGENT OPS</span>
+    <span class="brand-sub">趋势跟踪 · 风险优先 · 自动执行</span>
+  </div>
+
+  <div class="tb-right">
+    <div class="tb-stat"><span class="tick">✓</span>引擎运行中</div>
+    <div class="tb-stat">PAPER 模拟盘</div>
+    <div class="tb-time num">09:44:12</div>
+    <div class="themebtn">
+      <button id="btn-light" class="on" onclick="setTheme('light')">浅色</button>
+      <button id="btn-dark" onclick="setTheme('dark')">深色</button>
+    </div>
+  </div>
+</header>
+
+<!-- ═════════ 六指标 ═════════ -->
+<section class="metrics">
+  <div class="metric">
+    <div class="k">账户权益</div>
+    <div class="v num">10,196.87<u>U</u></div>
+    <div class="t">基线 10,072.91</div>
+  </div>
+  <div class="metric">
+    <div class="k">今日盈亏</div>
+    <div class="v up num">+95.32<u>U</u></div>
+    <div class="t">目标 200 U · <b>47.5%</b></div>
+  </div>
+  <div class="metric">
+    <div class="k">今日已实现</div>
+    <div class="v up num">+182.87<u>U</u></div>
+    <div class="t">平仓 3 胜 0 负</div>
+  </div>
+  <div class="metric">
+    <div class="k">资金使用率</div>
+    <div class="v num">0.0<u>%</u></div>
+    <div class="t">上限 6x 杠杆</div>
+  </div>
+  <div class="metric">
+    <div class="k">持仓</div>
+    <div class="v num">0<u>单</u></div>
+    <div class="t">多 0 · 空 0 · 上限 6</div>
+  </div>
+  <div class="metric">
+    <div class="k">观察期</div>
+    <div class="v brand num">第 3<u>天</u></div>
+    <div class="t">起点 11-06 18:20</div>
+  </div>
+</section>
+
+<!-- ═════════ 行情条 ═════════ -->
+<section class="ticker">
+  <div class="tk on"><div class="s">BTCUSDT</div><div class="p num">68,412.5</div><div class="c down num">-0.64%</div></div>
+  <div class="tk"><div class="s">ETHUSDT</div><div class="p num">3,284.7</div><div class="c up num">+1.21%</div></div>
+  <div class="tk"><div class="s">SOLUSDT</div><div class="p num">198.42</div><div class="c up num">+2.08%</div></div>
+  <div class="tk"><div class="s">CYBERUSDT</div><div class="p num">1.284</div><div class="c up num">+3.42%</div></div>
+  <div class="tk"><div class="s">INJUSDT</div><div class="p num">18.42</div><div class="c down num">-1.07%</div></div>
+  <div class="tk"><div class="s">LYNUSDT</div><div class="p num">0.318</div><div class="c down num">-4.26%</div></div>
+  <div class="tk"><div class="s">BTWUSDT</div><div class="p num">2.914</div><div class="c up num">+0.83%</div></div>
+  <div class="tk"><div class="s">CAPUSDT</div><div class="p num">0.0871</div><div class="c down num">-2.14%</div></div>
+</section>
+
+<!-- ═════════ 主区 ═════════ -->
+<main class="main-grid">
+
+  <section class="stack">
+    <div class="panel">
+      <div class="phead">
+        <h2>持仓</h2>
+        <span class="aside">0 / 6 槽位</span>
+      </div>
+      <div class="pbody flush">
+        <table>
+          <colgroup>
+            <col style="width:13%"><col style="width:8%"><col style="width:7%">
+            <col style="width:11%"><col style="width:11%"><col style="width:11%">
+            <col style="width:11%"><col style="width:11%"><col style="width:11%">
+            <col style="width:6%">
+          </colgroup>
+          <thead>
+            <tr>
+              <th>币种</th><th>方向</th><th>杠杆</th>
+              <th class="r">爆仓价</th><th class="r">开仓价</th><th class="r">现价</th>
+              <th class="r">数量</th><th class="r">保证金</th><th class="r">浮盈</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="empty-row">
+              <td colspan="10"><span class="es">当前无持仓 · 等待信号</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="phead">
+        <h2>监控池</h2>
+        <span class="aside">候选 200 → 监控 24</span>
+      </div>
+      <div class="pbody flush">
+        <table>
+          <colgroup>
+            <col style="width:15%"><col style="width:16%"><col style="width:20%">
+            <col style="width:14%"><col style="width:13%"><col style="width:22%">
+          </colgroup>
+          <thead>
+            <tr>
+              <th>币种</th><th class="r">现价</th><th class="r">24h 成交额</th>
+              <th class="r">ATR%</th><th class="r">插针</th><th>过滤</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="sym">CYBER</td><td class="r">1.284</td><td class="r">28.4 M</td><td class="r">1.82%</td><td class="r">1.4</td><td><span class="st ok">通过</span></td></tr>
+            <tr><td class="sym">ONE</td><td class="r">0.0142</td><td class="r">21.7 M</td><td class="r">2.31%</td><td class="r">2.1</td><td><span class="st ok">通过</span></td></tr>
+            <tr><td class="sym">INJ</td><td class="r">18.42</td><td class="r">96.2 M</td><td class="r">1.44%</td><td class="r">1.7</td><td><span class="st ok">通过</span></td></tr>
+            <tr><td class="sym">LIT</td><td class="r">1.061</td><td class="r">12.9 M</td><td class="r">3.08%</td><td class="r">2.8</td><td><span class="st bad">易插针</span></td></tr>
+            <tr><td class="sym">ICNT</td><td class="r">0.742</td><td class="r">18.3 M</td><td class="r">2.64%</td><td class="r">1.9</td><td><span class="st ok">通过</span></td></tr>
+            <tr><td class="sym">LYN</td><td class="r">0.318</td><td class="r">15.1 M</td><td class="r">4.02%</td><td class="r">3.3</td><td><span class="st bad">易插针</span></td></tr>
+            <tr><td class="sym">BTW</td><td class="r">2.914</td><td class="r">34.8 M</td><td class="r">1.97%</td><td class="r">1.5</td><td><span class="st ok">通过</span></td></tr>
+            <tr><td class="sym">CAP</td><td class="r">0.0871</td><td class="r">41.6 M</td><td class="r">2.12%</td><td class="r">2.4</td><td><span class="st wait">量小</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <aside class="stack">
+    <div class="panel">
+      <div class="phead">
+        <h2>账户权益</h2>
+        <span class="badge brand">PAPER</span>
+        <span class="aside" style="margin-left:0">7 日</span>
+      </div>
+      <div class="pbody">
+        <div class="chart-meta">
+          <span>低 10,072.91 · 高 10,196.87</span>
+          <span class="cd num">+1.23%</span>
+        </div>
+        <svg viewBox="0 0 420 128" width="100%" height="128" preserveAspectRatio="none" role="img" aria-label="账户权益曲线">
+          <defs>
+            <linearGradient id="eqFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"   stop-color="var(--brand)" stop-opacity=".16"/>
+              <stop offset="72%"  stop-color="var(--brand)" stop-opacity=".02"/>
+              <stop offset="100%" stop-color="var(--brand)" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <line x1="0" y1="34"  x2="420" y2="34"  stroke="var(--line)" stroke-width="1"/>
+          <line x1="0" y1="71"  x2="420" y2="71"  stroke="var(--line)" stroke-width="1"/>
+          <line x1="0" y1="108" x2="420" y2="108" stroke="var(--line)" stroke-width="1"/>
+          <path d="M0,110 L28,105 L56,113 L84,98 L112,103 L140,88 L168,93 L196,74
+                   L224,79 L252,64 L280,69 L308,54 L336,59 L364,44 L392,39 L420,34
+                   L420,128 L0,128 Z" fill="url(#eqFill)"/>
+          <path d="M0,110 L28,105 L56,113 L84,98 L112,103 L140,88 L168,93 L196,74
+                   L224,79 L252,64 L280,69 L308,54 L336,59 L364,44 L392,39 L420,34"
+                fill="none" stroke="var(--brand)" stroke-width="1.6"
+                stroke-linejoin="round" stroke-linecap="round"/>
+          <circle cx="420" cy="34" r="2.6" fill="var(--brand)"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="phead">
+        <h2>行情与标记</h2>
+        <span class="aside">BTCUSDT · 15m</span>
+      </div>
+      <div class="pbody">
+        <div class="chart-meta">
+          <span>开 67,980 · 高 68,540 · 低 67,820</span>
+          <span class="cd down num">-0.64%</span>
+        </div>
+        <svg viewBox="0 0 420 128" width="100%" height="128" preserveAspectRatio="none" role="img" aria-label="BTCUSDT 15分钟K线">
+          <line x1="0" y1="30"  x2="420" y2="30"  stroke="var(--line)" stroke-width="1"/>
+          <line x1="0" y1="66"  x2="420" y2="66"  stroke="var(--line)" stroke-width="1"/>
+          <line x1="0" y1="102" x2="420" y2="102" stroke="var(--line)" stroke-width="1"/>
+          <g stroke="var(--down)" stroke-width="1.1">
+            <line x1="22"  y1="74" x2="22"  y2="100"/><rect x="18"  y="79" width="8" height="15" fill="var(--down)" stroke="none"/>
+            <line x1="64"  y1="66" x2="64"  y2="92"/><rect x="60"  y="71" width="8" height="16" fill="var(--down)" stroke="none"/>
+            <line x1="148" y1="48" x2="148" y2="76"/><rect x="144" y="53" width="8" height="17" fill="var(--down)" stroke="none"/>
+            <line x1="232" y1="34" x2="232" y2="62"/><rect x="228" y="39" width="8" height="18" fill="var(--down)" stroke="none"/>
+            <line x1="316" y1="18" x2="316" y2="46"/><rect x="312" y="23" width="8" height="17" fill="var(--down)" stroke="none"/>
+          </g>
+          <g stroke="var(--up)" stroke-width="1.1">
+            <line x1="43"  y1="70" x2="43"  y2="102"/><rect x="39"  y="76" width="8" height="19" fill="var(--up)" stroke="none"/>
+            <line x1="106" y1="58" x2="106" y2="88"/><rect x="102" y="64" width="8" height="18" fill="var(--up)" stroke="none"/>
+            <line x1="190" y1="41" x2="190" y2="70"/><rect x="186" y="47" width="8" height="17" fill="var(--up)" stroke="none"/>
+            <line x1="274" y1="26" x2="274" y2="54"/><rect x="270" y="32" width="8" height="16" fill="var(--up)" stroke="none"/>
+            <line x1="358" y1="10" x2="358" y2="38"/><rect x="354" y="16" width="8" height="15" fill="var(--up)" stroke="none"/>
+          </g>
+          <line x1="316" y1="4" x2="316" y2="128" stroke="var(--brand)" stroke-width="1" stroke-dasharray="2 4" opacity=".5"/>
+          <circle cx="316" cy="30" r="2.4" fill="var(--brand)"/>
+        </svg>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<!-- ═════════ 底部三栏 ═════════ -->
+<div class="bottom-grid">
+
+  <section class="panel">
+    <div class="phead">
+      <h2>三滤光闸</h2>
+      <span class="aside">0 / 61 通过</span>
+    </div>
+    <div class="gate-summary">
+      <span>CE 翻转 <b>1/61</b></span>
+      <span>HA 形态 <b>19/61</b></span>
+      <span>BBW 达标 <b>2/61</b></span>
+    </div>
+    <div class="pbody flush">
+      <table>
+        <colgroup>
+          <col style="width:22%"><col style="width:14%"><col style="width:14%">
+          <col style="width:16%"><col style="width:34%">
+        </colgroup>
+        <thead>
+          <tr><th>币种</th><th>①CE</th><th>②HA</th><th>③BBW</th><th>结论</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="sym">BOME</td><td><span class="st bad">—</span></td><td><span class="st ok">✓</span></td><td><span class="st bad">—</span></td><td><span class="st wait">CE 没翻转</span></td></tr>
+          <tr><td class="sym">EVAA</td><td><span class="st bad">—</span></td><td><span class="st ok">✓</span></td><td><span class="st bad">—</span></td><td><span class="st wait">CE 没翻转</span></td></tr>
+          <tr><td class="sym">BTW</td><td><span class="st bad">—</span></td><td><span class="st bad">—</span></td><td><span class="st bad">—</span></td><td><span class="st wait">CE 没翻转</span></td></tr>
+          <tr><td class="sym">ATOM</td><td><span class="st bad">—</span></td><td><span class="st ok">✓</span></td><td><span class="st bad">—</span></td><td><span class="st wait">CE 没翻转</span></td></tr>
+          <tr><td class="sym">RENDER</td><td><span class="st bad">—</span></td><td><span class="st ok">✓</span></td><td><span class="st bad">—</span></td><td><span class="st wait">CE 没翻转</span></td></tr>
+          <tr><td class="sym">DOT</td><td><span class="st bad">—</span></td><td><span class="st bad">—</span></td><td><span class="st bad">—</span></td><td><span class="st wait">CE 没翻转</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="phead">
+      <h2>因子影子</h2>
+      <span class="aside">已结算 963</span>
+    </div>
+    <div class="pbody">
+      <div class="factor">
+        <div class="name">入场过滤 <em>· 资金费率</em></div>
+        <div class="note">用因子打分但不干预交易 · 2 周后看哪条规则真有用</div>
+        <div class="metrics-row">
+          <div class="m"><div class="l">放行</div><div class="n">963 · 53.9%</div></div>
+          <div class="m"><div class="l">拦截</div><div class="n">0 · 0.0%</div></div>
+          <div class="m"><div class="l">均 R</div><div class="n">0.328</div></div>
+        </div>
+      </div>
+
+      <div class="factor">
+        <div class="name">方向确认 <em>· 主动买卖比</em></div>
+        <div class="note">放行组与拦截组的胜率差</div>
+        <div class="metrics-row">
+          <div class="m"><div class="l">放行</div><div class="n">586 · 57.3%</div></div>
+          <div class="m"><div class="l">拦截</div><div class="n">377 · 48.5%</div></div>
+          <div class="m"><div class="l">均 R</div><div class="n">0.420 / 0.186</div></div>
+        </div>
+        <div class="verdict">拦截组胜率更低 · 规则有效</div>
+      </div>
+
+      <div class="factor">
+        <div class="name">仓位成本 <em>· 费率极端</em></div>
+        <div class="note">数据积累中</div>
+        <div class="metrics-row">
+          <div class="m"><div class="l">样本</div><div class="n">—</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="phead">
+      <h2>引擎状态</h2>
+      <span class="aside">S15_CE_ZLSMA</span>
+    </div>
+    <div class="pbody">
+      <table>
+        <colgroup><col style="width:44%"><col style="width:56%"></colgroup>
+        <tbody>
+          <tr><td style="color:var(--text-4)">扫描周期</td><td class="r">15m</td></tr>
+          <tr><td style="color:var(--text-4)">K 线周期</td><td class="r">15m</td></tr>
+          <tr><td style="color:var(--text-4)">心跳</td><td class="r"><span class="st ok">正常</span></td></tr>
+          <tr><td style="color:var(--text-4)">下一轮</td><td class="r">224s</td></tr>
+          <tr><td style="color:var(--text-4)">监控池</td><td class="r">24 个</td></tr>
+          <tr><td style="color:var(--text-4)">候选池</td><td class="r">200 个</td></tr>
+          <tr><td style="color:var(--text-4)">日目标</td><td class="r">200 U · 未触发</td></tr>
+          <tr><td style="color:var(--text-4)">日熔断</td><td class="r">10% · 未触发</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+
+<script>
+function setTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  document.getElementById('btn-light').classList.toggle('on', t === 'light');
+  document.getElementById('btn-dark').classList.toggle('on', t === 'dark');
+  try { localStorage.setItem('design.theme.v5', t); } catch (e) {}
+}
+try {
+  var s = localStorage.getItem('design.theme.v5');
+  if (s) setTheme(s);
+} catch (e) {}
+</script>
+</body>
+</html>
