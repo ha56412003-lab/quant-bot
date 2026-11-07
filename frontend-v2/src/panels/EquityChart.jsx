@@ -10,41 +10,49 @@ const CARD_TITLE = {
 }
 
 // 按主题取色。纸面主题卡片底是 #f6f5f1，亮荧光色在上面会发飘，整体压深一档。
-// MAC 两套走「无发光极简」：细实线 + 极淡点阵，光晕/blur 全部归零。
+// 全部主题：无外发光 —— 实体细线 + 纯色点阵，halo/blur/shadow 一律不用。
 function palette(theme) {
   if (theme === 'paper') {
-    return { line: '#c22b3a', glow: 'rgba(194,43,58,.95)', dot: 'rgba(194,43,58,.70)',
+    return { line: '#c22b3a', glow: 'rgba(194,43,58,0)', dot: '#c22b3a',
              bg: '#f6f5f1', label: '#8a8880', tipBg: 'rgba(251,250,247,.97)',
              tipBorder: 'rgba(184,48,60,.35)', tipText: '#2a2a26',
-             blur: 17, halo: 0.16, width: 1.7, dotR: 1.0, dotSize: 6 }
+             blur: 0, halo: 0, width: 1.7, dotR: 2.3, dotSize: 8 }
   }
   if (theme === 'mac-dark') {
-    return { line: '#e58bb4', glow: 'rgba(229,139,180,0)', dot: 'rgba(229,139,180,.30)',
+    return { line: '#e58bb4', glow: 'rgba(229,139,180,0)', dot: '#e58bb4',
              bg: '#17161b', label: '#8b8496', tipBg: 'rgba(35,33,41,.98)',
              tipBorder: '#322f3c', tipText: '#f5f3f7',
-             blur: 0, halo: 0, width: 1.4, dotR: 0.85, dotSize: 7 }
+             blur: 0, halo: 0, width: 1.4, dotR: 2.3, dotSize: 8 }
   }
   if (theme === 'mac-light') {
-    return { line: '#b71c5a', glow: 'rgba(183,28,90,0)', dot: 'rgba(183,28,90,.18)',
+    return { line: '#b71c5a', glow: 'rgba(183,28,90,0)', dot: '#b71c5a',
              bg: '#ffffff', label: '#726a7a', tipBg: 'rgba(255,255,255,.99)',
              tipBorder: '#e6dae6', tipText: '#1c1b1f',
-             blur: 0, halo: 0, width: 1.4, dotR: 0.85, dotSize: 7 }
+             blur: 0, halo: 0, width: 1.4, dotR: 2.3, dotSize: 8 }
   }
-  return { line: 'var(--cyan, #45e6f5)', glow: 'rgba(69,230,245,.90)', dot: 'rgba(69,230,245,.55)',
+  // 注意：canvas 不解析 CSS 变量，line 必须写死色值（曾用 var(--cyan) 导致曲线变黑）
+  return { line: '#22c9e8', glow: 'rgba(69,230,245,0)', dot: '#22c9e8',
            bg: '#0b0c12', label: 'rgba(150,160,180,.75)', tipBg: 'rgba(8,10,16,.94)',
            tipBorder: 'rgba(69,230,245,.35)', tipText: '#d8dde9',
-           blur: 15, halo: 0.16, width: 1.7, dotR: 1.0, dotSize: 6 }
+           blur: 0, halo: 0, width: 1.7, dotR: 2.3, dotSize: 8 }
 }
 
-// 半调点阵 tile —— 参考图是线下铺一层规则小圆点，不是实色渐变
-function dotTile(color, size = 6, radius = 1.0) {
+// 半调点阵 tile —— 每列从上到下圆点逐渐变小（顶部实、底部疏淡），纯色不透明
+// 高 = size * rows，配合 repeat-x 使用：水平平铺、垂直拉伸到整个面积
+function dotTile(color, size = 8, radius = 2.3, rows = 56) {
+  const rBot = 0.55                      // 最底部半径：留一点存在感，不做成消失
   const c = document.createElement('canvas')
-  c.width = size; c.height = size
+  c.width = size; c.height = size * rows
   const g = c.getContext('2d')
   g.fillStyle = color
-  g.beginPath()
-  g.arc(size / 2, size / 2, radius, 0, Math.PI * 2)
-  g.fill()
+  for (let i = 0; i < rows; i++) {
+    const t = rows > 1 ? i / (rows - 1) : 0
+    const r = radius + (rBot - radius) * t
+    if (r < 0.2) continue
+    g.beginPath()
+    g.arc(size / 2, size * i + size / 2, r, 0, Math.PI * 2)
+    g.fill()
+  }
   return c
 }
 
@@ -110,45 +118,19 @@ export default function EquityChart({ activeMode }) {
       xAxis: { type: 'category', data: ts, boundaryGap: false, show: false },
       yAxis: { type: 'value', scale: true, show: false },
       series: [
-        // ① 底层：线下的半调点阵（对应参考图的粉色网点面）
+        // ① 底层：线下的实体点阵 —— 纯色、不透明、无发光、无渐变压制
         {
           name: t('dash.equityName'), type: 'line', data: eq, showSymbol: false,
           smooth: 0.15, lineStyle: { width: 0, opacity: 0 }, z: 1,
-          areaStyle: { color: { image: tile, repeat: 'repeat' }, opacity: 1 },
+          areaStyle: { color: { image: tile, repeat: 'repeat-x' }, opacity: 1 },
           silent: true,
         },
-        // ② 遮罩：把点阵从上往下压暗，做出参考图那种「上浓下淡」
-        //    颜色必须等于卡片底色，否则整块区域会被染色
-        {
-          name: '_veil', type: 'line', data: eq, showSymbol: false,
-          smooth: 0.15, lineStyle: { width: 0, opacity: 0 }, z: 2,
-          areaStyle: {
-            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-              colorStops: [
-                { offset: 0,    color: 'rgba(0,0,0,0)' },
-                { offset: 0.30, color: hexA(P.bg, 0.08) },
-                { offset: 0.62, color: hexA(P.bg, 0.55) },
-                { offset: 1,    color: hexA(P.bg, 0.97) },
-              ] },
-          },
-          silent: true,
-        },
-        // ③ 弥散光晕层：粗而极淡的一条，把 shadow 的硬边撑开
-        {
-          name: '_halo', type: 'line', data: eq, showSymbol: false,
-          smooth: 0.15, z: 4, silent: true,
-          lineStyle: {
-            color: P.line, width: 5, opacity: P.halo,
-            shadowColor: P.glow, shadowBlur: P.blur > 0 ? 24 : 0, shadowOffsetY: 0,
-          },
-        },
-        // ④ 折线：细芯 + 外发光 = 参考图那种霓虹感
+        // ② 折线：实体细线，无外发光
         {
           name: t('dash.equityName'), type: 'line', data: eq, showSymbol: false,
           smooth: 0.15, z: 5,
           lineStyle: {
             color: P.line, width: P.width,
-            shadowColor: P.glow, shadowBlur: P.blur, shadowOffsetY: 0,
           },
           emphasis: { lineStyle: { width: 2.2 } },
           tooltip: {
