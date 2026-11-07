@@ -1431,3 +1431,6 @@ html[data-theme="paper"] .eq-float .eq-o { color: #86490a; }       /* 透底后�
 .lc-f { margin-top: 3px; font-size: 11px; line-height: 1.45; color: #ff4d5e; }
 .lc-ask { margin-top: 14px; font-size: 12px; opacity: .85; line-height: 1.5; }
 .lc-act { margin-top: 14px; display: flex; gap: 8px; justify-content: flex-end; }
+
+.lc-wrap { pointer-events: none; }
+.lc-wrap .ant-modal { pointer-events: auto; }

@@ -96,7 +96,8 @@ export function ModeSwitch({ status }) {
         {t('mode.toLive')}
       </Button>
 
-      <Modal open={open} width={362} destroyOnClose footer={null}
+      <Modal open={open} width={362} destroyOnClose footer={null} mask={false}
+             wrapClassName="lc-wrap"
              onCancel={() => { setOpen(false); setConfirmText('') }}
              title={bad.length ? '还不能切实盘' : t('mode.liveTitle')}>
         {/* 逐条体检结果：✓ 过 / ✕ 拦 / · 仅供参考 */}
