@@ -1434,3 +1434,54 @@ html[data-theme="paper"] .eq-float .eq-o { color: #86490a; }       /* 透底后�
 
 .lc-wrap { pointer-events: none; }
 .lc-wrap .ant-modal { pointer-events: auto; }
+
+
+/* ── 总览页导航轨 + 主题切换改样式（2026-11-07 浩哥定）
+   原来：选中 rgba(27,6,19,.85) 近黑实心块 + 同色字（黑底黑字，自己看不见自己）；
+        未选 2px 粗黑框 / 11px/800 等宽，压在粉色标题轨上很跳。
+   现在：跟「配置」等页同一套语言 —— 1px 细边、3px 圆角、12px 常规字重、
+        透明底；配色按粉底调（深字 + 半透明玫红选中）。
+   只作用玫红主题（默认没有 data-theme 属性那套）。
+   MAC 两套已是极简无边框风格（mac.css:258）、纸面是浅底（paper.css:540），
+   各有自己的按钮语言，不动。
+   注意：v2.css:778 那套全程 !important，这里必须同样 !important 才压得住。 */
+html:not([data-theme]) .spider-root .hdr .btns .btn {
+  font-family: var(--cjk) !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  letter-spacing: 0 !important;
+  padding: 5px 12px !important;
+  height: auto !important;
+  border: 1px solid rgba(27, 6, 19, .45) !important;
+  border-radius: 3px !important;
+  background: transparent !important;
+  color: var(--frame-ink) !important;
+}
+html:not([data-theme]) .spider-root .hdr .btns .btn:hover {
+  background: rgba(27, 6, 19, .13) !important;
+  border-color: rgba(27, 6, 19, .68) !important;
+  color: var(--frame-ink) !important;
+}
+html:not([data-theme]) .spider-root .hdr .btns .btn.on,
+html:not([data-theme]) .spider-root .hdr .btns .btn[aria-pressed="true"] {
+  background: rgba(180, 47, 128, .64) !important;
+  border-color: rgba(27, 6, 19, .72) !important;
+  /* 不用白字：粉底上白字最多只能到 4.19:1（实测），过不了 AA。
+     深字压这个玫红块实测 4.63:1，且跟未选态同一字色，靠底色块区分选中。 */
+  color: var(--frame-ink) !important;
+}
+
+/* 主题切换框：粉底上别用纯黑块，压成半透明 + 深字 */
+html:not([data-theme]) .spider-root .hdr .ant-select-selector {
+  background: rgba(27, 6, 19, .1) !important;
+  border-color: rgba(27, 6, 19, .45) !important;
+  border-radius: 3px !important;
+  box-shadow: none !important;
+}
+html:not([data-theme]) .spider-root .hdr .ant-select-selection-item {
+  color: var(--frame-ink) !important;
+  font-weight: 400 !important;
+}
+html:not([data-theme]) .spider-root .hdr .ant-select-arrow {
+  color: rgba(27, 6, 19, .7) !important;
+}

@@ -329,11 +329,9 @@ export default function SpiderBoard({ status, positions = [], nav, activeNav, on
 
               <div className="btns">
                 {nav && nav.map(([k, label]) => (
-                  <button key={k} className="btn" onClick={() => onNavigate(k)}
-                          style={activeNav === k ? {
-                            background: 'rgba(27,6,19,.85)', color: '#ff7fcb',
-                            borderColor: '#1b0613',
-                          } : {}}>
+                  <button key={k} className={'btn' + (activeNav === k ? ' on' : '')}
+                          aria-pressed={activeNav === k}
+                          onClick={() => onNavigate(k)}>
                     {label}
                   </button>
                 ))}
