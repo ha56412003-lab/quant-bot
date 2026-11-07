@@ -52,6 +52,7 @@ export const api = {
   setCredentials: (payload) => post('/api/credentials', payload),
   testCredentials: (which) => post('/api/credentials/test', { which }),
   setMode: (mode, confirm) => post('/api/mode', { mode, confirm }),
+  livePrecheck: () => get('/api/live/precheck'),
   klines: (symbol, interval = '15m') => get(`/api/klines?symbol=${symbol}&interval=${interval}`),
   logs: (limit = 100) => get(`/api/logs?limit=${limit}`),
 }

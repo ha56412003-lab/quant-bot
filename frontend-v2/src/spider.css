@@ -1412,3 +1412,22 @@ html[data-theme="paper"] .eq-float .eq-lb { color: #57554c; }
 html[data-theme="paper"] .eq-float .eq-g { color: #2e640c; }       /* 6.90:1 */
 html[data-theme="paper"] .eq-float .eq-r { color: #b8303c; }
 html[data-theme="paper"] .eq-float .eq-o { color: #86490a; }       /* 透底后压深 */
+
+
+/* ── 切实盘预检浮窗（2026-11-07 浩哥定）────────────────────────
+   点「切换实盘」先自查，不对就拦住并说清楚怎么修。
+   通过绿 / 拦截红，跟站内「通过 / 拦截」同一套语义色。
+   注意：浅色主题下 .ant-modal-content 底色仍是 #0b1016（v2.css:2144 写死，
+   既有问题），所以这里统一用深底亮色，不能按浅底压深配。 */
+.lc { display: flex; flex-direction: column; gap: 9px; margin-top: 4px; }
+.lc-i { display: flex; gap: 9px; align-items: flex-start; font-size: 12px; line-height: 1.5; }
+.lc-m { flex: 0 0 14px; text-align: center; font-weight: 700; font-size: 13px; }
+.lc-i.ok   .lc-m { color: #35e08a; }
+.lc-i.bad  .lc-m { color: #ff4d5e; }
+.lc-i.info .lc-m { color: #767c92; }
+.lc-b { flex: 1 1 auto; min-width: 0; }
+.lc-l { color: #c8cfdd; }
+.lc-l em { font-style: normal; margin-left: 6px; opacity: .78; }
+.lc-f { margin-top: 3px; font-size: 11px; line-height: 1.45; color: #ff4d5e; }
+.lc-ask { margin-top: 14px; font-size: 12px; opacity: .85; line-height: 1.5; }
+.lc-act { margin-top: 14px; display: flex; gap: 8px; justify-content: flex-end; }

@@ -1,5 +1,5 @@
 import React from 'react'
-import { Card, Col, Row, Statistic, Button, Popconfirm, Input, message } from 'antd'
+import { Card, Col, Row, Statistic, Button, Modal, Input, message } from 'antd'
 import { api, fmtUsd } from '../api'
 import { useI18n } from '../i18n'
 
@@ -43,6 +43,10 @@ export function StatusCards({ status, positions }) {
 export function ModeSwitch({ status }) {
   const { t } = useI18n()
   const [confirmText, setConfirmText] = React.useState('')
+  const [pre, setPre] = React.useState(null)     // 预检结果 {ok, items}
+  const [open, setOpen] = React.useState(false)
+  const [busy, setBusy] = React.useState(false)
+
   if (!status) return null
   if (status.mode === 'live') {
     return (
@@ -52,28 +56,83 @@ export function ModeSwitch({ status }) {
       }}>{t('mode.toPaper')}</Button>
     )
   }
-  return (
-    <Popconfirm
-      title={t('mode.liveTitle')}
-      description={
-        <div style={{ maxWidth: 280 }}>
-          {t('mode.liveDesc')}
-          <Input size="small" value={confirmText} style={{ marginTop: 6 }}
-                 onChange={(e) => setConfirmText(e.target.value)} placeholder="LIVE" />
-        </div>
+
+  // 2026-11-07 浩哥定：点「切换实盘」先自查，不对就弹窗拦住，别让人糊里糊涂进实盘。
+  const start = async () => {
+    setBusy(true)
+    try {
+      setPre(await api.livePrecheck())
+      setOpen(true)
+    } catch (e) {
+      message.error('预检请求失败，先别切实盘：' + (e?.message || '网络错误'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const doSwitch = async () => {
+    try {
+      await api.setMode('live', confirmText)
+      message.warning(t('mode.liveOn'))
+      setOpen(false)
+      setConfirmText('')
+    } catch (e) {
+      // 后端硬闸门拦下（状态刚好变了 / 绕过界面直接调接口）：把问题摊出来
+      const d = e?.response?.data?.detail
+      if (d && Array.isArray(d.problems)) {
+        setPre({ ok: false, items: d.problems.map((p) => ({ ...p, key: p.label, ok: false, required: true })) })
+      } else {
+        message.error(t('mode.confirmBad'))
       }
-      okText={t('mode.confirmOk')} cancelText={t('common.cancel')}
-      onConfirm={async () => {
-        try {
-          await api.setMode('live', confirmText)
-          message.warning(t('mode.liveOn'))
-        } catch {
-          message.error(t('mode.confirmBad'))
-        }
-        setConfirmText('')
-      }}
-    >
-      <Button size="small" danger ghost>{t('mode.toLive')}</Button>
-    </Popconfirm>
+    }
+  }
+
+  const items = pre?.items || []
+  const bad = items.filter((i) => i.required && !i.ok)
+
+  return (
+    <>
+      <Button size="small" danger ghost loading={busy} onClick={start}>
+        {t('mode.toLive')}
+      </Button>
+
+      <Modal open={open} width={362} destroyOnClose footer={null}
+             onCancel={() => { setOpen(false); setConfirmText('') }}
+             title={bad.length ? '还不能切实盘' : t('mode.liveTitle')}>
+        {/* 逐条体检结果：✓ 过 / ✕ 拦 / · 仅供参考 */}
+        <div className="lc">
+          {items.map((i) => (
+            <div key={i.key || i.label}
+                 className={'lc-i ' + (i.ok ? 'ok' : (i.required ? 'bad' : 'info'))}>
+              <span className="lc-m">{i.ok ? '✓' : (i.required ? '✕' : '·')}</span>
+              <div className="lc-b">
+                <div className="lc-l">{i.label}<em>{i.detail}</em></div>
+                {!i.ok && i.fix ? <div className="lc-f">{i.fix}</div> : null}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {bad.length ? (
+          <div className="lc-act">
+            <Button size="small" onClick={() => setOpen(false)}>知道了</Button>
+          </div>
+        ) : (
+          <>
+            <div className="lc-ask">{t('mode.liveDesc')}</div>
+            <Input size="small" value={confirmText} style={{ marginTop: 6 }}
+                   onChange={(e) => setConfirmText(e.target.value)} placeholder="LIVE" />
+            <div className="lc-act">
+              <Button size="small" onClick={() => { setOpen(false); setConfirmText('') }}>
+                {t('common.cancel')}
+              </Button>
+              <Button size="small" danger disabled={confirmText !== 'LIVE'} onClick={doSwitch}>
+                {t('mode.confirmOk')}
+              </Button>
+            </div>
+          </>
+        )}
+      </Modal>
+    </>
   )
 }

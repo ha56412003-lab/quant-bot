@@ -169,9 +169,17 @@ async def account():
     return await _signed("GET", FUT, "/fapi/v2/account")
 
 
-async def place_market_order(symbol, side, qty, reduce_only=False):
+async def place_market_order(symbol, side, qty, reduce_only=False, position_side=None):
+    """市价下单。
+
+    position_side：双向持仓（hedge）模式必传 LONG / SHORT，单向模式传 None。
+    hedge 模式下币安不接受 reduceOnly（会报错），平仓靠「positionSide + 反向 side」
+    定向，所以有 position_side 时不再传 reduceOnly。
+    """
     params = {"symbol": symbol, "side": side, "type": "MARKET", "quantity": qty}
-    if reduce_only:
+    if position_side:
+        params["positionSide"] = position_side
+    elif reduce_only:
         params["reduceOnly"] = "true"
     return await _signed("POST", FUT, "/fapi/v1/order", params)
 

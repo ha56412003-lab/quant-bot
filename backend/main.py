@@ -924,13 +924,70 @@ async def api_executor_exchange_set(payload: dict):
     return {"ok": True, "exchange": venue}
 
 
+# ── 实盘前置体检 ────────────────────────────────────────────────
+# 浩哥 2026-11-07 定：切「实盘 LIVE」那一刻系统自己查，不对就拦住并说明原因。
+# required=True 的项全过才算 ok；持仓模式只记录不拦截（下单代码自动适配单向/双向）。
+async def _live_precheck():
+    items = []
+
+    def add(key, ok, label, detail, fix="", required=True):
+        items.append({"key": key, "ok": bool(ok), "label": label,
+                      "detail": detail, "fix": fix, "required": required})
+
+    has_key = (bool(getattr(config, "BINANCE_API_KEY", ""))
+               and bool(getattr(config, "BINANCE_SECRET_KEY", "")))
+    add("apikey", has_key, "币安 API key",
+        "已配置" if has_key else "还没配，实盘下不了单",
+        "" if has_key else "写进 E:\\Hermes\\.env：BINANCE_API_KEY / BINANCE_SECRET_KEY"
+                           "（只勾「读取 + 合约交易」，绝不勾提币，加 IP 白名单）")
+
+    if not has_key:
+        # 没 key 后面全查不了。不拿「查不到」冒充「没问题」。
+        return {"ok": False, "items": items}
+
+    try:
+        multi = await binance.multi_assets_mode()
+        ok = multi is False
+        add("multi", ok, "联保模式",
+            "已关闭（单币保证金模式），逐仓可以设" if ok
+            else "还开着 —— 联保模式下币安不允许设逐仓",
+            "" if ok else "App：合约 → U 本位合约 → 点右上【单】/【联】→ 选「单币保证金模式」"
+                          "（不用平仓；关掉后 BTC/ETH 不能再当保证金）")
+    except Exception as exc:  # noqa: BLE001
+        add("multi", False, "联保模式", f"查不了：{exc}",
+            "确认 API key 有读取权限、IP 白名单已加")
+
+    try:
+        hedge = await binance.position_mode()
+        add("hedge", True, "持仓模式",
+            "双向 —— 下单会自动带 positionSide" if hedge
+            else "单向 —— 下单不带 positionSide", "", required=False)
+    except Exception:  # noqa: BLE001
+        add("hedge", True, "持仓模式", "查不到，按开仓时实测", "", required=False)
+
+    return {"ok": all(i["ok"] for i in items if i["required"]), "items": items}
+
+
+@app.get("/api/live/precheck")
+async def api_live_precheck():
+    """切实盘前的自查。required 项全过才返回 ok=true。"""
+    return await _live_precheck()
+
+
 @app.post("/api/mode")
 async def api_mode(payload: dict):
     m = payload.get("mode")
     if m not in ("paper", "live"):
         raise HTTPException(400, "mode must be paper|live")
-    if m == "live" and payload.get("confirm") != "LIVE":
-        raise HTTPException(400, "switching to live requires confirm=LIVE")
+    if m == "live":
+        if payload.get("confirm") != "LIVE":
+            raise HTTPException(400, "switching to live requires confirm=LIVE")
+        # 硬闸门：账户状态不对不许进实盘。绕过界面直接调这个接口也一样被拦。
+        pre = await _live_precheck()
+        if not pre["ok"]:
+            bad = [{"label": i["label"], "detail": i["detail"], "fix": i["fix"]}
+                   for i in pre["items"] if i["required"] and not i["ok"]]
+            raise HTTPException(400, {"error": "实盘前置检查未通过", "problems": bad})
     executor.set_mode(m)
     db.log("warn", f"交易模式切换为 {m}")
     return {"ok": True, "mode": m}

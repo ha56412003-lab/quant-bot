@@ -4,6 +4,7 @@ appended to the trade journal (journal/) with entry/exit factor snapshots.
 """
 import json
 import logging
+import time
 
 from . import binance, config, db, exchanges, factors, journal
 
@@ -16,6 +17,32 @@ def mode():
 
 def set_mode(m):
     db.set_meta("mode", "paper" if m != "live" else "live")
+
+
+# 账户持仓模式缓存：双向/单向是账户级设置，不会每笔单变。
+# 300 秒内复用，避免每笔下单都多打一次接口；查不到时按单向处理
+# （跟改动前的写法一致，不会比原来更差）。
+_hedge_cache = {"ts": 0.0, "val": None}
+
+
+async def _is_hedge():
+    """账户是否双向持仓（hedge）。True/False。"""
+    now = time.time()
+    if _hedge_cache["val"] is not None and now - _hedge_cache["ts"] < 300:
+        return _hedge_cache["val"]
+    try:
+        v = await binance.position_mode()
+        _hedge_cache.update(ts=now, val=v)
+        return v
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _pside(side, hedge):
+    """双向模式下要传的 positionSide；单向返回 None（不传这个字段）。"""
+    if not hedge:
+        return None
+    return "LONG" if side == "long" else "SHORT"
 
 
 def exchange():
@@ -114,7 +141,9 @@ async def open_position(sig, qty, price, leverage=None):
                     return None
                 if leverage:
                     await binance.set_leverage(sig.symbol, leverage)
-                order = await binance.place_market_order(sig.symbol, side, qty)
+                _h = await _is_hedge()
+                order = await binance.place_market_order(
+                    sig.symbol, side, qty, position_side=_pside(sig.side, _h))
                 # 事后核对：钱已经进去了，万一实际不是逐仓只能告警 + 留痕，
                 # 不能装作没发生。自检本身失败不阻断主流程。
                 try:
@@ -199,9 +228,11 @@ async def close_position(pos, price, reason, fraction=1.0):
         try:
             if venue == "binance":
                 step = await binance.qty_step(pos["symbol"])
+                _h = await _is_hedge()
                 await binance.place_market_order(pos["symbol"], order_side,
                                                  binance.round_step(qty, step),
-                                                 reduce_only=True)
+                                                 reduce_only=True,
+                                                 position_side=_pside(pos["side"], _h))
             else:
                 await exchanges.place_market(venue, pos["symbol"], order_side,
                                              qty, reduce_only=True)
