@@ -331,12 +331,13 @@ class S15CeZlsma(Base):
                  "入场用真实收盘价算钱，用 HA 合成价判方向。",
         "entry": "三道闸全过才开仓：① CE 方向翻转 ② HA 出现关键K线（阳线站上 ZLSMA / 阴线跌破）"
                  " ③ 布林带宽度近 100 根分位 > 70%",
-        "exit": "四条并列，谁先满足谁全平：① 时间止损 16 小时 ② 止损 = 20 根阶段低点"
-                " ③ 止盈 = 1.2R ④ 破 ZLSMA 且连续 2 根且从峰顶回撤 ≥ 0.8R",
+        "exit": "五条并列，谁先满足谁执行：① 时间止损 16 小时 ② 硬止损 = 20 根 15m 摆动低/高点"
+                " ③ 到 2R 平一半（锁定 1R）④ 半仓后再到 3R 全部平 ⑤ 开仓条件镜像出现"
+                "（CE 方向翻转 + HA 反向关键K线 + 站错 ZLSMA）。出场不含布林带。",
         "factors": "15m K线（自算 CE(1×2) / ZLSMA50 / ATR / 布林带宽度分位）",
-        "risk": "震荡市 CE 会频繁翻转，所以必须有 BBW 分位这道环境闸——"
-                "去掉它回测从 +36.66R 掉到 −85.20R。费率口径敏感："
-                "maker 0.02% 赚，市价 0.05% 亏。",
+        "risk": "震荡市 CE 会频繁翻转，所以入场加了 BBW 分位闸（近 100 根布林带宽度分位 > 70%），"
+                "把开仓限在波动扩张期。费率口径敏感：maker 0.02% 勉强赚，市价 0.05% 明显亏——"
+                "所以监控池要求止损距离 ≥ 1.0%，低于 0.78% 时手续费会吃掉单笔风险的 20% 以上。",
         "name_en": "CE + ZLSMA Trend Follow",
         "logic_en": "Chandelier Exit ratchets an ATR stop that defines the regime; a flip is the signal. "
                     "ZLSMA(50) confirms price is on the right side; Bollinger-band width percentile "
@@ -344,13 +345,15 @@ class S15CeZlsma(Base):
                     "money uses real closes.",
         "entry_en": "All three gates: (1) CE direction flip (2) HTF key bar (bull close above ZLSMA / "
                     "bear close below) (3) BBW percentile over last 100 bars > 70%",
-        "exit_en": "Four parallel exits, first hit wins: 16h time stop / stop at 20-bar swing "
-                   "extreme / take profit 1.2R / close beyond ZLSMA with 2-bar confirmation "
-                   "and 0.8R drawdown from peak.",
+        "exit_en": "Five parallel exits, first hit wins: 16h time stop / hard stop at 20-bar swing "
+                   "extreme / take half at 2R (locks 1R) / close all at 3R after half taken / "
+                   "entry-mirror appears (CE flip + opposite HA key bar + wrong side of ZLSMA). "
+                   "No Bollinger band in exits.",
         "factors_en": "15m klines (self-computed CE 1x2 / ZLSMA50 / ATR / Bollinger width percentile)",
-        "risk_en": "CE flips constantly in chop, hence the BBW regime gate — removing it drops "
-                   "backtest from +36.66R to -85.20R. Fee-sensitive: maker 0.02% profits, "
-                   "taker 0.05% loses.",
+        "risk_en": "CE flips constantly in chop, so entries add a BBW percentile gate (>70% over last "
+                   "100 bars) restricting them to expanding-volatility regimes. Fee-sensitive: "
+                   "maker 0.02% barely profits, taker 0.05% clearly loses — hence the pool requires "
+                   "stop distance >= 1.0%; below 0.78% fees eat over 20% of the per-trade risk.",
     }
 
     def _p(self, key, default):

@@ -851,9 +851,7 @@ async def api_pool():
             "monitor_size": snap.get("monitor_size"),
             "monitor": list(monitor),
             "position_n": len(held),
-            "position_max": (config.load_strategies().get("global", {})
-                             .get("max_concurrent_coins")
-                             or (config.pools().get("position", {}) or {}).get("max_concurrent", 8))}
+            "position_max": config.load_strategies().get("global", {}).get("max_concurrent_coins")}
 
 
 @app.get("/api/pool/candidates")

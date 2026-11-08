@@ -1,0 +1,28 @@
+fix(docs): 修策略说明过期文案 + 删 pools.position 死配置 + 同方向上限改回 6
+
+阶段复盘第 3 条遗留的三处，浩哥点头后处理：
+
+1. strategies.py META 过期文案（/api/strategies 会返回给前端「策略说明」）
+   - exit：原写「止盈 1.2R / 破 ZLSMA 且连续 2 根且从峰顶回撤 0.8R」，
+     这两条出场规则已在 2026-11-08 整段删除，实际是
+     16h 时间止损 / 20 根摆动低高点硬止损 / 2R 平一半 / 半仓后 3R 全平 /
+     开仓条件镜像（CE 翻转 + HA 反向关键K线 + 站错 ZLSMA）
+   - risk：原写「去掉 BBW 回测从 +36.66R 掉到 -85.20R」，该数据已作废。
+     改为如实描述 BBW 分位闸的作用范围，以及止损距离 >= 1.0% 的手续费依据
+     （低于 0.78% 手续费吃掉单笔风险 20% 以上）
+   - exit_en / risk_en 同步
+
+2. yaml 删 pools.position.max_concurrent: 6
+   它是 main.py 里 global.max_concurrent_coins 的兜底值，当前不生效，
+   但 global 键一旦丢失会悄悄把仓数变回 6，是个陷阱。
+   main.py 的 position_max 改为直接读 global，不再有兜底分支。
+
+3. 同方向上限 max_same_side 8 -> 6（浩哥 2026-11-08 定）
+   8 仓 + 同向 8 等于这道闸门空转，8 单全空遇单边反转 = 同时扫损 12% 净值，
+   而日熔断只有 10%。改回 6 后最坏 9%，压在熔断线之内。
+   已确认 risk.py:114 真的读 max_same_side（只有为 0 时才回落到并发 2/3）。
+
+验证：py_compile 通过；/api/strategies 的 exit 与 risk 已是新文案；
+/api/risk 返回 max_same_side=6 / max_concurrent_coins=8；
+/api/pool 的 position_max=8（读 global，无兜底）；
+4 套回归 32/32 + 13/13 + 32/32 + 28/28

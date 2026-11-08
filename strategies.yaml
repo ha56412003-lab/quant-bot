@@ -35,7 +35,7 @@ global:
   daily_loss_halt_pct: 10.0
   risk_per_trade_pct: 1.5
   max_concurrent_coins: 8
-  max_same_side: 8
+  max_same_side: 6
   event_quiet_minutes: 30
   fear_greed_extreme:
     greed: 85
@@ -100,5 +100,3 @@ pools:
     kl_interval: 15m
     daily_refresh_sec: 86400
     tick_sec: 60
-  position:
-    max_concurrent: 6
