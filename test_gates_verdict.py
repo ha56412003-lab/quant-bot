@@ -31,7 +31,10 @@ import backend.quality as Q       # noqa: E402
 import backend.db as D            # noqa: E402
 import backend.config as C        # noqa: E402
 
-BAR = 1794177000          # 06:30 那根 K 线
+# 用「刚刚」的时间戳，而不是固定的历史 K 线 —— 因为结论列现在要求信号
+# 足够新鲜（5 分钟内），用写死的老时间戳会让所有涉及 skip_reason 的用例失真。
+import time as _t
+BAR = int(_t.time()) - 60        # 1 分钟前的 K 线（新鲜）
 SYM = "RSRUSDT"
 
 _fails = []
@@ -95,7 +98,7 @@ def main():
     d = run_gates()
     r = d["rows"][0]
     ck("opened=False", r.get("opened") is False, r.get("opened"))
-    ck("verdict=四闸全过·未成交", r.get("verdict") == "四闸全过·未成交", r.get("verdict"))
+    ck("verdict=四闸全过·待成交", r.get("verdict") == "四闸全过·待成交", r.get("verdict"))
 
     # ── 4. 信号是上一根 K 线的（过期）→ 不能拿来当结论 ────────────
     print("\n  4. 信号来自更早的 K 线（过期）→ 不得套用它的 skip_reason")
@@ -105,7 +108,7 @@ def main():
     }])
     d = run_gates()
     r = d["rows"][0]
-    ck("verdict 不套用旧原因", r.get("verdict") == "四闸全过·未成交", r.get("verdict"))
+    ck("verdict 不套用旧原因", r.get("verdict") == "四闸全过·待成交", r.get("verdict"))
 
     # ── 5. 四闸没全过 → 保持原诊断 ──────────────────────────
     print("\n  5. 四闸没全过 → 结论用诊断原文")
@@ -140,6 +143,17 @@ def main():
     r = d["rows"][0]
     ck("verdict=CE没翻转（不套日目标）", r.get("verdict") == "CE没翻转", r.get("verdict"))
     ck("opened=False", r.get("opened") is False, r.get("opened"))
+
+    # ── 8. 重置场景：刚点了「今日重置」，旧拒绝原因必须立刻失效 ─────────
+    print("\n  8. 重置后：6 分钟前的「已达日目标」旧信号不得再挂着")
+    _setup(held_syms=[], signals=[{
+        "symbol": SYM, "ts": BAR - 360, "acted": 0,
+        "skip_reason": "已达日目标，今日停止开新仓",
+    }])
+    d = run_gates()
+    r = d["rows"][0]
+    ck("旧拒绝原因已失效", r.get("verdict") == "四闸全过·待成交", r.get("verdict"))
+    ck("不再是「已达日目标」", "已达日目标" not in (r.get("verdict") or ""), r.get("verdict"))
 
     print("\n" + "=" * 78)
     print(f"结果：{'全部通过' if not _fails else str(len(_fails)) + ' 项失败：' + ', '.join(_fails)}")

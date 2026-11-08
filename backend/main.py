@@ -670,15 +670,19 @@ async def api_gates():
         dev_thr = v.get("dev_thr") or 0
         # ── 结论列：以真实事实为准 ──────────────────────────────
         sig = sig_map.get(sym) or {}
-        sig_fresh = int(sig.get("ts") or 0) >= int(v.get("ts") or 0)
+        sig_ts = int(sig.get("ts") or 0)
+        # 信号必须①不早于本轮判定 ②足够新鲜（5 分钟内）。
+        # 否则会出现：浩哥刚点了「今日重置」，页面却还在显示重置前那条
+        # 「已达日目标」——旧拒绝原因已经失效，却一直挂在表上（2026-11-09 踩到）。
+        sig_fresh = sig_ts >= int(v.get("ts") or 0) and (time.time() - sig_ts) <= 300
         if sym in held:
             verdict = "已开仓"
         elif v.get("ok") and sig_fresh and not sig.get("acted") and sig.get("skip_reason"):
-            # 只有「这一轮四闸真的全过了、信号真被风控拦下」才报拦截原因，
+            # 只有「这一轮四闸真的全过了、信号刚刚真被风控拦下」才报拦截原因，
             # 否则会出现「CE 都没翻」却写着「已达日目标」的自相矛盾（2026-11-09 踩到）。
             verdict = sig["skip_reason"]          # 例：已达日目标，今日停止开新仓
         elif v.get("ok"):
-            verdict = "四闸全过·未成交"
+            verdict = "四闸全过·待成交"
         else:
             verdict = v.get("why") or ""
         rows.append({"symbol": sym, "in_monitor": sym in mon,
