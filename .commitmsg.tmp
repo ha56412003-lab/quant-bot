@@ -1,0 +1,21 @@
+chore(clean): 清除监控池旧 ATR 规则残留与死代码
+
+阶段复盘第 3 条：确保没有跟旧规则混淆。
+
+删掉的死物（全部经证据确认零参与判断）：
+- ATR_ENTER_MIN / ATR_EXIT_MAX / ATR_INTERVAL：只有定义 / 读入 / 输出三个动作，
+  从不参与任何 if 判断（grep 逐行验证），yaml 里 atr_enter_min / atr_exit_max /
+  atr_interval 一并删除
+- SCAN_SEC：同上，旧 ATR 池外扫描节奏，已无判断点，yaml scan_sec 一并删除
+- atr_pct 字段：新代码从不写入 _rows，恒为 None，但 quality.get() 和
+  /api/pool 还在往前端传；前端已改为 stop_pct / eff，确认零引用后删除
+- snapshot() 里的 atr_enabled / atr_interval / atr_enter_min / atr_exit_max /
+  scan_sec 五个输出字段
+
+保留并改注：
+- ATR_N / _atr()：插针门槛（spike = 最大单根振幅 / 1h ATR）必须用，注释写明
+  它跟监控池入池口径无关，也跟 CE 的 ATR 不是同一个
+- _f() 辅助函数：min_quote_vol / max_spike / stop_min_pct 等仍在用
+
+验证：py_compile 通过；/api/pool 顶层与行内死字段全部消失；
+监控池参数 12 项全对；4 套回归 32/32 + 13/13 + 32/32 + 28/28

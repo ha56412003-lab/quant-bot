@@ -1,0 +1,1002 @@
+{
+ "BTCUSDT": {
+  "stop": 0.2202,
+  "eff": 0.3707,
+  "fee_ratio": 45.415
+ },
+ "ETHUSDT": {
+  "stop": 0.2864,
+  "eff": 0.3801,
+  "fee_ratio": 34.9194
+ },
+ "ZECUSDT": {
+  "stop": 1.2866,
+  "eff": 0.6067,
+  "fee_ratio": 7.7722
+ },
+ "ONEUSDT": {
+  "stop": 8.0918,
+  "eff": 0.3751,
+  "fee_ratio": 1.2358
+ },
+ "XRPUSDT": {
+  "stop": 0.5302,
+  "eff": 0.514,
+  "fee_ratio": 18.8595
+ },
+ "SOLUSDT": {
+  "stop": 0.5044,
+  "eff": 0.7189,
+  "fee_ratio": 19.8269
+ },
+ "HYPEUSDT": {
+  "stop": 0.5774,
+  "eff": 0.7909,
+  "fee_ratio": 17.319
+ },
+ "1000PEPEUSDT": {
+  "stop": 0.8603,
+  "eff": 0.3587,
+  "fee_ratio": 11.6241
+ },
+ "NEARUSDT": {
+  "stop": 1.148,
+  "eff": 0.3124,
+  "fee_ratio": 8.7107
+ },
+ "PUMPUSDT": {
+  "stop": 1.0651,
+  "eff": 0.5967,
+  "fee_ratio": 9.3885
+ },
+ "DOGEUSDT": {
+  "stop": 0.5051,
+  "eff": 0.7002,
+  "fee_ratio": 19.8
+ },
+ "BNBUSDT": {
+  "stop": 0.237,
+  "eff": 0.4241,
+  "fee_ratio": 42.1945
+ },
+ "ENAUSDT": {
+  "stop": 0.9691,
+  "eff": 0.8394,
+  "fee_ratio": 10.3183
+ },
+ "UNIUSDT": {
+  "stop": 1.3392,
+  "eff": 0.114,
+  "fee_ratio": 7.4674
+ },
+ "LYNUSDT": {
+  "stop": 3.147,
+  "eff": 0.2392,
+  "fee_ratio": 3.1776
+ },
+ "CYBERUSDT": {
+  "stop": 3.7444,
+  "eff": 0.3866,
+  "fee_ratio": 2.6707
+ },
+ "LITUSDT": {
+  "stop": 1.5242,
+  "eff": 0.6563,
+  "fee_ratio": 6.561
+ },
+ "LINKUSDT": {
+  "stop": 0.6002,
+  "eff": 0.5667,
+  "fee_ratio": 16.66
+ },
+ "TRUMPUSDT": {
+  "stop": 1.0204,
+  "eff": 0.1703,
+  "fee_ratio": 9.8
+ },
+ "SUIUSDT": {
+  "stop": 0.6228,
+  "eff": 0.7039,
+  "fee_ratio": 16.0566
+ },
+ "INJUSDT": {
+  "stop": 1.1106,
+  "eff": 0.3975,
+  "fee_ratio": 9.004
+ },
+ "WLDUSDT": {
+  "stop": 0.8916,
+  "eff": 0.7091,
+  "fee_ratio": 11.2158
+ },
+ "BCHUSDT": {
+  "stop": 0.919,
+  "eff": 0.8147,
+  "fee_ratio": 10.881
+ },
+ "ADAUSDT": {
+  "stop": 0.6098,
+  "eff": 0.7664,
+  "fee_ratio": 16.4
+ },
+ "ESPORTSUSDT": {
+  "stop": 2.5846,
+  "eff": 0.0989,
+  "fee_ratio": 3.8691
+ },
+ "AAVEUSDT": {
+  "stop": 0.9986,
+  "eff": 0.3212,
+  "fee_ratio": 10.0137
+ },
+ "ACTUSDT": {
+  "stop": 5.4924,
+  "eff": 0.0308,
+  "fee_ratio": 1.8207
+ },
+ "QNTUSDT": {
+  "stop": 0.879,
+  "eff": 0.4973,
+  "fee_ratio": 11.3764
+ },
+ "CAPUSDT": {
+  "stop": 1.4785,
+  "eff": 0.3035,
+  "fee_ratio": 6.7638
+ },
+ "BTWUSDT": {
+  "stop": 3.2205,
+  "eff": 0.471,
+  "fee_ratio": 3.1051
+ },
+ "ARBUSDT": {
+  "stop": 1.0817,
+  "eff": 0.5427,
+  "fee_ratio": 9.2444
+ },
+ "TAOUSDT": {
+  "stop": 0.6399,
+  "eff": 0.5371,
+  "fee_ratio": 15.6285
+ },
+ "AVAXUSDT": {
+  "stop": 0.4951,
+  "eff": 0.7546,
+  "fee_ratio": 20.1978
+ },
+ "XMRUSDT": {
+  "stop": 0.7012,
+  "eff": 0.7193,
+  "fee_ratio": 14.261
+ },
+ "TAUSDT": {
+  "stop": 1.5612,
+  "eff": 0.8689,
+  "fee_ratio": 6.4054
+ },
+ "KOMAUSDT": {
+  "stop": 6.5281,
+  "eff": 0.6256,
+  "fee_ratio": 1.5318
+ },
+ "FILUSDT": {
+  "stop": 0.8988,
+  "eff": 0.898,
+  "fee_ratio": 11.1263
+ },
+ "EVAAUSDT": {
+  "stop": 2.8498,
+  "eff": 0.2899,
+  "fee_ratio": 3.5091
+ },
+ "CTUSDT": {
+  "stop": 2.0297,
+  "eff": 0.4844,
+  "fee_ratio": 4.9269
+ },
+ "LTCUSDT": {
+  "stop": 0.48,
+  "eff": 0.4293,
+  "fee_ratio": 20.832
+ },
+ "XLMUSDT": {
+  "stop": 0.5117,
+  "eff": 0.7417,
+  "fee_ratio": 19.5418
+ },
+ "TIAUSDT": {
+  "stop": 1.314,
+  "eff": 0.6601,
+  "fee_ratio": 7.6104
+ },
+ "LSKUSDT": {
+  "stop": 1.49,
+  "eff": 0.6114,
+  "fee_ratio": 6.7114
+ },
+ "TRXUSDT": {
+  "stop": 0.1233,
+  "eff": 0.8264,
+  "fee_ratio": 81.1014
+ },
+ "ONDOUSDT": {
+  "stop": 0.7898,
+  "eff": 0.7194,
+  "fee_ratio": 12.6617
+ },
+ "GTCUSDT": {
+  "stop": 2.0649,
+  "eff": 0.04,
+  "fee_ratio": 4.8428
+ },
+ "PENGUUSDT": {
+  "stop": 0.7302,
+  "eff": 0.6905,
+  "fee_ratio": 13.6957
+ },
+ "AIOTUSDT": {
+  "stop": 2.9908,
+  "eff": 0.898,
+  "fee_ratio": 3.3436
+ },
+ "HUMAUSDT": {
+  "stop": 1.5266,
+  "eff": 0.8581,
+  "fee_ratio": 6.5505
+ },
+ "DOTUSDT": {
+  "stop": 0.6709,
+  "eff": 0.4653,
+  "fee_ratio": 14.9046
+ },
+ "METUSDT": {
+  "stop": 2.7554,
+  "eff": 0.514,
+  "fee_ratio": 3.6292
+ },
+ "MAGMAUSDT": {
+  "stop": 1.4257,
+  "eff": 0.6996,
+  "fee_ratio": 7.0142
+ },
+ "STRKUSDT": {
+  "stop": 0.9009,
+  "eff": 0.7656,
+  "fee_ratio": 11.1
+ },
+ "ASTERUSDT": {
+  "stop": 0.3666,
+  "eff": 0.1178,
+  "fee_ratio": 27.28
+ },
+ "CARVUSDT": {
+  "stop": 2.3529,
+  "eff": 0.5753,
+  "fee_ratio": 4.25
+ },
+ "HBARUSDT": {
+  "stop": 0.5158,
+  "eff": 0.7699,
+  "fee_ratio": 19.387
+ },
+ "APTUSDT": {
+  "stop": 0.9545,
+  "eff": 0.4844,
+  "fee_ratio": 10.4772
+ },
+ "AEROUSDT": {
+  "stop": 1.6706,
+  "eff": 0.0422,
+  "fee_ratio": 5.986
+ },
+ "DASHUSDT": {
+  "stop": 1.2621,
+  "eff": 0.1315,
+  "fee_ratio": 7.9234
+ },
+ "WLFIUSDT": {
+  "stop": 0.3679,
+  "eff": 0.1328,
+  "fee_ratio": 27.1824
+ },
+ "STXUSDT": {
+  "stop": 0.8839,
+  "eff": 0.273,
+  "fee_ratio": 11.3132
+ },
+ "ZROUSDT": {
+  "stop": 1.2209,
+  "eff": 0.7217,
+  "fee_ratio": 8.1905
+ },
+ "AIOUSDT": {
+  "stop": 1.9503,
+  "eff": 0.1727,
+  "fee_ratio": 5.1274
+ },
+ "SIGNUSDT": {
+  "stop": 5.2042,
+  "eff": 0.0919,
+  "fee_ratio": 1.9215
+ },
+ "XPLUSDT": {
+  "stop": 1.0633,
+  "eff": 0.7695,
+  "fee_ratio": 9.405
+ },
+ "PONSUSDT": {
+  "stop": 2.9853,
+  "eff": 0.7175,
+  "fee_ratio": 3.3498
+ },
+ "ETHFIUSDT": {
+  "stop": 1.0843,
+  "eff": 0.0724,
+  "fee_ratio": 9.2222
+ },
+ "BEAMXUSDT": {
+  "stop": 1.3605,
+  "eff": 0.5093,
+  "fee_ratio": 7.35
+ },
+ "HOTUSDT": {
+  "stop": 1.3718,
+  "eff": 0.6838,
+  "fee_ratio": 7.2895
+ },
+ "CLANKERUSDT": {
+  "stop": 2.8319,
+  "eff": 0.0636,
+  "fee_ratio": 3.5312
+ },
+ "ERAUSDT": {
+  "stop": 2.0736,
+  "eff": 0.5982,
+  "fee_ratio": 4.8225
+ },
+ "PIEVERSEUSDT": {
+  "stop": 1.0778,
+  "eff": 0.2717,
+  "fee_ratio": 9.2785
+ },
+ "VVVUSDT": {
+  "stop": 1.1833,
+  "eff": 0.4997,
+  "fee_ratio": 8.4512
+ },
+ "CRVUSDT": {
+  "stop": 0.8311,
+  "eff": 0.2138,
+  "fee_ratio": 12.0318
+ },
+ "FETUSDT": {
+  "stop": 1.0388,
+  "eff": 0.6139,
+  "fee_ratio": 9.6267
+ },
+ "OPUSDT": {
+  "stop": 0.8684,
+  "eff": 0.486,
+  "fee_ratio": 11.5153
+ },
+ "1000SHIBUSDT": {
+  "stop": 0.4249,
+  "eff": 0.5137,
+  "fee_ratio": 23.5368
+ },
+ "USELESSUSDT": {
+  "stop": 2.334,
+  "eff": 0.2826,
+  "fee_ratio": 4.2845
+ },
+ "MEGAUSDT": {
+  "stop": 1.5129,
+  "eff": 0.6568,
+  "fee_ratio": 6.6099
+ },
+ "RAYSOLUSDT": {
+  "stop": 1.1427,
+  "eff": 0.0554,
+  "fee_ratio": 8.7511
+ },
+ "XTZUSDT": {
+  "stop": 1.3405,
+  "eff": 0.1924,
+  "fee_ratio": 7.4598
+ },
+ "BEATUSDT": {
+  "stop": 1.1346,
+  "eff": 0.5739,
+  "fee_ratio": 8.8136
+ },
+ "牛来USDT": {
+  "stop": 2.3321,
+  "eff": 0.4441,
+  "fee_ratio": 4.288
+ },
+ "ELSAUSDT": {
+  "stop": 3.0156,
+  "eff": 0.2296,
+  "fee_ratio": 3.316
+ },
+ "ETCUSDT": {
+  "stop": 0.4872,
+  "eff": 0.8643,
+  "fee_ratio": 20.5258
+ },
+ "ICPUSDT": {
+  "stop": 0.6009,
+  "eff": 0.4936,
+  "fee_ratio": 16.6423
+ },
+ "ATOMUSDT": {
+  "stop": 0.8798,
+  "eff": 0.6109,
+  "fee_ratio": 11.3666
+ },
+ "CHIPUSDT": {
+  "stop": 1.3303,
+  "eff": 0.8751,
+  "fee_ratio": 7.5173
+ },
+ "BMTUSDT": {
+  "stop": 2.5161,
+  "eff": 0.5553,
+  "fee_ratio": 3.9744
+ },
+ "STARUSDT": {
+  "stop": 3.288,
+  "eff": 0.236,
+  "fee_ratio": 3.0413
+ },
+ "PROVEUSDT": {
+  "stop": 0.8403,
+  "eff": 0.15,
+  "fee_ratio": 11.9
+ },
+ "PYTHUSDT": {
+  "stop": 1.0122,
+  "eff": 0.7591,
+  "fee_ratio": 9.8799
+ },
+ "RENDERUSDT": {
+  "stop": 0.9417,
+  "eff": 0.6571,
+  "fee_ratio": 10.6194
+ },
+ "ZILUSDT": {
+  "stop": 1.2601,
+  "eff": 0.6672,
+  "fee_ratio": 7.9357
+ },
+ "FOGOUSDT": {
+  "stop": 2.2139,
+  "eff": 0.6184,
+  "fee_ratio": 4.5169
+ },
+ "PARTIUSDT": {
+  "stop": 1.7591,
+  "eff": 0.0582,
+  "fee_ratio": 5.6848
+ },
+ "1000BONKUSDT": {
+  "stop": 0.7188,
+  "eff": 0.6623,
+  "fee_ratio": 13.9125
+ },
+ "SANDUSDT": {
+  "stop": 0.7427,
+  "eff": 0.7693,
+  "fee_ratio": 13.4647
+ },
+ "ONUSDT": {
+  "stop": 1.5054,
+  "eff": 0.4758,
+  "fee_ratio": 6.6428
+ },
+ "FARTCOINUSDT": {
+  "stop": 0.7682,
+  "eff": 0.2278,
+  "fee_ratio": 13.0167
+ },
+ "POLUSDT": {
+  "stop": 0.6131,
+  "eff": 0.3865,
+  "fee_ratio": 16.3108
+ },
+ "RUNEUSDT": {
+  "stop": 0.6692,
+  "eff": 0.0046,
+  "fee_ratio": 14.9436
+ },
+ "GRASSUSDT": {
+  "stop": 1.5707,
+  "eff": 0.1716,
+  "fee_ratio": 6.3664
+ },
+ "RSRUSDT": {
+  "stop": 1.256,
+  "eff": 0.8323,
+  "fee_ratio": 7.9616
+ },
+ "BATUSDT": {
+  "stop": 1.2463,
+  "eff": 0.661,
+  "fee_ratio": 8.0237
+ },
+ "ALGOUSDT": {
+  "stop": 1.0537,
+  "eff": 0.0067,
+  "fee_ratio": 9.49
+ },
+ "GRAMUSDT": {
+  "stop": 1.2711,
+  "eff": 0.7358,
+  "fee_ratio": 7.8674
+ },
+ "MAGICUSDT": {
+  "stop": 1.1574,
+  "eff": 0.3939,
+  "fee_ratio": 8.6404
+ },
+ "COTIUSDT": {
+  "stop": 1.3625,
+  "eff": 0.0204,
+  "fee_ratio": 7.3393
+ },
+ "MUBARAKUSDT": {
+  "stop": 1.0363,
+  "eff": 0.266,
+  "fee_ratio": 9.65
+ },
+ "WIFUSDT": {
+  "stop": 0.62,
+  "eff": 0.5439,
+  "fee_ratio": 16.1299
+ },
+ "THEUSDT": {
+  "stop": 2.3769,
+  "eff": 0.0418,
+  "fee_ratio": 4.2072
+ },
+ "SEIUSDT": {
+  "stop": 0.6634,
+  "eff": 0.9277,
+  "fee_ratio": 15.0733
+ },
+ "龙虾USDT": {
+  "stop": 2.473,
+  "eff": 0.1109,
+  "fee_ratio": 4.0436
+ },
+ "MOVRUSDT": {
+  "stop": 0.9754,
+  "eff": 0.3787,
+  "fee_ratio": 10.2525
+ },
+ "PENDLEUSDT": {
+  "stop": 0.751,
+  "eff": 0.4485,
+  "fee_ratio": 13.3156
+ },
+ "SIRENUSDT": {
+  "stop": 1.5427,
+  "eff": 0.3655,
+  "fee_ratio": 6.4822
+ },
+ "LDOUSDT": {
+  "stop": 0.6471,
+  "eff": 0.3531,
+  "fee_ratio": 15.4524
+ },
+ "FLOCKUSDT": {
+  "stop": 0.8795,
+  "eff": 0.0171,
+  "fee_ratio": 11.37
+ },
+ "VIRTUALUSDT": {
+  "stop": 0.649,
+  "eff": 0.5249,
+  "fee_ratio": 15.4095
+ },
+ "KATUSDT": {
+  "stop": 1.1902,
+  "eff": 0.1322,
+  "fee_ratio": 8.4022
+ },
+ "WUSDT": {
+  "stop": 1.0473,
+  "eff": 0.5183,
+  "fee_ratio": 9.5484
+ },
+ "PIXELUSDT": {
+  "stop": 0.7607,
+  "eff": 0.4463,
+  "fee_ratio": 13.1452
+ },
+ "MARSCOINUSDT": {
+  "stop": 1.219,
+  "eff": 0.796,
+  "fee_ratio": 8.2035
+ },
+ "ZAMAUSDT": {
+  "stop": 1.2728,
+  "eff": 0.5376,
+  "fee_ratio": 7.8568
+ },
+ "JUPUSDT": {
+  "stop": 0.8333,
+  "eff": 0.1842,
+  "fee_ratio": 12.0
+ },
+ "YBUSDT": {
+  "stop": 1.9305,
+  "eff": 0.6827,
+  "fee_ratio": 5.18
+ },
+ "CCUSDT": {
+  "stop": 0.8068,
+  "eff": 0.5357,
+  "fee_ratio": 12.3942
+ },
+ "SUSDT": {
+  "stop": 0.7709,
+  "eff": 0.8277,
+  "fee_ratio": 12.9723
+ },
+ "BULLAUSDT": {
+  "stop": 1.8769,
+  "eff": 0.1181,
+  "fee_ratio": 5.328
+ },
+ "NILUSDT": {
+  "stop": 1.5579,
+  "eff": 0.4045,
+  "fee_ratio": 6.4188
+ },
+ "INITUSDT": {
+  "stop": 1.649,
+  "eff": 0.5162,
+  "fee_ratio": 6.0642
+ },
+ "INUSDT": {
+  "stop": 1.7294,
+  "eff": 0.1361,
+  "fee_ratio": 5.7822
+ },
+ "NIGHTUSDT": {
+  "stop": 0.9621,
+  "eff": 0.3779,
+  "fee_ratio": 10.3935
+ },
+ "SWARMSUSDT": {
+  "stop": 4.6439,
+  "eff": 0.756,
+  "fee_ratio": 2.1534
+ },
+ "LABUSDT": {
+  "stop": 1.0893,
+  "eff": 0.0344,
+  "fee_ratio": 9.18
+ },
+ "REZUSDT": {
+  "stop": 0.8831,
+  "eff": 0.5499,
+  "fee_ratio": 11.3235
+ },
+ "MONUSDT": {
+  "stop": 0.6681,
+  "eff": 0.7242,
+  "fee_ratio": 14.9681
+ },
+ "JTOUSDT": {
+  "stop": 1.0493,
+  "eff": 0.7135,
+  "fee_ratio": 9.5306
+ },
+ "FLUIDUSDT": {
+  "stop": 1.1471,
+  "eff": 0.7079,
+  "fee_ratio": 8.7176
+ },
+ "BOMEUSDT": {
+  "stop": 0.9859,
+  "eff": 0.4235,
+  "fee_ratio": 10.143
+ },
+ "EIGENUSDT": {
+  "stop": 0.7498,
+  "eff": 0.7914,
+  "fee_ratio": 13.3377
+ },
+ "MORPHOUSDT": {
+  "stop": 0.6717,
+  "eff": 0.339,
+  "fee_ratio": 14.8884
+ },
+ "RIVERUSDT": {
+  "stop": 0.8772,
+  "eff": 0.8523,
+  "fee_ratio": 11.4
+ },
+ "GALAUSDT": {
+  "stop": 0.7097,
+  "eff": 0.5313,
+  "fee_ratio": 14.0909
+ },
+ "ARUSDT": {
+  "stop": 1.0417,
+  "eff": 0.2267,
+  "fee_ratio": 9.6
+ },
+ "SOPHUSDT": {
+  "stop": 1.0236,
+  "eff": 0.107,
+  "fee_ratio": 9.7692
+ },
+ "BLESSUSDT": {
+  "stop": 1.4742,
+  "eff": 0.3074,
+  "fee_ratio": 6.7836
+ },
+ "SPXUSDT": {
+  "stop": 0.9699,
+  "eff": 0.4443,
+  "fee_ratio": 10.3105
+ },
+ "OPENUSDT": {
+  "stop": 1.3636,
+  "eff": 0.268,
+  "fee_ratio": 7.3333
+ },
+ "GWEIUSDT": {
+  "stop": 1.2637,
+  "eff": 0.266,
+  "fee_ratio": 7.913
+ },
+ "RLCUSDT": {
+  "stop": 1.1431,
+  "eff": 0.4643,
+  "fee_ratio": 8.748
+ },
+ "TRUTHUSDT": {
+  "stop": 1.2667,
+  "eff": 0.2826,
+  "fee_ratio": 7.8944
+ },
+ "ARXUSDT": {
+  "stop": 3.3201,
+  "eff": 0.7011,
+  "fee_ratio": 3.0119
+ },
+ "DOODUSDT": {
+  "stop": 1.2295,
+  "eff": 0.4277,
+  "fee_ratio": 8.1333
+ },
+ "ORDIUSDT": {
+  "stop": 0.7203,
+  "eff": 0.7835,
+  "fee_ratio": 13.8826
+ },
+ "HANAUSDT": {
+  "stop": 1.249,
+  "eff": 0.0561,
+  "fee_ratio": 8.0066
+ },
+ "ZEREBROUSDT": {
+  "stop": 1.1747,
+  "eff": 0.0023,
+  "fee_ratio": 8.5129
+ },
+ "RVNUSDT": {
+  "stop": 0.9339,
+  "eff": 0.6419,
+  "fee_ratio": 10.7083
+ },
+ "CELOUSDT": {
+  "stop": 0.9386,
+  "eff": 0.8898,
+  "fee_ratio": 10.654
+ },
+ "FOLKSUSDT": {
+  "stop": 1.7002,
+  "eff": 0.2853,
+  "fee_ratio": 5.8817
+ },
+ "SXTUSDT": {
+  "stop": 1.3433,
+  "eff": 0.103,
+  "fee_ratio": 7.4443
+ },
+ "ZENUSDT": {
+  "stop": 0.7932,
+  "eff": 0.7986,
+  "fee_ratio": 12.6074
+ },
+ "HAEDALUSDT": {
+  "stop": 1.2425,
+  "eff": 0.3164,
+  "fee_ratio": 8.048
+ },
+ "1000RATSUSDT": {
+  "stop": 1.0093,
+  "eff": 0.3485,
+  "fee_ratio": 9.9082
+ },
+ "SKYUSDT": {
+  "stop": 0.657,
+  "eff": 0.0556,
+  "fee_ratio": 15.2214
+ },
+ "HMSTRUSDT": {
+  "stop": 3.1463,
+  "eff": 0.5635,
+  "fee_ratio": 3.1783
+ },
+ "ZKUSDT": {
+  "stop": 0.7863,
+  "eff": 0.9209,
+  "fee_ratio": 12.7178
+ },
+ "JSTUSDT": {
+  "stop": 0.3682,
+  "eff": 0.8853,
+  "fee_ratio": 27.1604
+ },
+ "WALUSDT": {
+  "stop": 0.8386,
+  "eff": 0.7152,
+  "fee_ratio": 11.925
+ },
+ "TAGUSDT": {
+  "stop": 1.073,
+  "eff": 0.3607,
+  "fee_ratio": 9.3197
+ },
+ "CAKEUSDT": {
+  "stop": 0.43,
+  "eff": 0.5642,
+  "fee_ratio": 23.2565
+ },
+ "币安人生USDT": {
+  "stop": 0.4557,
+  "eff": 0.4265,
+  "fee_ratio": 21.9435
+ },
+ "WOOUSDT": {
+  "stop": 1.2174,
+  "eff": 0.4239,
+  "fee_ratio": 8.2143
+ },
+ "AXSUSDT": {
+  "stop": 0.6657,
+  "eff": 0.7343,
+  "fee_ratio": 15.0227
+ },
+ "APEUSDT": {
+  "stop": 0.7551,
+  "eff": 0.6987,
+  "fee_ratio": 13.2437
+ },
+ "MAVIAUSDT": {
+  "stop": 2.5808,
+  "eff": 0.0972,
+  "fee_ratio": 3.8747
+ },
+ "SYRUPUSDT": {
+  "stop": 1.0056,
+  "eff": 0.6761,
+  "fee_ratio": 9.9447
+ },
+ "ATUSDT": {
+  "stop": 1.848,
+  "eff": 0.541,
+  "fee_ratio": 5.4111
+ },
+ "IOSTUSDT": {
+  "stop": 0.8313,
+  "eff": 0.3796,
+  "fee_ratio": 12.0298
+ },
+ "VETUSDT": {
+  "stop": 0.7637,
+  "eff": 0.8632,
+  "fee_ratio": 13.095
+ },
+ "CHZUSDT": {
+  "stop": 0.7086,
+  "eff": 0.834,
+  "fee_ratio": 14.1125
+ },
+ "PLAYUSDT": {
+  "stop": 1.9689,
+  "eff": 0.8374,
+  "fee_ratio": 5.0791
+ },
+ "SAFEUSDT": {
+  "stop": 1.7413,
+  "eff": 0.1378,
+  "fee_ratio": 5.7427
+ },
+ "B2USDT": {
+  "stop": 1.2994,
+  "eff": 0.3774,
+  "fee_ratio": 7.6959
+ },
+ "AVAUSDT": {
+  "stop": 1.713,
+  "eff": 0.4277,
+  "fee_ratio": 5.8378
+ },
+ "ACEUSDT": {
+  "stop": 0.6905,
+  "eff": 0.7381,
+  "fee_ratio": 14.4827
+ },
+ "STABLEUSDT": {
+  "stop": 0.8915,
+  "eff": 0.2737,
+  "fee_ratio": 11.2174
+ },
+ "IOTAUSDT": {
+  "stop": 0.7711,
+  "eff": 0.8245,
+  "fee_ratio": 12.9679
+ },
+ "PHAUSDT": {
+  "stop": 1.3103,
+  "eff": 0.7575,
+  "fee_ratio": 7.6317
+ },
+ "KMNOUSDT": {
+  "stop": 0.8042,
+  "eff": 0.6717,
+  "fee_ratio": 12.4352
+ },
+ "BERAUSDT": {
+  "stop": 0.7532,
+  "eff": 0.8511,
+  "fee_ratio": 13.2774
+ },
+ "0GUSDT": {
+  "stop": 0.9492,
+  "eff": 0.8281,
+  "fee_ratio": 10.5357
+ },
+ "TRIAUSDT": {
+  "stop": 0.9925,
+  "eff": 0.4673,
+  "fee_ratio": 10.0756
+ },
+ "PROMUSDT": {
+  "stop": 1.07,
+  "eff": 0.4744,
+  "fee_ratio": 9.3455
+ },
+ "1INCHUSDT": {
+  "stop": 0.7319,
+  "eff": 0.1984,
+  "fee_ratio": 13.6628
+ },
+ "COMPUSDT": {
+  "stop": 0.7069,
+  "eff": 0.4369,
+  "fee_ratio": 14.1464
+ },
+ "REUSDT": {
+  "stop": 0.9278,
+  "eff": 0.913,
+  "fee_ratio": 10.7778
+ },
+ "NOMUSDT": {
+  "stop": 1.0966,
+  "eff": 0.7297,
+  "fee_ratio": 9.1188
+ },
+ "ORCAUSDT": {
+  "stop": 0.7366,
+  "eff": 0.4401,
+  "fee_ratio": 13.575
+ }
+}

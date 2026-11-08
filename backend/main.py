@@ -811,7 +811,7 @@ async def api_pool():
         rows.append({
             "symbol": sym,
             "price": factors.mark_price_of(sym),
-            "qv": q.get("qv"), "atr_pct": q.get("atr_pct"), "spike": q.get("spike"),
+            "qv": q.get("qv"), "spike": q.get("spike"),
             # 2026-11-08 新闸门：止损距离（平滑后）+ 趋势效率（平滑后）
             "stop_pct": q.get("stop_pct"), "eff": q.get("eff"),
             "ok": q.get("ok"), "why": q.get("why", ""),
@@ -840,13 +840,7 @@ async def api_pool():
             "eff_win": snap.get("eff_win"),
             "smooth_sec": snap.get("smooth_sec"),
             "kl_interval": snap.get("kl_interval"),
-            # 旧 ATR 参数（已停用，只为前端能如实标注）
-            "atr_enabled": snap.get("atr_enabled"),
-            "atr_enter_min": snap.get("atr_enter_min"),
-            "atr_exit_max": snap.get("atr_exit_max"),
             "min_dwell_sec": snap.get("min_dwell_sec"),
-            "atr_interval": snap.get("atr_interval"),
-            "scan_sec": snap.get("scan_sec"),
             "refresh_sec": snap.get("refresh_sec"), "rows": rows,
             "pass_n": sum(1 for r in rows if r["ok"]),
             # 三层池规模

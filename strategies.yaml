@@ -34,19 +34,14 @@ global:
   max_gross_leverage: 6
   daily_loss_halt_pct: 10.0
   risk_per_trade_pct: 1.5
-  max_concurrent_coins: 6
-  max_same_side: 6
+  max_concurrent_coins: 8
+  max_same_side: 8
   event_quiet_minutes: 30
   fear_greed_extreme:
     greed: 85
     fear: 15
     size_mult: 0.6
   daily_target:
-    # 2026-11-07 浩哥定：不关，恢复成开着、金额手动填。
-    # 界面上能改全部四项（风控页 → 日目标）：启用 / 金额 / 达标顶住多久 / 提醒后多久砍仓。
-    # ⚠ 注意 auto_close_sec 现在是 5 —— 提醒发出 5 秒就强制全平，
-    #    你根本来不及反应。建议改成 0（只提醒不砍）或至少 60。
-    #    前端会显示红色危险提示，但不会拦住。
     enabled: true
     target_usd: 200
     sustain_sec: 30
@@ -77,22 +72,7 @@ strategies:
       max_risk_pct: 30.0
       rr_ratio: 1.2
       half_at_r: 2.0
-      # ── 出场：开仓条件镜像（2026-11-08 浩哥定案，旧「破均线+回撤」已整段删除）──
-      # 做多出场：① CE 方向翻空 ② HA 阴线且 HA收 < ZLSMA50
-      # 做空出场：① CE 方向翻多 ② HA 阳线且 HA收 > ZLSMA50
-      # 两条必须落在同一根已收盘 K 线上。出场不加布林带条件（详见 strategies.py）。
-      # ── 半仓专属出场（2R 平掉一半之后，管剩下那一半）──
-      # 只有这一条：再赚 1R（即到 3R）全平。线上口径 6 仓回测（597 笔）：
-      #   +61.8R / 均笔+0.104 / 回撤−16.4 / 均持仓 26.5 根
       half_tp_r: 1.0
-      # 注意：原来的 half_dd_pct / half_dd_r（半仓后按回撤%或R止盈）已删除。
-      # 代码里从来没有实现过这两项 —— 它们写在 yaml 里但 strategies.py 一次都没读，
-      # 属于「写了不生效」的空指令，2026-11-08 复盘时清掉。
-      # 现在管剩下那一半的只有两条：到 3R 全平，或者中途趋势反转走镜像出场。
-      # 手续费：币安 U 本位 VIP0 的 taker 是 0.05%（不是 0.02%）。
-      # 原来写 0.0002 = 按 2.5 倍低估成本。100U 本金单笔 30U 名义，
-      # 开平各收一次 ≈ 0.03U，占 1.5U 风险的 2%，一天 9 笔 ≈ 8U/月。
-      # 若用 BNB 抵扣可降到 0.045%（0.00045），这里按不打折的保守值算。
       fee_rate: 0.0005
       slip_pct: 0.0
 pools:
@@ -106,39 +86,18 @@ pools:
     - BTCUSDT
     - ETHUSDT
   monitor:
-    # ── 2026-11-08 浩哥拍板：监控池入口指标重构 ──────────────
-    # 旧：5m ATR 0.40%（管手续费）+ 成交额 1000万 + 插针 4.0 + 5 分钟刷新
-    #    实测 ATR 筛反了：进池那组 EFF 中位 0.387 / 42% 横盘，
-    #    被拦那组 EFF 中位 0.525 / 21% 横盘 → 筛出来的更没方向。
-    # 新：止损距离（管手续费，物理直接）+ EFF（排横盘）+ 插针 8.0 + 每分钟刷新
     size: 40
     min_quote_vol: 5000000
     max_spike: 8.0
     refresh_sec: 60
     min_dwell_sec: 900
-
-    # 第 1 道：止损距离（20 根 15m 摆动低/高点到现价的距离，%）
-    #   进 ≥1.00% / 出 <0.85% —— 1.0% 时手续费占 1R 恰为 10%
     stop_min_pct: 1.0
     stop_exit_pct: 0.85
-
-    # 第 2 道：趋势效率 EFF（净位移 ÷ 区间振幅，96 根 15m = 24 小时）
-    #   进 ≥0.30 / 出 <0.25 —— ≥0.55 单边、0.30~0.55 半趋势、≤0.30 宽震
-    eff_min: 0.30
+    eff_min: 0.3
     eff_exit: 0.25
     eff_win: 96
-
-    # 平滑：止损距离 / EFF 各取过去 N 秒采样的中位数
-    #   实测每分钟抖动 0.033% / 0.0137 → 5 分钟中位数把「刚进就出」从 27% 压到 1%
     smooth_sec: 300
     kl_interval: 15m
-
-    # ── 以下为 ATR 旧参数：已停用，保留仅为回滚 ──────────────
-    atr_enter_min: 0.4
-    atr_exit_max: 0.3
-    atr_interval: 5m
-
-    scan_sec: 900
     daily_refresh_sec: 86400
     tick_sec: 60
   position:

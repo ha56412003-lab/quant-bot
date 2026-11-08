@@ -32,8 +32,8 @@
   {
     "section": "global",
     "key": "max_concurrent_coins",
-    "yaml": 6,
-    "runtime": 6,
+    "yaml": 8,
+    "runtime": 8,
     "refs": 4,
     "where": "",
     "verdict": "✅ 生效",
@@ -42,8 +42,8 @@
   {
     "section": "global",
     "key": "max_same_side",
-    "yaml": 6,
-    "runtime": 6,
+    "yaml": 8,
+    "runtime": 8,
     "refs": 2,
     "where": "",
     "verdict": "✅ 生效",
@@ -302,8 +302,8 @@
   {
     "section": "pools.monitor",
     "key": "size",
-    "yaml": 200,
-    "runtime": 200,
+    "yaml": 40,
+    "runtime": 40,
     "refs": 7,
     "where": "",
     "verdict": "✅ 生效",
@@ -311,10 +311,120 @@
   },
   {
     "section": "pools.monitor",
+    "key": "min_quote_vol",
+    "yaml": 5000000,
+    "runtime": 5000000.0,
+    "refs": 2,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "对应常量 MIN_QUOTE_VOL"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "max_spike",
+    "yaml": 8.0,
+    "runtime": 8.0,
+    "refs": 3,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "对应常量 MAX_SPIKE"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "refresh_sec",
+    "yaml": 60,
+    "runtime": 60,
+    "refs": 7,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "对应常量 REFRESH_SEC"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "min_dwell_sec",
+    "yaml": 900,
+    "runtime": 900,
+    "refs": 2,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "对应常量 MIN_DWELL_SEC"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "stop_min_pct",
+    "yaml": 1.0,
+    "runtime": 1.0,
+    "refs": 0,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "对应常量 ?"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "stop_exit_pct",
+    "yaml": 0.85,
+    "runtime": 0.85,
+    "refs": 0,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "对应常量 ?"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "eff_min",
+    "yaml": 0.3,
+    "runtime": 0.3,
+    "refs": 0,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "对应常量 ?"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "eff_exit",
+    "yaml": 0.25,
+    "runtime": 0.25,
+    "refs": 0,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "对应常量 ?"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "eff_win",
+    "yaml": 96,
+    "runtime": 96,
+    "refs": 0,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "对应常量 ?"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "smooth_sec",
+    "yaml": 300,
+    "runtime": 300,
+    "refs": 0,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "对应常量 ?"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "kl_interval",
+    "yaml": "15m",
+    "runtime": "15m",
+    "refs": 0,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "对应常量 ?"
+  },
+  {
+    "section": "pools.monitor",
     "key": "atr_enter_min",
     "yaml": 0.4,
     "runtime": 0.4,
-    "refs": 3,
+    "refs": 1,
     "where": "",
     "verdict": "✅ 生效",
     "note": "对应常量 ATR_ENTER_MIN"
@@ -324,67 +434,27 @@
     "key": "atr_exit_max",
     "yaml": 0.3,
     "runtime": 0.3,
-    "refs": 3,
+    "refs": 1,
     "where": "",
     "verdict": "✅ 生效",
     "note": "对应常量 ATR_EXIT_MAX"
   },
   {
     "section": "pools.monitor",
-    "key": "min_dwell_sec",
-    "yaml": 1800,
-    "runtime": 1800,
-    "refs": 2,
-    "where": "",
-    "verdict": "✅ 生效",
-    "note": "对应常量 MIN_DWELL_SEC"
-  },
-  {
-    "section": "pools.monitor",
     "key": "atr_interval",
     "yaml": "5m",
     "runtime": "5m",
-    "refs": 2,
+    "refs": 1,
     "where": "",
     "verdict": "✅ 生效",
     "note": "对应常量 ATR_INTERVAL"
   },
   {
     "section": "pools.monitor",
-    "key": "min_quote_vol",
-    "yaml": 10000000,
-    "runtime": 10000000.0,
-    "refs": 2,
-    "where": "",
-    "verdict": "✅ 生效",
-    "note": "对应常量 MIN_QUOTE_VOL"
-  },
-  {
-    "section": "pools.monitor",
-    "key": "max_spike",
-    "yaml": 4.0,
-    "runtime": 4.0,
-    "refs": 2,
-    "where": "",
-    "verdict": "✅ 生效",
-    "note": "对应常量 MAX_SPIKE"
-  },
-  {
-    "section": "pools.monitor",
-    "key": "refresh_sec",
-    "yaml": 300,
-    "runtime": 300,
-    "refs": 7,
-    "where": "",
-    "verdict": "✅ 生效",
-    "note": "对应常量 REFRESH_SEC"
-  },
-  {
-    "section": "pools.monitor",
     "key": "scan_sec",
     "yaml": 900,
     "runtime": 900,
-    "refs": 3,
+    "refs": 1,
     "where": "",
     "verdict": "✅ 生效",
     "note": "对应常量 SCAN_SEC"
@@ -404,7 +474,7 @@
     "key": "tick_sec",
     "yaml": 60,
     "runtime": "（接口不返回）",
-    "refs": 1,
+    "refs": 3,
     "where": "",
     "verdict": "✅ 生效(静态确认)",
     "note": "只在 quality.loop 内部使用，前端接口不暴露"

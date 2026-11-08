@@ -107,22 +107,21 @@ MIN_DWELL_SEC = 900      # 进池后最短停留 15 分钟（从 30 分钟缩短
 REFRESH_SEC = 60         # 每分钟刷新一次
 TICK_SEC = 60            # 主循环节拍
 
-# ── 旧 ATR 参数：已停用，只为回滚保留 ──────────────────────
-ATR_ENTER_MIN = 0.40
-ATR_EXIT_MAX = 0.30
-ATR_INTERVAL = "5m"
+# ── 插针专用的 ATR ────────────────────────────────────
+# spike = 最近 96 根 1h 里最大单根振幅 ÷ 1h ATR（Wilder 14）。
+# ⚠ 这个 ATR 只服务插针门槛，跟监控池的入池口径无关；
+#   CE 的 ATR（strategies.py 的 _rma(tr, ce_len=1)）更是另一个东西。
 ATR_N = 14
 
-# ── 历史遗留刷新参数（插针仍用）──────────────────────────
-_RETRY_SEC = 600         # 整轮刷新全失败时的重试间隔（秒）
-SPIKE_LOOKBACK = 100     # 插针：拉 100 根 1h（实际用最后 96 根）
-SCAN_SEC = 900           # 保留（旧 ATR 池外扫描节奏，已不参与判断）
+# ── 刷新节奏 ──────────────────────────────────────────
+_RETRY_SEC = 600          # 整轮刷新全失败时的重试间隔（秒）
+SPIKE_LOOKBACK = 100      # 插针：拉 100 根 1h（实际用最后 96 根）
 DAILY_REFRESH_SEC = 86400  # 日线插针：每天
 
 FETCH_CONCURRENCY = 8    # 并发数（200 币串行要 200 秒，并发 8 约 25 秒）
 
 # ── 状态 ──────────────────────────────────────────────────
-_rows: dict[str, dict] = {}       # sym -> {spike, qv, atr_pct(旧), ts_*}
+_rows: dict[str, dict] = {}       # sym -> {spike, qv, ts_daily}
 _monitor: list[str] = []          # 当前监控池
 _in_since: dict[str, float] = {}  # sym -> 进池时间戳
 
@@ -142,8 +141,7 @@ def configure(cfg: dict | None = None) -> None:
     global MIN_QUOTE_VOL, MAX_SPIKE, MONITOR_SIZE, MIN_DWELL_SEC
     global STOP_MIN_PCT, STOP_EXIT_PCT, EFF_MIN, EFF_EXIT, EFF_WIN
     global SMOOTH_SEC, KL_INTERVAL, REFRESH_SEC, TICK_SEC
-    global SCAN_SEC, DAILY_REFRESH_SEC
-    global ATR_ENTER_MIN, ATR_EXIT_MAX, ATR_INTERVAL
+    global DAILY_REFRESH_SEC
     cfg = cfg or {}
 
     def _f(k, cur):
@@ -165,18 +163,10 @@ def configure(cfg: dict | None = None) -> None:
     SMOOTH_SEC = _i("smooth_sec", SMOOTH_SEC)
     REFRESH_SEC = _i("refresh_sec", REFRESH_SEC)
     TICK_SEC = _i("tick_sec", TICK_SEC)
-    SCAN_SEC = _i("scan_sec", SCAN_SEC)
     DAILY_REFRESH_SEC = _i("daily_refresh_sec", DAILY_REFRESH_SEC)
     _iv = cfg.get("kl_interval")
     if _iv is not None:
         KL_INTERVAL = str(_iv)
-
-    # 旧 ATR 参数：读进来只是为了 snapshot 能如实展示「已停用」，不参与任何判断
-    ATR_ENTER_MIN = _f("atr_enter_min", ATR_ENTER_MIN)
-    ATR_EXIT_MAX = _f("atr_exit_max", ATR_EXIT_MAX)
-    _atr_iv = cfg.get("atr_interval")
-    if _atr_iv is not None:
-        ATR_INTERVAL = str(_atr_iv)
 
 
 # ── 指标计算 ──────────────────────────────────────────────
@@ -562,7 +552,6 @@ def get(symbol: str):
         return None
     ok, why = _judge(symbol)
     return {"qv": (r or {}).get("qv"), "spike": (r or {}).get("spike"),
-            "atr_pct": (r or {}).get("atr_pct"),
             "stop_pct": stop, "eff": eff,
             "ok": ok, "why": why}
 
@@ -604,12 +593,6 @@ def snapshot() -> dict:
         "min_dwell_sec": MIN_DWELL_SEC,
         "size": MONITOR_SIZE,
         "refresh_sec": REFRESH_SEC,
-        # 旧 ATR（已停用，仅为对照展示）
-        "atr_enabled": False,
-        "atr_interval": ATR_INTERVAL,
-        "atr_enter_min": ATR_ENTER_MIN,
-        "atr_exit_max": ATR_EXIT_MAX,
-        "scan_sec": SCAN_SEC,
         "data": data,
         "monitor": list(_monitor),
         "monitor_size": MONITOR_SIZE,
