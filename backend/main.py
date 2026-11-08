@@ -332,9 +332,17 @@ async def api_radar(symbol: str = ""):
             rows = radar.latest(symbol)
             return {"rows": rows, "history": radar.history(symbol, 36)}
         rows = radar.latest()
+        # 2026-11-08 修 BUG：radar_history 只增不删 —— 平掉的仓历史记录留在表里，
+        # 直接取「每币最新一条」会把早就平掉的币一直画在雷达面板上
+        # （实测：表里 12 个币，当前只持 4 个 → 多出 8 张幽灵卡；持仓清零也不消失）。
+        # 按当前持仓的 (symbol, side) 过滤，只留真在仓的。
+        # 传 symbol 参数的单币查询不过滤（那是主动查历史，不是列表）。
+        alive = {(x["symbol"], x.get("side")) for x in db.open_positions()}
         out = []
         for r in rows:
             r = dict(r)
+            if (r.get("symbol"), r.get("side")) not in alive:
+                continue
             try:
                 det = json.loads(r.get("detail") or "{}")
             except Exception:  # noqa: BLE001
@@ -454,6 +462,33 @@ async def api_positions():
         drawdown_r = (float(peak_r_mem) - ((price - p["entry_price"]) *
                       sign / risk_abs)) if (peak_r_mem is not None and risk_abs > 0) else None
 
+        # ── 镜像出场三闸实时状态（2026-11-08）──────────────────────────
+        # 语义与 strategies._mirror_exit 完全一致，只是把代码里合并写的
+        # 第②③道拆开单独展示（代码里是 ha_ok = ha_rev and z_break 一个条件）：
+        #   ① CE 方向翻转      （dir_prev → dir_now 转向持仓的不利方向）
+        #   ② HA 反向关键K线   （多头转阴 / 空头转阳）
+        #   ③ 破 ZLSMA         （多头跌破 / 空头站上）
+        # 三条同时成立才会出场（strictly_and）。空头全部取反，多空对称。
+        # 数据来自 _mirror_exit 的窗口缓存；刚开仓或跨窗口瞬间可能没值 → 返回 None。
+        _kiv = ((scfg.get("params") or {}).get("kline_interval") or "15m")
+        _zh = strategies._S15_ZL_CACHE.get((p["symbol"], _kiv))
+        _cefl = _hrev = _zbrk = None
+        _cev = _hbar = _zsd = None
+        _exit_n = None
+        if _zh and len(_zh) >= 7:
+            _znow, _hac, _hao = _zh[1], _zh[2], _zh[6]
+            _dnow, _dprev = _zh[4], _zh[5]
+            if None not in (_znow, _hac, _hao, _dnow, _dprev):
+                _is_long = p["side"] == "long"
+                _cev = "long" if _dnow == 1 else "short"
+                _hbar = "up" if _hac >= _hao else "down"
+                _zsd = "above" if _hac >= _znow else "below"
+                _cefl = bool((_dprev == 1 and _dnow == -1) if _is_long
+                             else (_dprev == -1 and _dnow == 1))
+                _hrev = bool((_hac < _hao) if _is_long else (_hac > _hao))
+                _zbrk = bool((_hac < _znow) if _is_long else (_hac > _znow))
+                _exit_n = int(_cefl) + int(_hrev) + int(_zbrk)
+
         # 2026-11-08 清理：以下三列是旧出场逻辑的遗留（数据库列保留 —— 历史
         # 仓位里还有非零值要看），但它们现在恒定为空/0，不再随 API 吐出，
         # 免得前端/脚本把死值当真实状态读。
@@ -469,6 +504,10 @@ async def api_positions():
                     "stop_dist_pct": stop_dist,
                     "peak_r_mem": float(peak_r_mem) if peak_r_mem is not None else None,
                     "drawdown_r": drawdown_r,
+                    # 镜像出场三闸：0-3，等于 3 就是本次出场信号
+                    "exit_n": _exit_n,
+                    "exit_ce_flip": _cefl, "exit_ha_rev": _hrev, "exit_z_break": _zbrk,
+                    "exit_ce_dir": _cev, "exit_ha_bar": _hbar, "exit_z_side": _zsd,
                     # 占用保证金按【当前价】计算，与币安口径一致（仓位价值随价格浮动）
                     "margin": abs(p["qty"] * price) / lev + extra,
                     "margin_at_entry": abs(p["qty"] * entry) / lev + extra,
