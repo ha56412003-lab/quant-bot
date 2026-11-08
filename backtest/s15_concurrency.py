@@ -20,7 +20,10 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from s15_final import build
+# 指标直接调用线上实现，杜绝回测口径与线上不一致（2026-11-08 对账：
+# s15_final.build() 用 high/low 极值，线上 use_close=true 用 close 极值）
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from backend.strategies import _ce_zlsma
 
 FEE = 0.0005
 SWING = 20
@@ -31,7 +34,7 @@ MAX_CONCURRENT = 6
 
 def gen_trades(sym, ks, ind, mode):
     """跑出该币全部候选交易。mode: 'mirror'（新）| 'legacy'（旧）"""
-    ho, hh, hl, hc = ind["ho"], ind["hh"], ind["hl"], ind["hc"]
+    ho, hh, hl, hc = ind["open"], ind["high_raw"], ind["low_raw"], ind["close"]
     zl, dirs, atr, bp = ind["zlsma"], ind["dir"], ind["atr"], ind["bbw_pct"]
     n = len(hc)
     out = []
@@ -135,7 +138,7 @@ def load():
         if len(ks) < 800:
             continue
         try:
-            c.append((sym, ks, build(ks)))
+            c.append((sym, ks, _ce_zlsma(ks, 1, 2.0, 50, True, True)))
         except Exception:
             pass
     return c
