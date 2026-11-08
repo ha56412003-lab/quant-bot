@@ -2722,17 +2722,6 @@ html[data-theme="paper"] .spider-root .cards .card .bar.prog .peak-arrow {
   color: #ffb3bb;
 }
 
-/* 顶部状态条的小红点 */
-.netdot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #ff4d5e;
-  box-shadow: 0 0 6px #ff4d5e;
-  animation: netalert-pulse 1.4s ease-in-out infinite;
-}
-
 /* 折叠态：点了「知道了」但网络还没恢复 —— 常驻小红条，恢复后自动消失 */
 .netalert-mini {
   pointer-events: auto;

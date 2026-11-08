@@ -104,18 +104,3 @@ export default function NetAlertBanner() {
     </div>
   )
 }
-
-/** 顶部状态条上的小红点：网络断了才显示。 */
-export function NetDot() {
-  const [down, setDown] = useState(false)
-  useEffect(() => {
-    const tick = () => {
-      api.netStatus().then((d) => setDown(d?.status === 'down')).catch(() => {})
-    }
-    tick()
-    const t = setInterval(tick, 15000)
-    return () => clearInterval(t)
-  }, [])
-  if (!down) return null
-  return <span className="netdot" title="交易系统网络中断" />
-}
