@@ -1,0 +1,522 @@
+[
+  {
+    "section": "global",
+    "key": "risk_per_trade_pct",
+    "yaml": 1.5,
+    "runtime": 1.5,
+    "refs": 4,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "global",
+    "key": "max_position_pct_per_coin",
+    "yaml": 32.0,
+    "runtime": 32.0,
+    "refs": 2,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "global",
+    "key": "max_gross_leverage",
+    "yaml": 6,
+    "runtime": 6,
+    "refs": 6,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "global",
+    "key": "max_concurrent_coins",
+    "yaml": 6,
+    "runtime": 6,
+    "refs": 4,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "global",
+    "key": "max_same_side",
+    "yaml": 6,
+    "runtime": 6,
+    "refs": 2,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "global",
+    "key": "daily_loss_halt_pct",
+    "yaml": 10.0,
+    "runtime": 10.0,
+    "refs": 2,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "global",
+    "key": "event_quiet_minutes",
+    "yaml": 30,
+    "runtime": 30,
+    "refs": 3,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "global.fear_greed_extreme",
+    "key": "greed",
+    "yaml": 85,
+    "runtime": 85,
+    "refs": 1,
+    "where": "risk.py×1",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "global.fear_greed_extreme",
+    "key": "fear",
+    "yaml": 15,
+    "runtime": 15,
+    "refs": 1,
+    "where": "risk.py×1",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "global.fear_greed_extreme",
+    "key": "size_mult",
+    "yaml": 0.6,
+    "runtime": 0.6,
+    "refs": 4,
+    "where": "risk.py×2,strategies_legacy.py×2",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "S15.params",
+    "key": "kline_interval",
+    "yaml": "15m",
+    "runtime": "15m",
+    "refs": 4,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "S15.params",
+    "key": "ce_len",
+    "yaml": 1,
+    "runtime": 1,
+    "refs": 2,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "S15.params",
+    "key": "ce_mult",
+    "yaml": 2.0,
+    "runtime": 2.0,
+    "refs": 2,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "S15.params",
+    "key": "zlsma_len",
+    "yaml": 50,
+    "runtime": 50,
+    "refs": 2,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "S15.params",
+    "key": "use_close",
+    "yaml": true,
+    "runtime": true,
+    "refs": 2,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "S15.params",
+    "key": "use_ha",
+    "yaml": true,
+    "runtime": true,
+    "refs": 2,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "S15.params",
+    "key": "swing_lookback",
+    "yaml": 20,
+    "runtime": 20,
+    "refs": 1,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "S15.params",
+    "key": "min_atr_pct",
+    "yaml": 0,
+    "runtime": 0,
+    "refs": 1,
+    "where": "",
+    "verdict": "✅ 生效(关闭)",
+    "note": "yaml=0 关闭策略层 ATR 门槛；ATR 判断已移到池子层 5m 双档"
+  },
+  {
+    "section": "S15.params",
+    "key": "bbw_pct_min",
+    "yaml": 70.0,
+    "runtime": 70.0,
+    "refs": 1,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "S15.params",
+    "key": "max_risk_pct",
+    "yaml": 30.0,
+    "runtime": 30.0,
+    "refs": 1,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "S15.params",
+    "key": "rr_ratio",
+    "yaml": 1.2,
+    "runtime": 1.2,
+    "refs": 1,
+    "where": "",
+    "verdict": "⚠️ 半死",
+    "note": "只用于算 tp 变量做合法性校验（tp>0），实际 take_profit=0.0 落库，不参与平仓"
+  },
+  {
+    "section": "S15.params",
+    "key": "half_at_r",
+    "yaml": 2.0,
+    "runtime": 2.0,
+    "refs": 2,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "S15.params",
+    "key": "half_tp_r",
+    "yaml": 1.0,
+    "runtime": 1.0,
+    "refs": 1,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "S15.params",
+    "key": "fee_rate",
+    "yaml": 0.0005,
+    "runtime": 0.0005,
+    "refs": 4,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "S15.params",
+    "key": "slip_pct",
+    "yaml": 0.0,
+    "runtime": 0.0,
+    "refs": 4,
+    "where": "",
+    "verdict": "✅ 生效(0)",
+    "note": "滑点 0，只影响记账成本口径"
+  },
+  {
+    "section": "S15.risk",
+    "key": "capital_usd",
+    "yaml": 0,
+    "runtime": 0,
+    "refs": 2,
+    "where": "config.py×1,risk.py×1",
+    "verdict": "🔶 继承语义",
+    "note": "0 → 用账户实时净值 equity"
+  },
+  {
+    "section": "S15.risk",
+    "key": "leverage",
+    "yaml": 6,
+    "runtime": 6,
+    "refs": 18,
+    "where": "binance.py×1,config.py×2,db.py×3,engine.py×1,exchanges.py×1,main.py×9,risk.py×1",
+    "verdict": "✅ 生效",
+    "note": "6 → 直接生效"
+  },
+  {
+    "section": "S15.risk",
+    "key": "max_position_usd",
+    "yaml": 0,
+    "runtime": 0,
+    "refs": 2,
+    "where": "config.py×1,risk.py×1",
+    "verdict": "🔶 继承语义",
+    "note": "0 → 用 capital × leverage"
+  },
+  {
+    "section": "S15.risk",
+    "key": "risk_per_trade_pct",
+    "yaml": 0,
+    "runtime": 0,
+    "refs": 4,
+    "where": "config.py×2,risk.py×2",
+    "verdict": "🔶 继承语义",
+    "note": "0 → 用 global.risk_per_trade_pct = 1.5%"
+  },
+  {
+    "section": "S15",
+    "key": "max_hold_hours",
+    "yaml": 16,
+    "runtime": "由 Base 读取",
+    "refs": 1,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "不在 params 层，Base.__init__ 直接读"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "size",
+    "yaml": 200,
+    "runtime": 200,
+    "refs": 7,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "对应常量 MONITOR_SIZE"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "atr_enter_min",
+    "yaml": 0.4,
+    "runtime": 0.4,
+    "refs": 3,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "对应常量 ATR_ENTER_MIN"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "atr_exit_max",
+    "yaml": 0.3,
+    "runtime": 0.3,
+    "refs": 3,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "对应常量 ATR_EXIT_MAX"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "min_dwell_sec",
+    "yaml": 1800,
+    "runtime": 1800,
+    "refs": 2,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "对应常量 MIN_DWELL_SEC"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "atr_interval",
+    "yaml": "5m",
+    "runtime": "5m",
+    "refs": 2,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "对应常量 ATR_INTERVAL"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "min_quote_vol",
+    "yaml": 10000000,
+    "runtime": 10000000.0,
+    "refs": 2,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "对应常量 MIN_QUOTE_VOL"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "max_spike",
+    "yaml": 4.0,
+    "runtime": 4.0,
+    "refs": 2,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "对应常量 MAX_SPIKE"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "refresh_sec",
+    "yaml": 300,
+    "runtime": 300,
+    "refs": 7,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "对应常量 REFRESH_SEC"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "scan_sec",
+    "yaml": 900,
+    "runtime": 900,
+    "refs": 3,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "对应常量 SCAN_SEC"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "daily_refresh_sec",
+    "yaml": 86400,
+    "runtime": "（接口不返回）",
+    "refs": 2,
+    "where": "",
+    "verdict": "✅ 生效(静态确认)",
+    "note": "只在 quality.loop 内部使用，前端接口不暴露"
+  },
+  {
+    "section": "pools.monitor",
+    "key": "tick_sec",
+    "yaml": 60,
+    "runtime": "（接口不返回）",
+    "refs": 1,
+    "where": "",
+    "verdict": "✅ 生效(静态确认)",
+    "note": "只在 quality.loop 内部使用，前端接口不暴露"
+  },
+  {
+    "section": "pools.candidate",
+    "key": "size",
+    "yaml": 200,
+    "runtime": 200,
+    "refs": 12,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "main.py lifespan 注入"
+  },
+  {
+    "section": "pools.candidate",
+    "key": "refresh_hour",
+    "yaml": 3,
+    "runtime": null,
+    "refs": 6,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "main.py lifespan 注入"
+  },
+  {
+    "section": "pools.candidate",
+    "key": "min_amp_pct",
+    "yaml": 10.0,
+    "runtime": null,
+    "refs": 6,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "main.py lifespan 注入"
+  },
+  {
+    "section": "pools.candidate",
+    "key": "max_amp_pct",
+    "yaml": 300.0,
+    "runtime": null,
+    "refs": 6,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "main.py lifespan 注入"
+  },
+  {
+    "section": "pools.candidate",
+    "key": "vol_days",
+    "yaml": 30,
+    "runtime": null,
+    "refs": 4,
+    "where": "",
+    "verdict": "✅ 生效",
+    "note": "main.py lifespan 注入"
+  },
+  {
+    "section": "global.daily_target",
+    "key": "enabled",
+    "yaml": true,
+    "runtime": true,
+    "refs": 15,
+    "where": "config.py×3,daily_target.py×4,engine.py×1,factors.py×1,main.py×6",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "global.daily_target",
+    "key": "target_usd",
+    "yaml": 200,
+    "runtime": 200,
+    "refs": 6,
+    "where": "config.py×2,daily_target.py×4",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "global.daily_target",
+    "key": "sustain_sec",
+    "yaml": 30,
+    "runtime": 30,
+    "refs": 6,
+    "where": "config.py×2,daily_target.py×4",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "global.daily_target",
+    "key": "auto_close_sec",
+    "yaml": 5,
+    "runtime": 5,
+    "refs": 8,
+    "where": "config.py×2,daily_target.py×6",
+    "verdict": "✅ 生效",
+    "note": "⚠️ 提醒后 5 秒就强制全平，来不及反应（浩哥未改）"
+  },
+  {
+    "section": "global.daily_target",
+    "key": "pause_new",
+    "yaml": true,
+    "runtime": true,
+    "refs": 4,
+    "where": "config.py×2,daily_target.py×2",
+    "verdict": "✅ 生效",
+    "note": ""
+  },
+  {
+    "section": "global.daily_target",
+    "key": "notify",
+    "yaml": true,
+    "runtime": true,
+    "refs": 7,
+    "where": "config.py×2,daily_target.py×5",
+    "verdict": "✅ 生效",
+    "note": ""
+  }
+]
