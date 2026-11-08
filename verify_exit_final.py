@@ -15,6 +15,7 @@ import glob
 import json
 import os
 import sys
+import time
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
@@ -240,16 +241,29 @@ print("=" * 78)
 
 
 class RealCtx:
-    """用真实 K 线喂策略，只截到指定 bar，模拟「那一刻的盘面」。"""
+    """用真实 K 线喂策略，只截到指定 bar，模拟「那一刻的盘面」。
+
+    ⚠ 时间戳必须平移到当前时钟：_mirror_exit 在算指标前会检查「拉回来的最后
+    一根是否已到当前 K 线窗口」，用 60 天前的真实历史数据会被判成过期数据而
+    整轮跳过（2026-11-08 修 TAUSDT 漏出场 BUG 时加的守卫）。OHLC 一个不改，
+    只把 ts 整体平移，让 ks[cut] 正好落在当前窗口 —— 形态保持真实，
+    时序也符合线上。
+    """
+    BAR = 900
+
     def __init__(self, ks, cut, price):
         self._ks = ks
         self._cut = cut
         self._px = price
+        cur_bar = int(time.time() // self.BAR) * self.BAR
+        idx = min(cut, len(ks) - 1)
+        self._shift = cur_bar - int(ks[idx].get("ts", 0))
 
     async def klines(self, sym, iv, n):
         end = self._cut + 1
         start = max(0, end - n)
-        return self._ks[start:end]
+        seg = self._ks[start:end]
+        return [{**k, "ts": int(k.get("ts", 0)) + self._shift} for k in seg]
 
     def price(self, sym):
         return self._px

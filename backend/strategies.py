@@ -729,6 +729,14 @@ class S15CeZlsma(Base):
             ks = await ctx.klines(sym, kline_iv, need)
             if not ks or len(ks) < need:
                 return None
+            # ⚠ 币安在窗口刚翻的 0.x 秒内可能还没生成新 K 线。这时
+            # len(ks)-2 指向的不是「最后已收盘那根」，而是「上上一根」。
+            # 本函数按 cur_bar 缓存整窗 15 分钟，一旦算错整根 K 线的出场
+            # 信号就被跳过，只能等下一窗赌运气（2026-11-08 TAUSDT 实证：
+            # 20:30 三闸全过该出场，拖到 21:00 才平，多亏 0.38R）。
+            # 数据没追到当前窗口就直接放弃本轮，下个 tick 再来，不写缓存。
+            if int(ks[-1].get("ts", 0)) < cur_bar:
+                return None
             ind = _ce_zlsma(ks, ce_len, ce_mult, z_len, use_close, use_ha)
             i = len(ks) - 2
             if i < 2 or ind["zlsma"][i] is None:

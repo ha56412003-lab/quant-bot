@@ -41,7 +41,14 @@ class FakeCtx:
     async def klines(self, sym, iv, n):
         # 固定返回 200 根，这样方法里的 i = len(ks) - 2 = 198，
         # 与 patch_ind 构造的 200 长指标数组索引对齐。
-        return [{"ts": i, "open": 1, "high": 1, "low": 1, "close": 1} for i in range(200)]
+        # ⚠ 时间戳必须跟着真实时钟：_mirror_exit 在算指标前会检查
+        # 「最后一根是否已到当前 K 线窗口」，用固定 0..199 会被判成过期数据
+        # 而整轮跳过（2026-11-08 修 TAUSDT 漏出场 BUG 时加的守卫）。
+        bar = 900
+        cur_bar = int(time.time() // bar) * bar
+        base = cur_bar - 199 * bar
+        return [{"ts": base + i * bar, "open": 1, "high": 1, "low": 1, "close": 1}
+                for i in range(200)]
 
 
 def make_strategy():
