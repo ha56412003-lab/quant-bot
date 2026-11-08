@@ -386,6 +386,14 @@ async def api_positions():
         # 这两样原来是 check_exit 的私有内存态（_S15_POS_STATE），卡片看不到。
         # 现在透出来，前端才能画「破均线 N/2」和「从峰顶回撤 X/0.80R」。
         # 注意：cnt / peak 都是内存态，服务重启后归零重数（不影响出场判断本身）。
+        #
+        # ⚠️ 2026-11-08 出场改镜像后，下面这一段是「历史遗留的展示层」：
+        #    ma_break_cnt / ma_confirm_bars / trail_target_r 已不再参与任何出场判断
+        #    ！（旧的「破均线+回撤」出场已从 strategies.py 整段删除）
+        #    _S15_POS_STATE 里也不再维护 cnt，所以这些值恒为 0 / 默认值。
+        #    保留它们只是为了前端持仓卡不报错 —— 持仓卡归视觉批次统一改，
+        #    等那一批做的时候，把这里连同 SpiderBoard.jsx 里对应的展示一起删掉。
+        #    peak_r / drawdown_r 仍然是真实的（镜像出场每次都会刷新峰顶）。
         st = strategies._S15_POS_STATE.get(
             (p["symbol"], p["side"], p.get("opened_at"))) or {}
         ma_confirm = max(1, int((sparams.get("ma_confirm_bars") or 2)))

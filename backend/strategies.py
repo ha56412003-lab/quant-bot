@@ -536,42 +536,23 @@ class S15CeZlsma(Base):
         return out
 
     async def check_exit(self, ctx, pos):
-        """趋势反转出场：趋势掉头且已有浮盈时提前落袋。
+        """S15 出场总入口（2026-11-08 浩哥定案，旧「破均线+回撤」已整段删除）。
 
-        为什么加「必须已有浮盈」这道门槛 —— 回测数据（20 币 / 20 天 /
-        组合级 8 仓上限，费率 0.05% 双边 + 滑点）对比 6 种出场规则：
+        出场只有四条路，按判定顺序：
+            ① 2R 平一半（_half_take_profit）
+            ② 半仓后再赚 1R → 3R 全平（_mirror_exit 里先判）
+            ③ 镜像出场：CE 翻转 + HA 反向关键K线站在 ZLSMA50 错误一侧（_mirror_exit）
+            ④ 16 小时超时 / 硬止损（不在这里，在 engine.py 的每轮检查里）
 
-            规则            笔数   胜率   净总R   费用R   盈亏比
-            ATR+R止盈(现状)  197   35.0%  -34.94    9.6    0.58
-            一穿就走        1803   28.7%  -95.05   97.4    0.57
-            连续2根确认      1373   35.6%  -72.08   72.5    0.61
-            均线转向才走     1059   34.6%  -25.20   55.9    0.65
-            浮盈后趋势出场     392   61.2%  -10.49   18.9    1.21   ← 本实现
-            pine 原版       2345   22.5% -1053.63 1011.6   0.49
-
-        单纯「收盘价穿越均线就平仓」在震荡市疯狂进出：1717 次触发占
-        全部出场的 95%，光手续费就吃掉 97R，把原本 -35R 的结果恶化到
-        -95R。加浮盈门槛后交易次数降到 392，胜率从 35% 提到 61%，
-        盈亏比 0.58 → 1.21，是唯一没有因手续费失血的规则。
-
-        关键设计：亏损时不用趋势出场，把回踩空间留给 硬止损（前 20 根阶段低点）。
-        这是趋势跟踪的标准用法 —— 亏损单让止损说话，盈利单才谈保护
-        利润。反过来（亏损就跑）会在大趋势启动前的正常回踩中被打掉。
-
-        流量：check_exit 每 0.5 秒被调用一次，8 个仓位就是 16 次/秒。
-        这里按「bar 边界」缓存 ZLSMA 值 —— 一根 K 线没收盘，指标就不
-        会变，只有跨过 bar 边界才真正去拉数据。1h 周期下 8 个币一天
-        约 192 次请求 ≈ 3.8MB；不做这个缓存会是 553MB/天。
+        流量：check_exit 每 0.5 秒被调用一次，6 个仓位就是 12 次/秒。
+        这里按「bar 边界」缓存指标 —— 一根 K 线没收盘指标不会变，
+        只有跨过 bar 边界才真正去拉数据。不做这个缓存是每天几百 MB。
         """
         try:
             half = await self._half_take_profit(ctx, pos)
             if half:
                 return half
-            # 2026-11-08 浩哥定案：出场改为「开仓条件镜像 + 布林带确认」。
-            # mirror_exit: false 时回退到旧的「破均线 + 回撤」，方便一键回滚。
-            if bool(self._p("mirror_exit", True)):
-                return await self._mirror_exit(ctx, pos)
-            return await self._trend_reversal_exit(ctx, pos)
+            return await self._mirror_exit(ctx, pos)
         except Exception as exc:  # noqa: BLE001
             log.warning("S15 check_exit %s 失败: %s", pos.get("symbol"), exc)
             return None
@@ -621,12 +602,14 @@ class S15CeZlsma(Base):
         return f"HALF:{thr:.1f}R止盈(先平一半,剩一半放开跑)"
 
     def _touch_pos_state(self, pos, entry, risk, cur_r):
-        """维护逐仓位的峰顶状态（内存态 + 节流落库）。
+        """维护逐仓位的峰顶 R（内存态 + 节流落库）。
 
-        为什么单独抽出来：2026-11-08 加镜像出场之前，这段只存在于
-        _trend_reversal_exit 里。镜像出场一旦接管（mirror_exit: true），
-        旧方法不再执行 → peak_r 永远不更新 → 前端卡片的「峰顶 R」冻结、
-        半仓回撤展示全部失真。两个出场分支必须共用同一份维护逻辑。
+        为什么单独抽出来：2026-11-08 之前这段只存在于旧的「破均线回撤」出场里，
+        换成镜像出场后旧方法不再执行 → peak_r 永远不更新 → 前端「峰顶 R」冻结、
+        半仓回撤展示全部失真。现在只有这一个入口，不会再漏。
+
+        注意：2026-11-08 浩哥定案删除旧出场后，这里不再维护 ma_break_cnt
+        （「破均线 N/5」这个指标已随旧出场一起废弃）。
         """
         sym = pos.get("symbol")
         st_key = (sym, pos.get("side"), pos.get("opened_at"))
@@ -645,8 +628,7 @@ class S15CeZlsma(Base):
             _peak_init = max(_peak_db, _peak_mfe, max(0.0, cur_r))
             st = {"peak": _peak_init,
                   "peak_db": _peak_db,
-                  "bar_ts": None,
-                  "cnt": int(pos.get("ma_break_cnt") or 0)}   # 重启后从库里接着数
+                  "bar_ts": None}
             _S15_POS_STATE[st_key] = st
         st["seen"] = time.time()
         if cur_r > st["peak"]:
@@ -666,22 +648,26 @@ class S15CeZlsma(Base):
     async def _mirror_exit(self, ctx, pos):
         """镜像出场（2026-11-08 浩哥定案，替代原来的「破均线 + 回撤」）。
 
-        逻辑 = 开仓条件的完全镜像：
+        逻辑 = 开仓条件的完全镜像（两条，都必须落在同一根已收盘的 K 线上）：
             做多：① CE 方向由多翻空
                   ② HA 阴线（HA收 < HA开）且 HA收 < ZLSMA50
-                  ③ 布林带宽度近 100 根分位 > 70
             做空：① CE 方向由空翻多
                   ② HA 阳线（HA收 > HA开）且 HA收 > ZLSMA50
-                  ③ 布林带宽度近 100 根分位 > 70
-        三条必须落在同一根已收盘的 K 线上（与开仓口径一致）。
+
+        为什么出场不设布林带条件（2026-11-08 浩哥定）：
+            入场的第③道用布林带宽度分位（挤压结束才进场），但出场不加。
+            带 BBW 的镜像出场在无仓位上限制时看着更好（+78.1R vs +61.7R），
+            但它把持仓从 26.5 根拖到 43.4 根 —— 在 max_concurrent_coins=6 的
+            真实约束下，长期占仓直接挤掉后续信号，6 仓口径反而少赚 14R。
+            出场要「快进快出把仓位腾出来」，布林带在这里是拖延器不是过滤器。
 
         半仓之后另有一条（在镜像之前先判）：
             平半价 2R 之上的新增浮盈 ≥ half_tp_r（默认 1R）→ 全平剩余半仓。
             也就是 2R 平一半 → 3R 全平。
 
-        回测（20 币 / 60 天 / taker 0.05%）：
-            镜像 + 布林带>70 + 2R平半 + 再赚1R全平：945 笔 +100.1R 均笔+0.106 回撤−25.3
-            线上旧口径（破均线回撤 + 2R平半 + 再赚2R全平）：912 笔 +95.8R 回撤−27.6
+        回测（20 币 / 60 天 / taker 0.05% / 线上口径 use_close=true / 6 仓约束）：
+            本方案 镜像 + 2R平半 + 再赚1R全平：597 笔 +61.8R 均笔+0.104 回撤−16.4 持仓26.5根
+            被替换的 破均线回撤 + 2R平半 + 再赚2R：608 笔 +57.3R 均笔+0.094 回撤−21.2 持仓24.9根
 
         为什么半仓看 cur_r 而不是 peak：这条规则只关心「从平半价又走了多远」，
         回撤多少由镜像条件管，不需要另外记峰顶。
@@ -733,10 +719,10 @@ class S15CeZlsma(Base):
         cur_bar = int(time.time() // bsec) * bsec
         ck = (sym, kline_iv)
         hit = _S15_ZL_CACHE.get(ck)
-        if hit and hit[0] == cur_bar and len(hit) >= 10:
+        if hit and hit[0] == cur_bar and len(hit) >= 9:
             z_now, bar_ts = hit[1], hit[5]
             dir_now, dir_prev = hit[6], hit[7]
-            ha_close, ha_open, bp_now = hit[4], hit[8], hit[9]
+            ha_close, ha_open = hit[4], hit[8]
         else:
             need = max(ce_len, z_len * 2, 100) + 80
             ks = await ctx.klines(sym, kline_iv, need)
@@ -751,12 +737,11 @@ class S15CeZlsma(Base):
             ha_open = ind["open"][i]
             dir_now = ind["dir"][i]
             dir_prev = ind["dir"][i - 1]
-            _bp = ind.get("bbw_pct") or []
-            bp_now = _bp[i] if i < len(_bp) else None
             bar_ts = ks[i].get("ts", i)
+            # 元组 9 项：出场只用 CE 方向 / HA 开收 / ZLSMA；布林带是入场的事，这里不存
             _S15_ZL_CACHE[ck] = (cur_bar, z_now, ind["atr"][i], True,
                                  ha_close, bar_ts,
-                                 dir_now, dir_prev, ha_open, bp_now)
+                                 dir_now, dir_prev, ha_open)
 
         if z_now is None or ha_close is None or ha_open is None:
             return None
@@ -790,185 +775,8 @@ class S15CeZlsma(Base):
             ha_ok = ha_close > ha_open and ha_close > z_now
         if not ha_ok:
             return None
-        # ③ 布林带分位
-        thr = float(self._p("bbw_pct_min", 70.0))
-        if thr > 0:
-            if bp_now is None or bp_now < thr:
-                return None
         return (f"镜像出场(CE翻转+HA{'阴' if side == 'long' else '阳'}线"
-                f"{'跌破' if side == 'long' else '站上'}ZLSMA"
-                f"+BBW{bp_now:.0f}>{thr:.0f} 现{cur_r:.2f}R)")
-
-    async def _trend_reversal_exit(self, ctx, pos):
-        """出场③：收盘跌破 ZLSMA 且从峰顶回撤 ≥ trail_r，连续 N 根确认后全平。
-
-        为什么必须和「从峰顶回撤」绑定，而不是「一穿均线就走」：
-        震荡市里价格会反复穿越均线，一穿就走会被来回割 —— 回测里一次性
-        穿均线就平有 1717 次触发、占全部出场 95%，光手续费就吃掉 97R，
-        把 -35R 的结果恶化到 -95R。要求「已赚到的利润回吐超过 trail_r」
-        才平，才能滤掉这部分假突破。
-
-        为什么还要连续 N 根确认：震荡市里的假突破常常是单根插针，
-        连续 2 根收盘都在均线另一侧，才算真掉头。回测里 1 根→2 根，
-        胜率 38.0%→38.9%，净 R -0.88→-0.35。
-
-        注意「回撤」是相对持仓期最高浮盈（峰顶）算的，不是浮盈门槛 ——
-        这是浩哥明确纠正过的：以前做成「浮盈不足 X R 就不平」方向反了。
-
-        流量：check_exit 每 0.5 秒调用一次，8 仓位 = 16 次/秒。
-        按 bar 边界缓存 ZLSMA（15m 8 币一天约 768 次请求 ≈ 15MB）；
-        不做缓存会是 553MB/天。
-        """
-        sym = pos["symbol"]
-        side = pos["side"]
-        entry = float(pos.get("entry_price") or 0)
-        if entry <= 0:
-            return None
-
-        trail_r = float(self._p("trail_r", 0.8))
-        if trail_r <= 0:              # 0 = 关闭该出场，只剩止损/止盈/超时
-            return None
-        ma_confirm = max(1, int(self._p("ma_confirm_bars", 2)))
-        # ── 分段回撤（K5 方案）──
-        # 峰顶还没到 trail_pct_max_r（默认 2R）时，改用「回撤浮盈的 trail_pct」：
-        #   峰顶 0.6R 回撤 50% → 在 +0.3R 走，永远留住一半，不会倒亏。
-        # 满 2R 之后退回固定 trail_r（0.8R），让大赢家继续放开跑。
-        # trail_pct = 0 时整段关闭，行为与旧版完全一致。
-        trail_pct = float(self._p("trail_pct", 0.0))
-        trail_pct_max_r = float(self._p("trail_pct_max_r", 2.0))
-        trail_pct_cap = float(self._p("trail_pct_cap", 0.0))
-        ma_bars_lt = int(self._p("ma_bars_lt", ma_confirm))
-        ce_len = int(self._p("ce_len", 1))
-        ce_mult = float(self._p("ce_mult", 2.0))
-        z_len = int(self._p("zlsma_len", 50))
-        use_close = bool(self._p("use_close", True))
-        use_ha = bool(self._p("use_ha", True))
-        kline_iv = str(self.p.get("kline_interval", "15m"))
-
-        # 风险基数：入场时确定的止损距离（止损 = 阶段低点）
-        risk = abs(entry - float(pos.get("stop_price") or 0))
-        if risk <= 0 or not math.isfinite(risk):
-            return None
-        sign = 1.0 if side == "long" else -1.0
-
-        px = ctx.price(sym)
-        if not px or not math.isfinite(px):
-            return None
-        cur_r = (px - entry) * sign / risk
-
-        # ── 逐仓位状态（峰顶维护已抽到 _touch_pos_state，两个出场分支共用）──
-        st = self._touch_pos_state(pos, entry, risk, cur_r)
-
-        # ── bar 边界缓存 ──
-        bar_secs = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400}
-        bsec = bar_secs.get(kline_iv, 900)
-        cur_bar = int(time.time() // bsec) * bsec
-        ck = (sym, kline_iv)
-        hit = _S15_ZL_CACHE.get(ck)
-        if hit and hit[0] == cur_bar and len(hit) >= 10:
-            z_now, ha_close, bar_ts = hit[1], hit[4], hit[5]
-            dir_now, dir_prev = hit[6], hit[7]
-            ha_open, bp_now = hit[8], hit[9]
-        else:
-            need = max(ce_len, z_len * 2, 100) + 80
-            ks = await ctx.klines(sym, kline_iv, need)
-            if not ks or len(ks) < need:
-                return None
-            ind = _ce_zlsma(ks, ce_len, ce_mult, z_len, use_close, use_ha)
-            i = len(ks) - 2          # 最后一根已收完的 K 线
-            if i < 2 or ind["zlsma"][i] is None:
-                return None
-            z_now = ind["zlsma"][i]
-            ha_close = ind["close"][i]
-            ha_open = ind["open"][i]
-            dir_now = ind["dir"][i]
-            dir_prev = ind["dir"][i - 1]
-            _bp = ind.get("bbw_pct") or []
-            bp_now = _bp[i] if i < len(_bp) else None
-            bar_ts = ks[i].get("ts", i)
-            _S15_ZL_CACHE[ck] = (cur_bar, z_now, ind["atr"][i], True,
-                                 ha_close, bar_ts,
-                                 dir_now, dir_prev, ha_open, bp_now)
-
-        if z_now is None or ha_close is None:
-            return None
-
-        # ── 破均线判断：用 HA 收盘价，和回测口径一致 ──
-        broke = (ha_close < z_now) if side == "long" else (ha_close > z_now)
-        if st["bar_ts"] is None:
-            # 进程刚起来（或该仓位第一次被访问）：内存里没有上一根的信息。
-            # 只对齐 bar_ts，不重复计数 —— 否则库里 cnt=1 的仓位会立刻被算成 2，
-            # 凭空打出一张提前出场的单子。真正的更新留给下一根 K 线。
-            st["bar_ts"] = bar_ts
-        elif st["bar_ts"] != bar_ts:      # 跨到新的一根 K 线才更新计数
-            st["bar_ts"] = bar_ts
-            new_cnt = st["cnt"] + 1 if broke else 0
-            if new_cnt != st["cnt"]:
-                st["cnt"] = new_cnt
-                # 落库：重启后能接着数，卡片上也能显示 N/2
-                db.update_position(pos["id"], ma_break_cnt=new_cnt)
-
-        peak = st["peak"]        # 半仓判定和③都要用，先取出来
-
-        # ── 半仓专属出场（2R 已平掉一半之后）──
-        # 三个条件并列，达到任一就全平剩下的那一半。
-        # 默认只开 ⓒ（浩哥 2026-11-06 的明确要求：③不变，再加一条「再满 2R 直接走」）；
-        # ⓐⓑ 做成参数，回测里对比过再决定要不要开。
-        if int(pos.get("half_closed") or 0):
-            base_r = float(self._p("half_at_r", 2.0))
-            # 关键：门槛按「平半之后新赚的那一段」算，不是从开仓算。
-            # 从开仓算的话峰顶 3.0R 回撤 50%=1.5R，出场落在 1.5R，
-            # 比平半价 2.0R 还低 —— 等于把已经落袋的一半又吐回去。
-            extra_peak = peak - base_r
-            extra_cur = cur_r - base_r
-            # ⓐ 半仓额外浮盈回撤 50%
-            hp = float(self._p("half_dd_pct", 0.0))
-            if hp > 0 and extra_peak > 0.05 and (peak - cur_r) >= extra_peak * hp:
-                return (f"半仓回撤{hp*100:.0f}%(峰值{peak:.2f}R "
-                        f"额外{extra_peak:.2f}R 回撤{peak-cur_r:.2f}R)")
-            # ⓑ 半仓峰顶回撤固定 0.8R（不看均线，比③更松）
-            # 半仓是独立的一段：它的峰顶就是平半后的新高，回撤 0.8R 就是
-            # 回撤 0.8R，与已落袋的那一半无关（那半在平仓时已经结算完毕）。
-            # 半仓只赚了 0.5R 时这条不会触发 —— 本来就该如此，不是缺陷。
-            hr = float(self._p("half_dd_r", 0.0))
-            if hr > 0 and (peak - cur_r) >= hr:
-                return f"半仓回撤{hr:.2f}R(峰值{peak:.2f}R)"
-            # ⓒ 半仓又赚满 2R → 全平落袋
-            ht = float(self._p("half_tp_r", 0.0))
-            if ht > 0 and extra_cur >= ht:
-                return f"半仓再赚{ht:.2f}R止盈(峰值{peak:.2f}R 现{cur_r:.2f}R)"
-
-        # ── 出场判定：峰顶不足 2R 走「比例回撤」，满 2R 走「固定 0.8R」──
-        # peak <= 0 说明内存态还没重建（进程刚起来、仓位刚被访问），
-        # 此时按比例算出来的门槛是 0 → 任何回撤都会触发，等于提前乱砍仓。
-        # 这种情况必须退回固定 trail_r。
-        # 两件事必须分开判：
-        #   根数只看「峰顶是否满 2R」—— 不足 2R 一律 5 根（含刚开的票）
-        #   门槛才用 0.05 护栏 —— 峰顶太小算比例会得 0，退回固定 trail_r
-        # 原来两者共用 use_pct，导致新仓（峰顶常接近 0）被连带切成 2 根，
-        # 与「不足 2R 走 5 根」的规则不符，卡片上也显示成 0/2。
-        in_lt = peak < trail_pct_max_r
-        use_pct = trail_pct > 0 and 0.05 < peak < trail_pct_max_r
-        need_bars = ma_bars_lt if in_lt else ma_confirm
-        if use_pct:
-            need_dd = peak * trail_pct
-            if trail_pct_cap > 0:
-                need_dd = min(need_dd, trail_pct_cap)
-        else:
-            need_dd = trail_r
-
-        if st["cnt"] < need_bars:
-            return None
-        drawdown = peak - cur_r
-        if drawdown < need_dd:
-            return None
-
-        mode_txt = (f"浮盈{trail_pct*100:.0f}%={need_dd:.2f}R" if use_pct
-                    else f"固定{need_dd:.2f}R")
-        return (f"破均线回撤出场(连续{st['cnt']}根确认, "
-                f"峰顶{peak:.2f}R 回撤{drawdown:.2f}R/{mode_txt})")
-
-
+                f"{'跌破' if side == 'long' else '站上'}ZLSMA 现{cur_r:.2f}R)")
 
 # 只注册线上真正跑的策略。
 # 2026-11-06 自检清理：S02/S06/S11/S14/S16 五个策略早已停用

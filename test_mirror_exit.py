@@ -50,8 +50,6 @@ def make_strategy():
         "kline_interval": "15m",
         "ce_len": 1, "ce_mult": 2.0, "zlsma_len": 50,
         "use_close": True, "use_ha": True,
-        "mirror_exit": True,
-        "bbw_pct_min": 70.0,
         "half_at_r": 2.0, "half_tp_r": 1.0,
     }
     return st
@@ -93,16 +91,18 @@ def case(name, expect_hit):
 
 
 # ── 做多 ──────────────────────────────────────────────────────────
-@case("多头·CE翻空+HA阴线跌破ZLSMA+BBW80 → 出场", True)
+@case("多头·CE翻空 + HA阴线跌破ZLSMA → 出场", True)
 async def _(st):
     patch_ind(zl=100.0, ha_open=100.5, ha_close=99.0, dir_now=-1, dir_prev=1, bbw=80.0)
     S._S15_MIRROR_STATE.clear()
     return await st._mirror_exit(FakeCtx(101.0), pos("long"))
 
 
-@case("多头·BBW只50（不够宽）→ 不出场", False)
+@case("多头·BBW 只有 10（出场已不看布林带）→ 照样出场", True)
 async def _(st):
-    patch_ind(zl=100.0, ha_open=100.5, ha_close=99.0, dir_now=-1, dir_prev=1, bbw=50.0)
+    # 2026-11-08 浩哥定案：出场去掉布林带条件。
+    # 这条用例锁死这个决定 —— 哪天有人把 BBW 加回出场，这里立刻红。
+    patch_ind(zl=100.0, ha_open=100.5, ha_close=99.0, dir_now=-1, dir_prev=1, bbw=10.0)
     S._S15_MIRROR_STATE.clear()
     return await st._mirror_exit(FakeCtx(101.0), pos("long"))
 
