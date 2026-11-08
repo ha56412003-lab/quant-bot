@@ -83,18 +83,48 @@ export default function PoolTable({ pool }) {
       title: t('pool.col.vol'), dataIndex: 'qv', align: 'right', width: 72,
       sorter: (a, b) => (a.qv || 0) - (b.qv || 0),
       render: (v) => (
-        <span style={{ color: v != null && v < 1e7 ? 'var(--red, #d4595e)' : undefined }}>{fmtVol(v)}</span>
+        <span style={{ color: v != null && v < (pool?.min_quote_vol ?? 5e6) ? 'var(--red, #d4595e)' : undefined }}>{fmtVol(v)}</span>
       ),
     },
     {
-      title: 'ATR%', dataIndex: 'atr_pct', align: 'right', width: 58,
-      render: (v) => (v != null ? `${v.toFixed(2)}%` : '-'),
+      // 2026-11-08：监控池第 1 道闸门（替代 ATR）—— 进池 ≥1.00% / 出池 <0.85%
+      title: '止损%', dataIndex: 'stop_pct', align: 'right', width: 56,
+      sorter: (a, b) => (a.stop_pct || 0) - (b.stop_pct || 0),
+      render: (v) => {
+        const lo = pool?.stop_min_pct ?? 1.0
+        const ok = v != null && v >= lo
+        return (
+          <span style={{
+            color: v == null ? undefined : (ok ? 'var(--green, #0f7a3d)' : 'var(--red, #d4595e)'),
+            fontWeight: ok ? 600 : 400,
+          }}>
+            {v != null ? `${v.toFixed(2)}%` : '-'}
+          </span>
+        )
+      },
+    },
+    {
+      // 2026-11-08：监控池第 2 道闸门 —— 进池 ≥0.30 / 出池 <0.25（排横盘）
+      title: 'EFF', dataIndex: 'eff', align: 'right', width: 50,
+      sorter: (a, b) => (a.eff || 0) - (b.eff || 0),
+      render: (v) => {
+        const lo = pool?.eff_min ?? 0.30
+        const ok = v != null && v >= lo
+        return (
+          <span style={{
+            color: v == null ? undefined : (ok ? 'var(--green, #0f7a3d)' : 'var(--red, #d4595e)'),
+            fontWeight: ok ? 600 : 400,
+          }}>
+            {v != null ? v.toFixed(2) : '-'}
+          </span>
+        )
+      },
     },
     {
       title: t('pool.col.spike'), dataIndex: 'spike', align: 'right', width: 56,
       sorter: (a, b) => (a.spike || 0) - (b.spike || 0),
       render: (v) => {
-        const cap = pool?.max_spike ?? 4.0
+        const cap = pool?.max_spike ?? 8.0
         const over = v != null && v > cap
         return (
           <span style={{ color: over ? 'var(--red, #d4595e)' : undefined, fontWeight: over ? 700 : 400 }}>
