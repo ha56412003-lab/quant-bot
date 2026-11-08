@@ -38,6 +38,7 @@ FAIL_WINDOW_SEC = 60      # 上面那个计数的时间窗口
 COOLDOWN_SEC = 300        # 同类告警冷却 5 分钟，防刷屏
 RETRY_TIMES = 3           # 每个请求最多试几次（1 次原始 + 2 次重试）
 RETRY_BACKOFF = (0.3, 0.9)  # 两次重试前的等待秒数
+RECONNECT_COOL_SEC = 10   # 两次重建连接池之间最少隔几秒（防止疯狂重建）
 
 _state = {
     "status": "ok",          # ok / down
@@ -45,6 +46,12 @@ _state = {
     "last_push": {},         # {kind: ts} 各类告警最后推送时间
     "last_detail": "",       # 最近一次失败原因，给弹窗显示
     "down_since": 0,         # 判定瘫痪的时刻
+    # ★ 连接池自愈（2026-11-08 事故后加）
+    # 代理瞬断时 keep-alive 连接会全变成死连接，httpx 不感知对端已断，
+    # 继续复用 → 永远 PoolTimeout，代理恢复了也不自愈，只能人工重启服务。
+    # 这里在判定失败时置标记，binance 下次请求前接住重建连接池。
+    "reconnect": False,      # 待处理的重建请求
+    "last_reconnect": 0.0,   # 上次重建的时刻（冷却用）
 }
 
 _conn = None
@@ -192,6 +199,22 @@ def _cooled(kind):
 
 # ── 对外接口 ──────────────────────────────────────────────────────
 
+def _mark_reconnect(now):
+    """标记「下次请求前重建连接池」，冷却期内不重复标记。"""
+    if now - _state["last_reconnect"] < RECONNECT_COOL_SEC:
+        return
+    _state["last_reconnect"] = now
+    _state["reconnect"] = True
+
+
+def take_reconnect():
+    """取一次性重连标记 —— 谁先取到谁负责重建，取完即清。"""
+    if _state["reconnect"]:
+        _state["reconnect"] = False
+        return True
+    return False
+
+
 def report_failure(where, exc):
     """一次「重试 3 次后仍失败」的请求失败。
 
@@ -211,6 +234,11 @@ def report_failure(where, exc):
     if len(fails) < FAIL_THRESHOLD:
         log.debug("netwatch 失败计数 %s/%s: %s", len(fails), FAIL_THRESHOLD, detail)
         return
+
+    # ★ 到阈值 → 请求重建连接池。
+    # 放在判定分支之前，是因为 status 已经是 down 时下面会直接 return，
+    # 那就再也没有机会自愈了（这正是 2026-11-08 卡死 27 分钟的根因）。
+    _mark_reconnect(now)
 
     # 已达阈值，判定瘫痪（但同一状态不重复推）
     if _state["status"] == "down":

@@ -63,6 +63,28 @@ async def aclose():
     _client = None
 
 
+async def _reconnect():
+    """丢掉当前连接池，下次请求自动新建。
+
+    为什么必须整个丢掉：代理瞬断时池里的 keep-alive 连接会全变成死连接，
+    httpx 不感知对端已经断开，会继续复用 → 一直 PoolTimeout。而 httpx 的
+    PoolTimeout 是「拿不到池里的槽位」，不是网络超时，所以重试同一个池
+    永远失败。
+
+    2026-11-08 事故：代理 18:58 抖动 → 服务卡死 27 分钟 → 代理 19:00 就
+    恢复了，但服务一直不自愈，只能人工重启。netwatch 判定失败后每隔
+    RECONNECT_COOL_SEC 秒发一次标记，这里接住重建，下一个请求就能通。
+    """
+    global _client
+    old = _client
+    _client = None
+    if old is not None and not old.is_closed:
+        try:
+            await old.aclose()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 async def _get(base, path, params=None, timeout=15):
     """公开行情 GET —— 只读，失败自动重试 3 次（断网/代理挂/封 IP 时）。
 
@@ -70,6 +92,9 @@ async def _get(base, path, params=None, timeout=15):
     页面弹窗 + 飞书推送（2026-11-08 浩哥定）。
     异常仍原样抛出，调用方照旧按「数据拿不到」跳过本轮。
     """
+    if netwatch.take_reconnect():
+        await _reconnect()
+
     async def _once():
         client = _get_client()
         resp = await client.get(base + path, params=params or {}, timeout=timeout)
@@ -89,6 +114,9 @@ async def _signed(method, base, path, params=None, timeout=15):
 
     写操作失败仍然会上报 netwatch（用于判断是不是网络瘫痪），只是不重试。
     """
+
+    if netwatch.take_reconnect():
+        await _reconnect()
 
     def _build():
         p = dict(params or {})
