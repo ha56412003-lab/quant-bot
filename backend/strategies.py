@@ -626,9 +626,7 @@ class S15CeZlsma(Base):
             _peak_db = float(pos.get("peak_r") or 0.0)
             _peak_mfe = abs(float(pos.get("mfe_pct") or 0.0)) / 100 * entry / risk
             _peak_init = max(_peak_db, _peak_mfe, max(0.0, cur_r))
-            st = {"peak": _peak_init,
-                  "peak_db": _peak_db,
-                  "bar_ts": None}
+            st = {"peak": _peak_init, "peak_db": _peak_db}
             _S15_POS_STATE[st_key] = st
         st["seen"] = time.time()
         if cur_r > st["peak"]:
@@ -719,10 +717,10 @@ class S15CeZlsma(Base):
         cur_bar = int(time.time() // bsec) * bsec
         ck = (sym, kline_iv)
         hit = _S15_ZL_CACHE.get(ck)
-        if hit and hit[0] == cur_bar and len(hit) >= 9:
-            z_now, bar_ts = hit[1], hit[5]
-            dir_now, dir_prev = hit[6], hit[7]
-            ha_close, ha_open = hit[4], hit[8]
+        # 元组 7 项：(cur_bar, z_now, ha_close, bar_ts, dir_now, dir_prev, ha_open)
+        if hit and hit[0] == cur_bar and len(hit) >= 7:
+            z_now, ha_close, bar_ts = hit[1], hit[2], hit[3]
+            dir_now, dir_prev, ha_open = hit[4], hit[5], hit[6]
         else:
             need = max(ce_len, z_len * 2, 100) + 80
             ks = await ctx.klines(sym, kline_iv, need)
@@ -739,8 +737,9 @@ class S15CeZlsma(Base):
             dir_prev = ind["dir"][i - 1]
             bar_ts = ks[i].get("ts", i)
             # 元组 9 项：出场只用 CE 方向 / HA 开收 / ZLSMA；布林带是入场的事，这里不存
-            _S15_ZL_CACHE[ck] = (cur_bar, z_now, ind["atr"][i], True,
-                                 ha_close, bar_ts,
+            # 只存出场真正要用的 7 项。atr 出场不用（止损价在开仓时就算好落库了），
+            # 早先那版存了进来但从来没人读，已删。
+            _S15_ZL_CACHE[ck] = (cur_bar, z_now, ha_close, bar_ts,
                                  dir_now, dir_prev, ha_open)
 
         if z_now is None or ha_close is None or ha_open is None:

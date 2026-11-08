@@ -66,8 +66,6 @@ EXPECT = [
     # (yaml 里写的显示名, 参数名, yaml 值, 期望类型)
     ("2R 平一半门槛",      "half_at_r",        2.0,  float),
     ("3R 全平（再赚1R）",  "half_tp_r",        1.0,  float),
-    ("半仓回撤%（关）",    "half_dd_pct",      0.0,  float),
-    ("半仓回撤R（关）",    "half_dd_r",        0.0,  float),
     ("CE 周期",            "ce_len",           1,    int),
     ("CE 倍数",            "ce_mult",          2.0,  float),
     ("ZLSMA 周期",         "zlsma_len",        50,   int),
@@ -92,8 +90,11 @@ check(f"{'16h 超时秒数':<20} max_hold        = {mh} 秒 (= {mh/3600:.0f} 小
       mh == 16 * 3600)
 
 # 旧参数必须彻底消失
+# 2026-11-08 复盘追加：half_dd_pct / half_dd_r 是「yaml 写了但代码从不读」的空指令，
+# 已删除。这里一并锁死，防止有人手贱加回去。
 for dead in ("mirror_exit", "trail_pct", "trail_r", "trail_pct_max_r",
-             "trail_pct_cap", "ma_bars_lt", "ma_confirm_bars"):
+             "trail_pct_cap", "ma_bars_lt", "ma_confirm_bars",
+             "half_dd_pct", "half_dd_r"):
     check(f"旧参数已删除        {dead:<16} yaml={yaml_params.get(dead)!r}",
           dead not in yaml_params)
 
