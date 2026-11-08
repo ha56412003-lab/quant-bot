@@ -26,6 +26,10 @@ _INTERVALS = {"1s": 1, "5s": 5, "15s": 15, "30s": 30, "1m": 60, "5m": 300,
               "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400}
 _last_scan = {}
 
+# K 线边界后等多久才扫（秒）。币安 K 线在整点收盘，但数据落库有 1~2 秒延迟，
+# 留这点余量确保拿到的确实是收盘价，不是还在变的盘中价。
+ALIGN_GRACE = 10
+
 
 def _interval_sec(v):
     if isinstance(v, (int, float)):
@@ -34,10 +38,29 @@ def _interval_sec(v):
 
 
 def _due(sid, scan_interval):
-    if time.time() - _last_scan.get(sid, 0) >= _interval_sec(scan_interval) - 0.25:
-        _last_scan[sid] = time.time()
-        return True
-    return False
+    """按 K 线边界对齐扫描（每根 K 线收盘后 ALIGN_GRACE 秒跑一次）。
+
+    以前是「服务启动后每 N 秒跑一次」，相位由启动时刻决定、完全随机：
+    18:08:25 启动 → 之后永远在 :08:25 / :23:25 / :38:25 / :53:25 扫。
+    15m K 线在整点收盘，于是每次扫描都固定比收盘晚 8 分 25 秒，
+    白白晚进场 8 分钟（2026-11-08 BEAMX 就是一例）。
+
+    现在改成对齐：每根 15m K 线一收盘（19:00:00）+ 10 秒 = 19:00:10 扫，
+    不管服务几点启动，相位都固定，K 线一收完就能判。
+
+    grace 取 min(ALIGN_GRACE, iv//4)：防止 scan_interval 比 grace 还短时
+    （例如 5s）每轮 tick 都判定成「该扫了」。
+    """
+    iv = _interval_sec(scan_interval)
+    grace = min(ALIGN_GRACE, max(1, iv // 4))
+    now = time.time()
+    slot = int(now // iv) * iv + grace     # 本轮触发点
+    if now < slot:                          # 还没到，用上一个边界
+        slot -= iv
+    if _last_scan.get(sid, 0) >= slot:
+        return False
+    _last_scan[sid] = now
+    return True
 
 
 def _strategies(cfg):
@@ -249,7 +272,13 @@ async def scan_loop():
                 if not _due(sid, scfg.get("scan_interval", "15m")):
                     continue
                 try:
+                    _t0 = time.time()
                     signals = await strategies[sid].evaluate(ctx)
+                    # 扫描成功以前是静默的，出不出信号都查不到「到底扫了没」，
+                    # 排查「为什么这单晚了」时很被动。记一行节奏日志。
+                    log.info("scan %s: %d 币 → %d 个信号，用时 %.1fs",
+                             sid, len(ctx.monitor or ctx.universe),
+                             len(signals), time.time() - _t0)
                 except Exception as exc:  # noqa: BLE001
                     log.exception("strategy %s evaluate failed", sid)
                     db.log("error", f"{sid} 评估异常: {exc}")
