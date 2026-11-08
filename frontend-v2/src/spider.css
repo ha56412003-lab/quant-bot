@@ -196,6 +196,9 @@
 
 /* 币种名：等宽 800 / 12.5px / .06em / 主题色（对应 .cl .k） */
 :is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .cards .card .k{font:800 12.5px/26px var(--mono) !important;letter-spacing:.06em;color:var(--c) !important}
+/* 2026-11-08 浩哥要求：持仓卡的币种名加大一号 12.5 -> 14。
+   只给玫红主题的持仓卡（.card.work），空卡和 paper 主题都保持原样。 */
+html:not([data-theme]) .spider-root .cards .card.work .k{font:800 14px/26px var(--mono) !important;letter-spacing:.04em;color:var(--c) !important}
 :is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .card.idle .k{opacity:.6}
 
 /* 浮盈数字：等宽 700 / 12px / tabular-nums / 右对齐（对应 .cl .pc） */

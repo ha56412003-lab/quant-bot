@@ -554,10 +554,27 @@ html, body, #root {
   font-size: 15px !important;
   letter-spacing: .05em !important;
 }
+/* 方向标签：原来是 8~9.5px 的 LONG/SHORT 小英文签，太小还不好认。
+   2026-11-08 改成汉字「多 / 空」按钮：实心淡底 + 描边 + 圆角，一眼能分清。 */
 .spider-root .cards .card .tg {
-  font-size: 9.5px !important;
-  padding: 4px 6px !important;
-  letter-spacing: .14em !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+  padding: 3px 9px !important;
+  letter-spacing: 0 !important;
+  border-radius: 4px !important;
+  border-width: 1px !important;
+  border-style: solid !important;
+}
+.spider-root .cards .card .tg-long {
+  color: #ff4d5e !important;
+  background: rgba(255, 77, 94, .16) !important;
+  border-color: rgba(255, 77, 94, .58) !important;
+}
+.spider-root .cards .card .tg-short {
+  color: #35e08a !important;
+  background: rgba(53, 224, 138, .16) !important;
+  border-color: rgba(53, 224, 138, .58) !important;
 }
 .spider-root .cards .card .c3 .k {
   font-size: 11px !important;
@@ -1064,21 +1081,60 @@ html, body, #root {
   font-size: 9.5px;
   margin-left: 5px;
 }
-.spider-root .cards .card .c4 .c4-mid {
+/* 出场三闸：三个小灯，各对应一条规则，亮 = 这条已经满足，全亮就出场。 */
+.spider-root .cards .card .c4 .c4-exit {
   flex: 1;
-  text-align: center;
-  color: #73788e;
-  font-size: 9.5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: #7c8399;
+  font-size: 10.5px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-variant-numeric: tabular-nums;
 }
-/* 破均线次数已够数（≥ 要求根数）→ 这条出场条件的前半段已经满足 */
-.spider-root .cards .card .c4 .c4-mid.hot {
-  color: #ff4d5e;
+.spider-root .cards .card .c4 .c4-exit > b {
   font-weight: 700;
+  color: #868da3;
+  letter-spacing: .04em;
 }
+.spider-root .cards .card .c4 .c4-exit .ck {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: #6b7285;
+  transition: color .25s ease;
+}
+/* 灯：没亮 = 暗色空圈。
+   2026-11-08 第一版 7px / #2b303a 太暗，远距离扫不到「这颗灯存在」，
+   提到 8px / #3d4452 —— 看得出是颗灯，但和亮起的红点仍然一眼能分。 */
+.spider-root .cards .card .c4 .c4-exit .led {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3d4452;
+  border: 1px solid #5a6274;
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, .55);
+  transition: background .25s ease, box-shadow .25s ease, border-color .25s ease;
+}
+/* 亮了 = 红点 + 辉光 */
+.spider-root .cards .card .c4 .c4-exit .ck.on { color: #ff8a95; }
+.spider-root .cards .card .c4 .c4-exit .ck.on .led {
+  background: #ff4d5e;
+  border-color: #ff9aa4;
+  box-shadow: 0 0 7px rgba(255, 77, 94, .95), inset 0 0 2px rgba(255, 255, 255, .55);
+}
+/* 三个全亮 = 该出场 */
+.spider-root .cards .card .c4 .c4-exit.full > b { color: #ff4d5e; }
+@keyframes ledFull {
+  0%, 100% { box-shadow: 0 0 6px rgba(255, 77, 94, .7),  inset 0 0 2px rgba(255, 255, 255, .5); }
+  50%      { box-shadow: 0 0 13px rgba(255, 77, 94, 1), inset 0 0 3px rgba(255, 255, 255, .85); }
+}
+.spider-root .cards .card .c4 .c4-exit.full .led { animation: ledFull 1s ease-in-out infinite; }
+/* 破均线次数已够数（≥ 要求根数）→ 这条出场条件的前半段已经满足 */
 .spider-root .cards .card .c4 .c4-time {
   color: #45e6f5;
   font-size: 9.5px;
@@ -1090,6 +1146,7 @@ html, body, #root {
 @media (prefers-reduced-motion: reduce) {
   .spider-root .cards .card .bar.prog,
   .spider-root .cards .card .bar.prog i,
+  .spider-root .cards .card .c4 .c4-exit .led,
   .spider-root .cards .card .bar.prog .dd-zone,
   .spider-root .cards .card .bar.prog .dd-zone::after,
   .spider-root .cards .card .bar.prog .peak-arrow,

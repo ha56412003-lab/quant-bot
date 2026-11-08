@@ -102,9 +102,10 @@ function PosCard({ p, avatar }) {
   // 后端刚开仓或跨 K 线窗口那一瞬可能没算出来 → exit_n 为 null，这里当「未知」处理。
   const exitN = (p.exit_n === null || p.exit_n === undefined)
     ? null : (Number.isFinite(Number(p.exit_n)) ? Number(p.exit_n) : null)
-  const ceTag = p.exit_ce_dir === 'long' ? 'CE多' : p.exit_ce_dir === 'short' ? 'CE空' : 'CE--'
-  const haTag = p.exit_ha_bar === 'up' ? 'HA阳' : p.exit_ha_bar === 'down' ? 'HA阴' : 'HA--'
-  const zTag = p.exit_z_side === 'above' ? 'ZL上' : p.exit_z_side === 'below' ? 'ZL下' : 'ZL--'
+  // 三个灯各自对应一条闸，亮 = 这条已经满足
+  const ceFlip = !!p.exit_ce_flip                          // ① CE 转向了
+  const haRev = !!p.exit_ha_rev                            // ② HA 变色了（多头转阴 / 空头转阳）
+  const zBrk = !!p.exit_z_break                            // ③ 价格穿到 ZLSMA 另一侧
   const ddNear = exitN != null && exitN >= 2               // 已满足 2 条，等最后一条就出场
   const stopNear = phase === 'loss' && Math.abs(curR) >= 0.7
 
@@ -135,10 +136,7 @@ function PosCard({ p, avatar }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
         <img className="av" src={avatar} alt="" />
         <b className="k">{sym}</b>
-        <em className="tg" style={{
-          color: long ? 'var(--red, #ff4d5e)' : 'var(--green, #35e08a)',
-          borderColor: long ? 'rgba(255,77,94,.55)' : 'rgba(53,224,138,.55)',
-        }}>{long ? 'LONG' : 'SHORT'}</em>
+        <em className={`tg tg-${long ? 'long' : 'short'}`}>{long ? '多' : '空'}</em>
         <span key={Math.round(upnl * 100)} className="pc pnl-num" style={{
           color: win ? 'var(--red, #ff4d5e)' : 'var(--green, #35e08a)',
         }}>
@@ -210,12 +208,18 @@ function PosCard({ p, avatar }) {
             </>
           )}
         </span>
-        <span className={`c4-mid${ddNear ? ' hot' : ''}`}
+        <span className={`c4-exit${exitN != null && exitN >= 3 ? ' full' : ddNear ? ' near' : ''}`}
               title={exitN == null
-                ? '镜像出场：CE翻转 + HA反向关键K线 + 破ZLSMA，三条同时成立才出场（当前状态未算出）'
-                : `镜像出场三闸 ${exitN}/3 · ${ceTag} ${haTag} ${zTag}`
+                ? '镜像出场三闸：CE转向 / HA变色 / ZL上下 —— 灯全亮就出场（当前状态未算出）'
+                : `镜像出场三闸 ${exitN}/3 —— 灯全亮就出场`
+                  + `｜CE ${p.exit_ce_dir === 'long' ? '偏多' : p.exit_ce_dir === 'short' ? '偏空' : '--'}`
+                  + ` / HA ${p.exit_ha_bar === 'up' ? '阳' : p.exit_ha_bar === 'down' ? '阴' : '--'}`
+                  + ` / ZLSMA ${p.exit_z_side === 'above' ? '价在上' : p.exit_z_side === 'below' ? '价在下' : '--'}`
                   + `｜峰顶 +${peakR.toFixed(2)}R，现回撤 ${drawdownR.toFixed(2)}R`}>
-          出场 {exitN == null ? '--' : exitN}/3 · {ceTag} {haTag} {zTag}
+          <b>出场</b>
+          <span className={`ck${ceFlip ? ' on' : ''}`}><i className="led" />CE</span>
+          <span className={`ck${haRev ? ' on' : ''}`}><i className="led" />HA</span>
+          <span className={`ck${zBrk ? ' on' : ''}`}><i className="led" />ZL</span>
         </span>
         <span className="c4-time">{ageH.toFixed(1)}h/{maxH.toFixed(0)}h</span>
       </div>
