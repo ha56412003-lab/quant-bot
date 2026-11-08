@@ -1,41 +1,78 @@
-"""监控池（三层池的第 2 层）—— 高波动准入（5m ATR > 1.20%）。
+"""监控池（三层池的第 2 层）—— 止损距离 + 趋势效率 + 插针。
 
-2026-11-06 架构改造（浩哥定稿，现行逻辑见 docs/三模块工作逻辑.md）：
+2026-11-08 浩哥拍板重构（入口指标整套换掉，ATR 退出监控池）：
 
-【为什么改】
-  旧版用 1h ATR > 0.6% 单一门槛，选出来的全是大币慢币；
-  而 S15 策略要 15m ATR > 2.5%，两套门槛打架 → 8 小时只出 1 个信号。
-  实测（120天/14币/1150笔）发现 ATR 与收益不是线性关系：
-      0~1.0%(15m)  赚钱（大币靠趋势，止损窄但胜率高）
-      1.25~3.0%    亏钱（死亡区：波动够打穿止损，不够走到止盈）
-      3.0~4.5%     大赚（野币靠波段）
-  双档筛选（<1.0% 或 >=3.0%）净 +31.74R，且是唯一「前半段不亏」的方案。
+【为什么换 —— ATR 筛反了】
+  200 币全量实测：
+      按 ATR>0.40% 进池的 50 个：EFF 中位 0.387、42% 是横盘(EFF≤0.30)
+      被 ATR 拦掉的 150 个：     EFF 中位 0.525、21% 是横盘
+  → 进池那组趋势效率反而比被拦组低 36%。ATR 筛出来的恰恰是更没方向的币。
+  根因两条：
+    · ATR 测「跳得狠不狠」，不测「有没有方向」—— 排横盘是 EFF 的活
+    · ATR 与手续费只是间接关系，止损距离才是直接的那个量
 
-【三个门槛各看什么周期】
-  成交额      日线口径（走全市场 ticker，零额外成本）
-  插针        日线口径（96 根 1h 内最大振幅 ÷ ATR）
-  ATR         5 分钟（提前发现波动）
+【新三道闸门】
+  第 1 道  止损距离 ≥ 1.00%（管手续费，物理直接）
+      止损距离 = (现价 − 最近 20 根 15m 最低价) ÷ 现价 × 100%
+      与 strategies.py 的止损算法同口径（swing_lookback=20，原始 K 线）
+      1.00% 时：仓位 = 1R ÷ 1.0% = 15,000U，手续费(0.1%) 占 1R 恰为 10%
+      0.78% 是临界点 —— 再窄就被单币名义上限截断，手续费占比飙升
+        （临界点 = 单笔风险1.5% ÷ (单币上限32% × 杠杆6) = 0.781%，与净值无关）
+      实测链条：止损 0.2%→手续费占 50% / 0.5%→20% / 1.0%→10% / 2.0%→5%
 
-  布林带分位不在这里 —— 2026-11-06 移交给策略层按 15m 算（见 strategies.py
-  的 _bollinger_width / _pct_rank）。池子层按 1h 算的那套已整套删除：
-  1h BBW 近 100 根 = 100 小时（4 天），等它确认趋势早走完了，实测 -36.96R。
+  第 2 道  趋势效率 EFF ≥ 0.30（排横盘）
+      EFF = |末价/首价 − 1| ÷ ((最高−最低)/最低)，96 根 15m = 24 小时
+      ≥0.55 单边 / 0.30~0.55 半趋势 / ≤0.30 宽震
+      出处 Kaufman 1995（KAMA），与 radar.py 的 _eff 同口径
+      低滞后：不用 MA/EMA 交叉、MACD、RSI、24h 涨跌幅
 
-【分级刷新（约 138MB/天）】
-  5m ATR  · 池内         每 5 分钟
-  5m ATR  · 池外         每 15 分钟
-  日线插针               每天
-  24h 成交额             每轮（走 ticker）
+  第 3 道  插针 ≤ 8.0（防闪崩滑点）
+      spike = 最近 96 根 1h 里最大单根振幅 ÷ 1h ATR
+      2026-11-08 从 4.0 放宽到 8.0：实测这一关卡掉 177/200 个币（89%），
+      而里面确实有好东西（TAUSDT 插针 4.9 / 止损 1.56% / EFF 0.87 被一刀切）
 
-【ATR 准入门槛（2026-11-06 晚 浩哥定，当日两次调整 1.20 → 0.40）】
-  进池：5m ATR > 0.40%
-  出池：进池满 30 分钟 + 期间没被选进持仓池 + ATR < 0.30% → 移除
-  已进持仓池的币不受 ATR 影响（出场交给策略层）
-  另外成交额 <1000万 或 插针 >4.0 也会被清退（与进池同一把尺子）
+  另外：成交额 ≥ 500 万 U（2026-11-08 从 1000 万放宽）
+
+【滞回（防每分钟抖动）】
+  进池：止损 ≥ 1.00%  且  EFF ≥ 0.30
+  出池：止损 < 0.85%   或  EFF < 0.25
+  中间：止损 0.85~1.00 / EFF 0.25~0.30 → 不动
+
+【平滑（STOP_EFF 都取 5 分钟中位数）】
+  实测（1m 数据）：止损距离每分钟抖 0.033%、EFF 抖 0.0137
+  从 1.00 掉到 0.85 只要 4.5 分钟 → 不平滑会有 27% 的币刚进 5 分钟就出
+  取过去 5 分钟采样的中位数 → 刚进就出降到 1%，每币进出 6.5 次/75小时
+  用中位数不用均值：1 分钟的尖刺不影响中位数
+
+【刷新（每分钟，增量拉取）】
+  启动：全量拉 96 根 15m 建缓存（200 币一次性约 1.9MB）
+  每 60 秒：只拉最新 2 根去重合并 → 55MB/天、权重 200/分钟（上限 1200）
+  ⚠ 绝不能每分钟全量拉 96 根 = 2,637MB/天，不可行
+  实测 limit=2 能拿到「正在走、还没收盘」那根，high/low 确实在动
+
+【持仓中的币】
+  2026-11-08 浩哥定：不归监控池管 —— 达标就留、不达标就踢。
+  出场由 engine.manage_positions() 遍历 db.open_positions() 负责，
+  它不看监控池名单，所以踢出池不会导致出场失联（已核实 engine.py:84）。
+
+【参数对照（旧 → 新）】
+  刷新        300 秒   →  60 秒
+  第 1 道     5m ATR>0.40%  →  止损距离 ≥1.00%（滞回 0.85）
+  第 2 道     （无）        →  EFF ≥0.30（滞回 0.25）
+  第 3 道     插针 ≤4.0    →  插针 ≤8.0
+  成交额      ≥1000万      →  ≥500万
+  池子容量    200          →  40
+  保护期      30 分钟      →  15 分钟
+  ATR         生效         →  停用（参数保留仅为回滚）
+
+⚠ CE 的 ATR（strategies.py 里 _rma(tr, ce_len=1)）与本文件无关，一直保留 ——
+  去掉它就不是 S15 了。本文件只管监控池入口。
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import statistics
 import threading
 import time
 
@@ -48,51 +85,65 @@ log = logging.getLogger(__name__)
 READY = threading.Event()
 
 # ── 默认值（可被 strategies.yaml 的 pools.monitor 段覆盖）──────
-MIN_QUOTE_VOL = 1e7     # 24h 成交额下限：1000 万 U
-MAX_SPIKE = 4.0         # 单根最大振幅 ÷ ATR 上限
-MONITOR_SIZE = 200      # 监控池容量（最多，不凑数）
-# 2026-11-06 浩哥定：23 → 69。实测池子「合格但被容量挡」的有 47 个
-# （pass_n=69 / monitor_n=22），这些币系统根本不扫，里面确实有 CE 翻转的信号
-# （INIT / LIT / FLUID / FOGO 四个正在翻转却被挡在门外）。
-# 代价：15m 扫描的 K 线流量 51MB/天 → 160MB/天（+109MB）。
+MIN_QUOTE_VOL = 5e6      # 24h 成交额下限：500 万 U（2026-11-08 从 1000万 放宽）
+MAX_SPIKE = 8.0          # 单根最大振幅 ÷ ATR 上限（2026-11-08 从 4.0 放宽）
+MONITOR_SIZE = 40        # 监控池容量（2026-11-08 从 200 收紧，实测组合约 39 个）
 
-# ATR 准入门槛（2026-11-06 晚 浩哥定）
-#   进池：5m ATR > 1.20%  才进监控池
-#   出池：进池满 30 分钟 + 期间没被选进持仓池 + ATR < 0.80% → 移除
-# 已进持仓池的币不受 ATR 影响（策略层自己有出场规则，池子不干预）
-ATR_ENTER_MIN = 0.40    # 进池线（%）：2026-11-06 晚 浩哥定 1.20 → 0.40
-ATR_EXIT_MAX = 0.30     # 清退线（%）：必须低于进池线，否则刚进池就被踢
-MIN_DWELL_SEC = 1800    # 进池后最短停留 30 分钟
+# ── 第 1 道：止损距离 ──────────────────────────────────────
+STOP_MIN_PCT = 1.00      # 进池线（%）
+STOP_EXIT_PCT = 0.85     # 出池线（%），必须低于进池线
+STOP_LOOKBACK = 20       # 摆动回看根数：与 strategies.py 的 swing_lookback 一致
 
-ATR_INTERVAL = "5m"     # ATR 周期
-ATR_N = 14              # ATR 回看根数
+# ── 第 2 道：趋势效率 ──────────────────────────────────────
+EFF_MIN = 0.30           # 进池线
+EFF_EXIT = 0.25          # 出池线
+EFF_WIN = 96             # 窗口：96 根 15m = 24 小时
+
+# ── 平滑与刷新 ────────────────────────────────────────────
+SMOOTH_SEC = 300         # 平滑窗口：5 分钟（取窗口内所有采样的中位数）
+KL_INTERVAL = "15m"      # K 线周期（止损与 EFF 都用它）
+KL_NEED = 96             # 缓存根数：EFF 需要 96 根，止损需要 20 根 → 取 96
+MIN_DWELL_SEC = 900      # 进池后最短停留 15 分钟（从 30 分钟缩短）
+REFRESH_SEC = 60         # 每分钟刷新一次
+TICK_SEC = 60            # 主循环节拍
+
+# ── 旧 ATR 参数：已停用，只为回滚保留 ──────────────────────
+ATR_ENTER_MIN = 0.40
+ATR_EXIT_MAX = 0.30
+ATR_INTERVAL = "5m"
+ATR_N = 14
+
+# ── 历史遗留刷新参数（插针仍用）──────────────────────────
 _RETRY_SEC = 600         # 整轮刷新全失败时的重试间隔（秒）
-SPIKE_LOOKBACK = 100    # 插针：拉 100 根 1h（实际用最后 96 根）
-
-# 分级刷新
-REFRESH_SEC = 300          # 池内 5m ATR：5 分钟
-SCAN_SEC = 900             # 池外 5m ATR：15 分钟
+SPIKE_LOOKBACK = 100     # 插针：拉 100 根 1h（实际用最后 96 根）
+SCAN_SEC = 900           # 保留（旧 ATR 池外扫描节奏，已不参与判断）
 DAILY_REFRESH_SEC = 86400  # 日线插针：每天
-TICK_SEC = 60              # 主循环节拍
 
-FETCH_CONCURRENCY = 8   # 并发数（200 币串行要 200 秒，并发 8 约 25 秒）
+FETCH_CONCURRENCY = 8    # 并发数（200 币串行要 200 秒，并发 8 约 25 秒）
 
-# ── 状态 ────────────────────────────────────────────────────
-_rows: dict[str, dict] = {}       # sym -> {atr_pct, spike, qv, ts_*}
+# ── 状态 ──────────────────────────────────────────────────
+_rows: dict[str, dict] = {}       # sym -> {spike, qv, atr_pct(旧), ts_*}
 _monitor: list[str] = []          # 当前监控池
 _in_since: dict[str, float] = {}  # sym -> 进池时间戳
 
-_ts_atr_pool = 0.0   # 池内 ATR 上次刷新
-_ts_atr_scan = 0.0   # 池外 ATR 上次扫描
+# 15m K 线缓存：sym -> [{"ts","high","low","close"}, ...]，按 ts 升序
+_kl: dict[str, list] = {}
+# 平滑采样队列：sym -> {"stop": [...], "eff": [...], "ts": [...]}
+_hist: dict[str, dict] = {}
+
 _ts_daily = 0.0      # 日线插针上次刷新
+_ts_kl = 0.0         # K 线上次增量拉取
 _ts = 0.0            # 监控池上次重算
+_bootstrap_done = False   # 首次全量建缓存是否完成
 
 
 def configure(cfg: dict | None = None) -> None:
     """从 strategies.yaml 的 pools.monitor 段热更新阈值（缺项保留原值）。"""
-    global MIN_QUOTE_VOL, MAX_SPIKE, MONITOR_SIZE
-    global MIN_DWELL_SEC, ATR_ENTER_MIN, ATR_EXIT_MAX
-    global REFRESH_SEC, SCAN_SEC, DAILY_REFRESH_SEC, TICK_SEC
+    global MIN_QUOTE_VOL, MAX_SPIKE, MONITOR_SIZE, MIN_DWELL_SEC
+    global STOP_MIN_PCT, STOP_EXIT_PCT, EFF_MIN, EFF_EXIT, EFF_WIN
+    global SMOOTH_SEC, KL_INTERVAL, REFRESH_SEC, TICK_SEC
+    global SCAN_SEC, DAILY_REFRESH_SEC
+    global ATR_ENTER_MIN, ATR_EXIT_MAX, ATR_INTERVAL
     cfg = cfg or {}
 
     def _f(k, cur):
@@ -101,29 +152,37 @@ def configure(cfg: dict | None = None) -> None:
     def _i(k, cur):
         return int(cfg[k]) if k in cfg else cur
 
+    # 新方案（生效）
+    MONITOR_SIZE = _i("size", MONITOR_SIZE)
     MIN_QUOTE_VOL = _f("min_quote_vol", MIN_QUOTE_VOL)
     MAX_SPIKE = _f("max_spike", MAX_SPIKE)
-    MONITOR_SIZE = _i("size", MONITOR_SIZE)
     MIN_DWELL_SEC = _i("min_dwell_sec", MIN_DWELL_SEC)
-    ATR_ENTER_MIN = _f("atr_enter_min", ATR_ENTER_MIN)
-    ATR_EXIT_MAX = _f("atr_exit_max", ATR_EXIT_MAX)
+    STOP_MIN_PCT = _f("stop_min_pct", STOP_MIN_PCT)
+    STOP_EXIT_PCT = _f("stop_exit_pct", STOP_EXIT_PCT)
+    EFF_MIN = _f("eff_min", EFF_MIN)
+    EFF_EXIT = _f("eff_exit", EFF_EXIT)
+    EFF_WIN = _i("eff_win", EFF_WIN)
+    SMOOTH_SEC = _i("smooth_sec", SMOOTH_SEC)
     REFRESH_SEC = _i("refresh_sec", REFRESH_SEC)
+    TICK_SEC = _i("tick_sec", TICK_SEC)
     SCAN_SEC = _i("scan_sec", SCAN_SEC)
     DAILY_REFRESH_SEC = _i("daily_refresh_sec", DAILY_REFRESH_SEC)
-    TICK_SEC = _i("tick_sec", TICK_SEC)
-    # atr_interval — ATR 用的 K 线周期
-    # （bbw_interval / bbw_pct_min / bbw_refresh_sec 三个键 2026-11-06 已删除：
-    #   BBW 整套移交策略层 15m，池子层不再采集也不再判断）
-    global ATR_INTERVAL
+    _iv = cfg.get("kl_interval")
+    if _iv is not None:
+        KL_INTERVAL = str(_iv)
+
+    # 旧 ATR 参数：读进来只是为了 snapshot 能如实展示「已停用」，不参与任何判断
+    ATR_ENTER_MIN = _f("atr_enter_min", ATR_ENTER_MIN)
+    ATR_EXIT_MAX = _f("atr_exit_max", ATR_EXIT_MAX)
     _atr_iv = cfg.get("atr_interval")
     if _atr_iv is not None:
         ATR_INTERVAL = str(_atr_iv)
 
 
-# ── 指标计算 ────────────────────────────────────────────────
+# ── 指标计算 ──────────────────────────────────────────────
 
 def _atr(bars, n: int = ATR_N):
-    """Wilder ATR（与回测 backtest/s15_final.py 的 _rma 口径一致）。"""
+    """Wilder ATR（旧监控池口径，已停用；保留供回滚与自检脚本调用）。"""
     if len(bars) < n + 1:
         return None
     trs = []
@@ -138,22 +197,118 @@ def _atr(bars, n: int = ATR_N):
     return val
 
 
-# ── 数据采集 ────────────────────────────────────────────────
+def _stop_dist(bars, lb: int = STOP_LOOKBACK):
+    """做多止损距离（%）=（现价 − 最近 lb 根最低价）÷ 现价 × 100。
 
-async def _fetch_atr(sym: str):
-    """5 分钟 ATR% —— 只拉 20 根，够算 ATR14，省流量。"""
-    try:
-        bars = await binance.klines(sym, ATR_INTERVAL, ATR_N + 6)
-        if len(bars) < ATR_N + 1:
-            return None
-        a = _atr(bars, ATR_N)
-        px = bars[-1]["close"]
-        if not a or not px:
-            return None
-        return a / px * 100.0
-    except Exception as exc:  # noqa: BLE001
-        log.debug("atr fetch %s failed: %s", sym, exc)
+    与 strategies.py 的止损算法同口径：用原始 K 线 low（不是 HA），
+    swing_lookback=20 → 15m × 20 = 5 小时窗口。
+
+    返回 None 的情况：K 线不够、价格非法、现价已在最低点之下。
+    注意：这里只算「做多」方向。做空的距离是 (最高价 − 现价)/现价，
+    监控池需要知道「这个币现在做哪个方向止损够宽」，取两者最大值更宽松：
+    现价离区间低点远 → 做多止损宽；离区间高点远 → 做空止损宽。
+    实际取 max(多, 空)，理由：只要有一个方向能做，这币就值得监控。
+    """
+    if not bars or len(bars) < lb + 1:
         return None
+    px = bars[-1]["close"]
+    if not px or px <= 0:
+        return None
+    seg = bars[-lb:]
+    lo = min(b["low"] for b in seg)
+    hi = max(b["high"] for b in seg)
+    if lo <= 0:
+        return None
+    d_long = (px - lo) / px * 100.0 if px > lo else 0.0
+    d_short = (hi - px) / px * 100.0 if hi > px else 0.0
+    return max(d_long, d_short)
+
+
+def _eff(bars, win: int = EFF_WIN):
+    """趋势效率 = |末价/首价 − 1| ÷ ((最高−最低)/最低)。
+
+    与 radar.py 的 _eff 同口径（Kaufman 1995）。
+    ≥0.55 单边 / 0.30~0.55 半趋势 / ≤0.30 宽震。
+    """
+    if not bars or len(bars) < win:
+        return None
+    seg = bars[-win:]
+    p0, p1 = seg[0]["close"], seg[-1]["close"]
+    if not p0 or p0 <= 0:
+        return None
+    lo = min(b["low"] for b in seg)
+    hi = max(b["high"] for b in seg)
+    if lo <= 0:
+        return None
+    amp = (hi - lo) / lo
+    if amp <= 0:
+        return None
+    return abs(p1 / p0 - 1.0) / amp
+
+
+def _push_hist(sym: str, stop, eff) -> None:
+    """把本次采样推进平滑队列，只保留 SMOOTH_SEC 内（按 TICK_SEC 折算条数）。"""
+    h = _hist.setdefault(sym, {"stop": [], "eff": [], "ts": []})
+    h["ts"].append(time.time())
+    h["stop"].append(stop)
+    h["eff"].append(eff)
+    # 容量：窗口 / 节拍，至少 1 条
+    cap = max(1, int(SMOOTH_SEC / max(1, TICK_SEC)))
+    for k in ("stop", "eff", "ts"):
+        if len(h[k]) > cap:
+            del h[k][:len(h[k]) - cap]
+
+
+def _median(vals):
+    """中位数，忽略 None。空集返回 None。"""
+    xs = [v for v in vals if v is not None]
+    if not xs:
+        return None
+    return statistics.median(xs)
+
+
+def _smoothed(sym: str):
+    """(平滑后的止损距离, 平滑后的 EFF)，各自取窗口内中位数。"""
+    h = _hist.get(sym)
+    if not h:
+        return None, None
+    return _median(h.get("stop") or []), _median(h.get("eff") or [])
+
+
+# ── 数据采集 ──────────────────────────────────────────────
+
+async def _fetch_kl(sym: str, limit: int = KL_NEED):
+    """拉 15m K 线。limit=2 用于每分钟增量；limit=KL_NEED 用于首次建缓存。"""
+    try:
+        bars = await binance.klines(sym, KL_INTERVAL, limit)
+        if not bars:
+            return []
+        return [{"ts": int(b["ts"]), "high": float(b["high"]),
+                 "low": float(b["low"]), "close": float(b["close"])} for b in bars]
+    except Exception as exc:  # noqa: BLE001
+        log.debug("kl fetch %s failed: %s", sym, exc)
+        return []
+
+
+def _merge_kl(sym: str, bars) -> None:
+    """按 ts 去重合并进缓存，裁剪到最多 KL_NEED*2 根（够算所有指标还有余量）。"""
+    if not bars:
+        return
+    cur = _kl.setdefault(sym, [])
+    if not cur:
+        cur.extend(bars)
+    else:
+        idx = {b["ts"]: i for i, b in enumerate(cur)}
+        for b in bars:
+            i = idx.get(b["ts"])
+            if i is None:
+                cur.append(b)
+            else:
+                cur[i] = b          # 同 ts 覆盖（未收盘那根会被后续覆盖成收盘版）
+        cur.sort(key=lambda x: x["ts"])
+    cap = KL_NEED * 2
+    if len(cur) > cap:
+        del cur[:len(cur) - cap]
 
 
 async def _fetch_spike(sym: str):
@@ -191,22 +346,12 @@ async def _update_quote_vol(universe) -> None:
         log.debug("ticker fetch failed: %s", exc)
 
 
-# ── 准入判定 ────────────────────────────────────────────────
-# 2026-11-06 晚：ATR 双档整套删除。
-# 原意是「波动太小赚不到钱不要、波动太大容易插针不要」，实测两条都不成立：
-#   · 波动小反而最赚钱：ATR<0.33% 那档每笔 +0.133R，是三档里最高的
-#   · 插针已经有 max_spike 专门管，不需要 ATR 再管一遍
-# 而且双档还带来一个真 bug：recompute 的出池判断只看 ATR、不看成交额/插针，
-# 币一旦进池，成交额掉到 100 万也不会被踢出去（只要 ATR 不越线）。
-# 现在池子的准入和出池都用同一把尺子：成交额 + 插针（_judge）。
-# ATR 仍然照常采集（_refresh_atr 保留），只是不再决定进出池。
-
+# ── 准入判定 ──────────────────────────────────────────────
 
 def _judge(sym: str) -> tuple[bool, str]:
     """单币的池子资格：成交额 + 插针。进出池用同一把尺子。
 
-    （2026-11-06 前的 ATR 双档与 1h BBW 判断已删除：ATR 改由
-     ATR_ENTER_MIN / ATR_EXIT_MAX 单线判断，BBW 移交策略层 15m。）
+    止损距离与 EFF 不在这里 —— 它们要带滞回，逻辑在 recompute()。
     """
     r = _rows.get(sym) or {}
     why = []
@@ -219,7 +364,7 @@ def _judge(sym: str) -> tuple[bool, str]:
     return (not why), ",".join(why)
 
 
-# ── 刷新流程 ────────────────────────────────────────────────
+# ── 刷新流程 ──────────────────────────────────────────────
 
 async def _gather(syms, fn):
     sem = asyncio.Semaphore(FETCH_CONCURRENCY)
@@ -233,37 +378,53 @@ async def _gather(syms, fn):
     return await asyncio.gather(*[_one(s) for s in syms])
 
 
-async def _refresh_atr(universe, only=None) -> int:
-    """刷 5m ATR。only=None 表示扫全部候选币，否则只刷指定名单。"""
-    global _ts_atr_pool, _ts_atr_scan
-    targets = list(universe) if only is None else list(only)
-    if not targets:
-        return 0
-    res = await _gather(targets, _fetch_atr)
+async def _bootstrap_kl(universe) -> int:
+    """首次建缓存：全量拉 KL_NEED 根 15m（一次性约 1.9MB）。"""
+    global _bootstrap_done
+    res = await _gather(list(universe), lambda s: _fetch_kl(s, KL_NEED))
     n = 0
-    for sym, v in res:
-        if v is None:
-            continue
-        row = _rows.setdefault(sym, {})
-        row["atr_pct"] = v
-        row["ts_atr"] = time.time()
-        n += 1
-    # 2026-11-06：整轮失败（n==0）不能更新时间戳，否则会把失败当成成功、
-    # 静默空窗一整个周期（池外 15 分钟 / 池内 3 分钟）。但又不能完全不更新
-    # 时间戳——那样每个 tick（0.5s）都会重试，直接打爆权重。折中：退避 10 分钟。
-    if n == 0:
-        retry_at = time.time() - (SCAN_SEC if only is None else REFRESH_SEC) + _RETRY_SEC
-        if only is None:
-            _ts_atr_scan = retry_at
-        else:
-            _ts_atr_pool = retry_at
-        log.warning("quality atr: 本轮 %d 个全部失败（%s），%ds 后重试",
-                    len(targets), "全池" if only is None else "池内", _RETRY_SEC)
-    elif only is None:
-        _ts_atr_scan = time.time()
+    for sym, bars in res:
+        if bars:
+            _merge_kl(sym, bars)
+            n += 1
+    if n:
+        _bootstrap_done = True
+        log.info("quality: 15m 缓存建立完成 %d/%d 个币", n, len(universe))
     else:
-        _ts_atr_pool = time.time()
+        log.warning("quality: 15m 缓存建立全失败（%d 个），下轮重试", len(universe))
     return n
+
+
+async def _refresh_kl_incr(universe) -> int:
+    """每分钟增量：只拉最新 2 根，去重合并。"""
+    global _ts_kl
+    if not _bootstrap_done:
+        return 0
+    res = await _gather(list(universe), lambda s: _fetch_kl(s, 2))
+    n = 0
+    for sym, bars in res:
+        if bars:
+            _merge_kl(sym, bars)
+            n += 1
+    if n == 0:
+        # 整轮失败：退避 10 分钟，避免每个 tick 都重试打爆权重
+        _ts_kl = time.time() - REFRESH_SEC + _RETRY_SEC
+        log.warning("quality kl: 增量刷新全部失败（%d 个），%ds 后重试",
+                    len(universe), _RETRY_SEC)
+    else:
+        _ts_kl = time.time()
+    return n
+
+
+def _update_samples(universe) -> None:
+    """按当前缓存算止损距离 + EFF，推进平滑队列。"""
+    for sym in universe:
+        bars = _kl.get(sym)
+        if not bars:
+            continue
+        stop = _stop_dist(bars)
+        eff = _eff(bars, EFF_WIN)
+        _push_hist(sym, stop, eff)
 
 
 async def _refresh_daily(universe) -> int:
@@ -287,46 +448,40 @@ async def _refresh_daily(universe) -> int:
     return n
 
 
-# ── 池子重算（双档 + 缓冲带 + 容量）─────────────────────────
-
-def _held_symbols() -> set:
-    """当前持仓池里的币。拿不到就当空集（fail-open：不因读库失败而误踢）。"""
-    try:
-        from . import db
-        return {p["symbol"] for p in db.open_positions()}
-    except Exception as exc:  # noqa: BLE001
-        log.debug("quality: 读取持仓失败，按空集处理: %s", exc)
-        return set()
-
+# ── 池子重算（三道闸门 + 滞回 + 容量）─────────────────────
 
 def recompute(universe) -> list[str]:
-    """根据当前数据重算监控池名单。返回新名单。"""
+    """根据当前数据重算监控池名单。返回新名单。
+
+    进出池用平滑后的（5 分钟中位数）止损距离与 EFF，带滞回：
+        进池：止损 ≥ STOP_MIN_PCT 且 EFF ≥ EFF_MIN
+        出池：止损 < STOP_EXIT_PCT 或 EFF < EFF_EXIT
+        中间：不动
+    持仓中的币不特殊对待（2026-11-08 浩哥定）—— 出场由 engine 负责。
+    """
     global _monitor, _ts
     now = time.time()
     now_set = set(universe)
 
     # ① 已在池的：判断留不留
-    held = _held_symbols()                 # 当前持仓池里的币
     kept: list[str] = []
     for sym in _monitor:
         if sym not in now_set:
             continue                       # 掉出候选池，自动出局
         # 缺失进池时间时按「现在」补上：否则 now - 0 是个巨大值，
-        # 最短停留保护会反向失效（刚进池就被踢，3 分钟级反复进出）。
+        # 最短停留保护会反向失效（刚进池就被踢，分钟级反复进出）。
         _in_since.setdefault(sym, now)
-        # 已被选进持仓池 → 池子不干预（出场规则交给策略层）
-        if sym in held:
-            kept.append(sym)
-            continue
-        # 进池未满 30 分钟 → 保护期内不因「变差」被踢
+        # 进池未满 MIN_DWELL_SEC → 保护期内不因「变差」被踢
         if now - _in_since[sym] < MIN_DWELL_SEC:
             kept.append(sym)
             continue
-        # —— 满 30 分钟且没被选进持仓池，才做清退判断 ——
-        r = _rows.get(sym) or {}
-        atr = r.get("atr_pct")
-        # 清退规则：ATR 掉到 ATR_EXIT_MAX（0.30%）以下 → 移除
-        if atr is not None and atr < ATR_EXIT_MAX:
+        # —— 满保护期，才做清退判断 ——
+        stop, eff = _smoothed(sym)
+        # 止损距离掉到出池线以下 → 移除（手续费要吃不消了）
+        if stop is not None and stop < STOP_EXIT_PCT:
+            continue
+        # 趋势效率掉到出池线以下 → 移除（走成横盘了）
+        if eff is not None and eff < EFF_EXIT:
             continue
         # 成交额 / 插针不达标 → 移除
         ok, _why = _judge(sym)
@@ -334,25 +489,28 @@ def recompute(universe) -> list[str]:
             continue
         kept.append(sym)
 
-    # 容量下调时 kept 也要截断，否则 size 从 23 改成 20 后
-    # 页面会出现 monitor_n=23 / monitor_size=20 的自相矛盾。
+    # 容量下调时 kept 也要截断，否则 size 改小后页面自相矛盾
     if len(kept) > MONITOR_SIZE:
         log.info("quality: 监控池容量下调 %d → %d，裁掉末位", len(kept), MONITOR_SIZE)
         kept = kept[:MONITOR_SIZE]
 
-    # ② 未在池的：必须 5m ATR > ATR_ENTER_MIN（0.40%）+ 过 _judge，按成交额降序
+    # ② 未在池的：必须过三道闸门，按成交额降序
     fresh: list[tuple[str, float]] = []
     in_pool = set(kept)
     for sym in universe:
         if sym in in_pool:
             continue
-        r = _rows.get(sym) or {}
-        atr = r.get("atr_pct")
-        if atr is None or atr <= ATR_ENTER_MIN:
-            continue                       # 没数据、或波动不够 → 不进池
+        stop, eff = _smoothed(sym)
+        if stop is None or eff is None:
+            continue                       # 还没采样到 → 不冒进
+        if stop < STOP_MIN_PCT:
+            continue                       # 止损太窄，手续费会吃掉 1R
+        if eff < EFF_MIN:
+            continue                       # 宽幅震荡，没方向
         ok, _why = _judge(sym)
         if not ok:
             continue
+        r = _rows.get(sym) or {}
         fresh.append((sym, float(r.get("qv") or 0.0)))
 
     # ③ 排序：成交额高的在前（流动性好 = 滑点小 = 能真成交）
@@ -371,35 +529,42 @@ def recompute(universe) -> list[str]:
     for s in list(_in_since):
         if s not in keep_set:
             _in_since.pop(s, None)
+    for s in list(_hist):
+        if s not in keep_set and s not in now_set:
+            _hist.pop(s, None)             # 彻底不在候选池了，丢历史
 
     _monitor = picked
     _ts = now
     if picked:
         READY.set()      # 池子有内容了，扫描循环可以开工
-    log.info("monitor recomputed: %d 个，容量 %d（成交额+插针 双门槛）",
-             len(picked), MONITOR_SIZE)
+    log.info("monitor recomputed: %d 个，容量 %d（止损≥%.2f%% + EFF≥%.2f + 插针≤%.1f）",
+             len(picked), MONITOR_SIZE, STOP_MIN_PCT, EFF_MIN, MAX_SPIKE)
     return picked
 
 
 async def refresh(universe) -> int:
-    """兼容旧接口：全量刷一次（ATR + 日线插针）后重算名单。"""
+    """兼容旧接口：全量刷一次（K 线建缓存 + 日线插针）后重算名单。"""
     await _update_quote_vol(universe)
-    await _refresh_atr(universe, only=None)
+    await _bootstrap_kl(universe)
     await _refresh_daily(universe)
+    _update_samples(universe)
     recompute(universe)
     return len(_rows)
 
 
-# ── 对外接口 ────────────────────────────────────────────────
+# ── 对外接口 ──────────────────────────────────────────────
 
 def get(symbol: str):
     """取单币质量明细。未采集到时返回 None。"""
     r = _rows.get(symbol)
-    if not r:
+    stop, eff = _smoothed(symbol)
+    if not r and stop is None and eff is None:
         return None
     ok, why = _judge(symbol)
-    return {"qv": r.get("qv"), "atr_pct": r.get("atr_pct"),
-            "spike": r.get("spike"), "ok": ok, "why": why}
+    return {"qv": (r or {}).get("qv"), "spike": (r or {}).get("spike"),
+            "atr_pct": (r or {}).get("atr_pct"),
+            "stop_pct": stop, "eff": eff,
+            "ok": ok, "why": why}
 
 
 def monitor_list() -> list[str]:
@@ -421,17 +586,29 @@ def snapshot() -> dict:
     data = {}
     for s, r in _rows.items():
         ok, why = _judge(s)
-        data[s] = {**r, "ok": ok, "why": why}
+        stop, eff = _smoothed(s)
+        data[s] = {**r, "ok": ok, "why": why,
+                   "stop_pct": stop, "eff": eff}
     return {
         "ts": _ts,
         "min_quote_vol": MIN_QUOTE_VOL,
         "max_spike": MAX_SPIKE,
-        "atr_interval": ATR_INTERVAL,
-        "atr_enter_min": ATR_ENTER_MIN,
-        "atr_exit_max": ATR_EXIT_MAX,
+        # 新方案（生效）
+        "stop_min_pct": STOP_MIN_PCT,
+        "stop_exit_pct": STOP_EXIT_PCT,
+        "eff_min": EFF_MIN,
+        "eff_exit": EFF_EXIT,
+        "eff_win": EFF_WIN,
+        "smooth_sec": SMOOTH_SEC,
+        "kl_interval": KL_INTERVAL,
         "min_dwell_sec": MIN_DWELL_SEC,
         "size": MONITOR_SIZE,
         "refresh_sec": REFRESH_SEC,
+        # 旧 ATR（已停用，仅为对照展示）
+        "atr_enabled": False,
+        "atr_interval": ATR_INTERVAL,
+        "atr_enter_min": ATR_ENTER_MIN,
+        "atr_exit_max": ATR_EXIT_MAX,
         "scan_sec": SCAN_SEC,
         "data": data,
         "monitor": list(_monitor),
@@ -440,10 +617,11 @@ def snapshot() -> dict:
     }
 
 
-# ── 主循环（分级刷新）──────────────────────────────────────
+# ── 主循环（每分钟增量刷新）───────────────────────────────
 
 async def loop(universe_fn, cfg_fn=None):
-    """后台循环。不同数据源按各自节奏刷新。"""
+    """后台循环。K 线每分钟增量拉取，插针每天一次。"""
+    global _ts_daily
     while True:
         try:
             if cfg_fn is not None:
@@ -458,15 +636,16 @@ async def loop(universe_fn, cfg_fn=None):
             # 24h 成交额：每轮（走 ticker，零成本）
             await _update_quote_vol(universe)
 
-            # 池外 5m ATR：15 分钟一次
-            if now - _ts_atr_scan >= SCAN_SEC:
-                await _refresh_atr(universe, only=None)
+            # 首次：全量拉 96 根建缓存
+            if not _bootstrap_done:
+                await _bootstrap_kl(universe)
 
-            # 池内 5m ATR：3 分钟一次
-            if now - _ts_atr_pool >= REFRESH_SEC and _monitor:
-                await _refresh_atr(universe, only=list(_monitor))
+            # 每分钟：增量拉最新 2 根
+            if now - _ts_kl >= REFRESH_SEC:
+                await _refresh_kl_incr(universe)
 
-            # 重算名单
+            # 重算采样 + 名单
+            _update_samples(universe)
             recompute(universe)
 
         except Exception as exc:  # noqa: BLE001

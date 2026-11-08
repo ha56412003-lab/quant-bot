@@ -812,6 +812,8 @@ async def api_pool():
             "symbol": sym,
             "price": factors.mark_price_of(sym),
             "qv": q.get("qv"), "atr_pct": q.get("atr_pct"), "spike": q.get("spike"),
+            # 2026-11-08 新闸门：止损距离（平滑后）+ 趋势效率（平滑后）
+            "stop_pct": q.get("stop_pct"), "eff": q.get("eff"),
             "ok": q.get("ok"), "why": q.get("why", ""),
             "in_monitor": sym in monitor,
             "in_candidate": sym in config.UNIVERSE,
@@ -830,6 +832,16 @@ async def api_pool():
     pool_snap = pool.snapshot()
     return {"ts": snap["ts"], "min_quote_vol": snap["min_quote_vol"],
             "max_spike": snap["max_spike"],
+            # 2026-11-08 新闸门参数
+            "stop_min_pct": snap.get("stop_min_pct"),
+            "stop_exit_pct": snap.get("stop_exit_pct"),
+            "eff_min": snap.get("eff_min"),
+            "eff_exit": snap.get("eff_exit"),
+            "eff_win": snap.get("eff_win"),
+            "smooth_sec": snap.get("smooth_sec"),
+            "kl_interval": snap.get("kl_interval"),
+            # 旧 ATR 参数（已停用，只为前端能如实标注）
+            "atr_enabled": snap.get("atr_enabled"),
             "atr_enter_min": snap.get("atr_enter_min"),
             "atr_exit_max": snap.get("atr_exit_max"),
             "min_dwell_sec": snap.get("min_dwell_sec"),
