@@ -908,28 +908,30 @@ html, body, #root {
   100% { filter: brightness(1); }
 }
 
-/* ② 羽化回撤区：当前价 → 峰顶。
-   要「一眼看得清」，所以主体白度拉高到 .72，再加一层淡斜纹给质感
-   （斜纹是连续的线，不是虚点），两端用 mask 渐隐做出羽化过渡。 */
+/* ② 羽化回撤区：当前价 → 峰顶。两端羽化渐隐，中段是实的。
+   ⚠ 这个文件只负责「形状」（位置 / 羽化 mask / 过渡动画）。
+     玫红主题的 background 白度在 spider.css 的 html:not([data-theme]) 那条里，
+     那边优先级更高，改这里的 background 不会生效 —— 别改错文件。 */
 .spider-root .cards .card .bar.prog .dd-zone {
   position: absolute;
   top: 0; bottom: 0;
   z-index: 4;
   pointer-events: none;
   overflow: hidden;
+  /* 兜底色（未命中任何主题时用），与 spider.css 的玫红值保持一致 */
   background:
     repeating-linear-gradient(45deg,
-      rgba(255, 255, 255, .12) 0px, rgba(255, 255, 255, .12) 2px,
+      rgba(255, 255, 255, .14) 0px, rgba(255, 255, 255, .14) 2px,
       transparent 2px, transparent 7px),
     linear-gradient(90deg,
-      rgba(255, 255, 255, .30) 0%,
-      rgba(255, 255, 255, .72) 45%,
-      rgba(255, 255, 255, .55) 100%);
-  /* 左右两端淡出 = 羽化过渡，不是硬边 */
+      rgba(255, 255, 255, .16) 0%,
+      rgba(255, 255, 255, .44) 45%,
+      rgba(255, 255, 255, .32) 100%);
+  /* 左右两端淡出 = 羽化过渡，不是硬边（8% 起羽化，中段 84% 是实的） */
   -webkit-mask-image: linear-gradient(90deg,
-    transparent 0%, #000 14%, #000 86%, transparent 100%);
+    transparent 0%, #000 8%, #000 92%, transparent 100%);
   mask-image: linear-gradient(90deg,
-    transparent 0%, #000 14%, #000 86%, transparent 100%);
+    transparent 0%, #000 8%, #000 92%, transparent 100%);
   transition: left .55s cubic-bezier(.4, 0, .2, 1),
               width .55s cubic-bezier(.4, 0, .2, 1);
 }
@@ -951,16 +953,16 @@ html, body, #root {
   40%  { opacity: 1; }
   100% { background-position: 155% 0; opacity: .3; }
 }
-/* 亏损态羽化区降一档：绿底上白光容易糊成一片 */
+/* 亏损态兜底色：比盈利态再低一档（绿底上白光容易糊），与 spider.css 一致 */
 .spider-root .cards .card .bar.prog.loss .dd-zone {
   background:
     repeating-linear-gradient(45deg,
-      rgba(255, 255, 255, .08) 0px, rgba(255, 255, 255, .08) 2px,
+      rgba(255, 255, 255, .11) 0px, rgba(255, 255, 255, .11) 2px,
       transparent 2px, transparent 7px),
     linear-gradient(90deg,
-      rgba(255, 255, 255, .18) 0%,
-      rgba(255, 255, 255, .52) 45%,
-      rgba(255, 255, 255, .38) 100%);
+      rgba(255, 255, 255, .13) 0%,
+      rgba(255, 255, 255, .36) 45%,
+      rgba(255, 255, 255, .26) 100%);
 }
 
 

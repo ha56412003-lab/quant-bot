@@ -430,30 +430,35 @@
     0 0 12px rgba(255, 176, 32, .62);
 }
 
-/* ④ 回撤区：原来整条是白色斜纹 + .72 白渐变，把底下的彩色全糊成银灰。
-      降到 .18/.34 并保留斜纹质感，只当"回撤量"的淡底纹。 */
-:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .cards .card .bar.prog .dd-zone {
+/* ④ 回撤区（当前价 → 峰顶的那段）。
+      历史：早年是 .72 白渐变，太亮把底下彩色全糊成银灰，所以一路压到 .06/.22。
+      但压过头了 —— 实测 BEAMX 那张卡回撤区有 120px 宽，屏幕上基本看不出界线。
+      2026-11-08 取中间值 .14/.44：白度够看清「回撤了多少」，
+      又不像 .72 那样盖住底下的主填充。亏损态再低一档（绿底上白光容易糊）。
+      注意：这里只作用于玫红主题（无 data-theme 属性）。paper 主题有独立的墨色规则
+      （v2.css 里 html[data-theme="paper"] 那两条），不让白色斜纹覆盖米白底。 */
+html:not([data-theme]) .spider-root .cards .card .bar.prog .dd-zone {
   background:
     repeating-linear-gradient(45deg,
-      rgba(255, 255, 255, .06) 0px, rgba(255, 255, 255, .06) 2px,
+      rgba(255, 255, 255, .14) 0px, rgba(255, 255, 255, .14) 2px,
       transparent 2px, transparent 7px),
     linear-gradient(90deg,
-      rgba(255, 255, 255, .07) 0%,
-      rgba(255, 255, 255, .22) 45%,
-      rgba(255, 255, 255, .15) 100%);
+      rgba(255, 255, 255, .16) 0%,
+      rgba(255, 255, 255, .44) 45%,
+      rgba(255, 255, 255, .32) 100%);
 }
-:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .cards .card .bar.prog.loss .dd-zone {
+html:not([data-theme]) .spider-root .cards .card .bar.prog.loss .dd-zone {
   background:
     repeating-linear-gradient(45deg,
-      rgba(255, 255, 255, .05) 0px, rgba(255, 255, 255, .05) 2px,
+      rgba(255, 255, 255, .11) 0px, rgba(255, 255, 255, .11) 2px,
       transparent 2px, transparent 7px),
     linear-gradient(90deg,
-      rgba(255, 255, 255, .10) 0%,
-      rgba(255, 255, 255, .26) 45%,
-      rgba(255, 255, 255, .18) 100%);
+      rgba(255, 255, 255, .13) 0%,
+      rgba(255, 255, 255, .36) 45%,
+      rgba(255, 255, 255, .26) 100%);
 }
 /* 流动白光减弱，别把彩色条扫成一片白 */
-:is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .cards .card .bar.prog .dd-zone::after {
+html:not([data-theme]) .spider-root .cards .card .bar.prog .dd-zone::after {
   background: linear-gradient(90deg,
     transparent 0%,
     rgba(255, 255, 255, .55) 50%,
