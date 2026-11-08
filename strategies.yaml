@@ -70,6 +70,16 @@ strategies:
       min_atr_pct: 0
       bbw_pct_min: 70.0
       max_risk_pct: 30.0
+      # ⑥ 进场位置闸（2026-11-08 浩哥批准落地）
+      #    进场价必须离 ZLSMA 至少 min_dev_pct%。0 = 关闭。
+      #    依据：60 天回测，偏离<=0.5% 的 104 笔净R −14.8 / 胜率 34.6% / 止损率 51.9%，
+      #          偏离>0.5% 的 640 笔净R +90.9 / 胜率 47.8% / 止损率 31.7%。
+      min_dev_pct: 0.5
+      # 快速失败出场（2026-11-08 浩哥批准落地）
+      #    进场后 quickfail_hours 小时内，峰顶一直没到 quickfail_min_r R → 平仓。
+      #    quickfail_hours = 0 即关闭。依据：60 天回测 4h/0.50 = 782 笔 +109.0R（基准 +78.1R）。
+      quickfail_hours: 4.0
+      quickfail_min_r: 0.5
       half_at_r: 2.0
       half_tp_r: 1.0
       fee_rate: 0.0005

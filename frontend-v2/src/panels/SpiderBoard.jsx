@@ -128,6 +128,17 @@ function PosCard({ p, avatar }) {
 
   const ageH = (p.age_sec || 0) / 3600
   const maxH = (p.max_hold_sec || 1) / 3600
+
+  // ── 快速失败闸（2026-11-08 新增，与上面三盏灯并列的第四道出场路）──
+  // 规则：进场后 qf_hours 小时内，峰顶一直没到 qf_min_r R → 平仓。
+  // 它不是「三闸同时成立」型，而是「时间 + 峰顶」型，所以单独一盏灯：
+  //   灯亮 = 峰顶已经够过 → 这笔永久脱离快速失败风险
+  //   灯暗 = 还在观察窗口里，撑到 qf_hours 还没起色就会被平
+  const qfH = Number(p.qf_hours) || 0
+  const qfR = Number(p.qf_min_r) || 0.5
+  const qfOk = p.qf_ok === true
+  const qfOn = qfH > 0 && qfOk
+  const qfLeft = Math.max(0, qfH - ageH)
   const retPct = entry ? ((long ? px - entry : entry - px) / entry) * 100 : 0
 
   return (
@@ -211,7 +222,7 @@ function PosCard({ p, avatar }) {
         <span className={`c4-exit${exitN != null && exitN >= 3 ? ' full' : ddNear ? ' near' : ''}`}
               title={exitN == null
                 ? '镜像出场三闸：CE转向 / HA变色 / ZL上下 —— 灯全亮就出场（当前状态未算出）'
-                : `镜像出场三闸 ${exitN}/3 —— 灯全亮就出场`
+                : `镜像出场三闸 ${exitN}/3 —— 灯全亮就出场（第四盏「快」是独立的快速失败闸，不参与这三条）`
                   + `｜CE ${p.exit_ce_dir === 'long' ? '偏多' : p.exit_ce_dir === 'short' ? '偏空' : '--'}`
                   + ` / HA ${p.exit_ha_bar === 'up' ? '阳' : p.exit_ha_bar === 'down' ? '阴' : '--'}`
                   + ` / ZLSMA ${p.exit_z_side === 'above' ? '价在上' : p.exit_z_side === 'below' ? '价在下' : '--'}`
@@ -220,6 +231,16 @@ function PosCard({ p, avatar }) {
           <span className={`ck${ceFlip ? ' on' : ''}`}><i className="led" />CE</span>
           <span className={`ck${haRev ? ' on' : ''}`}><i className="led" />HA</span>
           <span className={`ck${zBrk ? ' on' : ''}`}><i className="led" />ZL</span>
+          <span className={`ck ck-qf${qfOn ? ' on' : ''}`}
+                title={qfH <= 0
+                  ? '快速失败闸：已关闭'
+                  : qfOk
+                    ? `快速失败闸：已脱险 —— 峰顶 ${peakR.toFixed(2)}R ≥ ${qfR}R，不会再被这道闸平`
+                    : `快速失败闸：${qfH}h 内峰顶必须到 ${qfR}R，否则平仓`
+                      + `｜已过 ${ageH.toFixed(1)}h，还剩 ${qfLeft.toFixed(1)}h`
+                      + `｜当前峰顶 ${peakR.toFixed(2)}R`}>
+            <i className="led" />快
+          </span>
         </span>
         <span className="c4-time">{ageH.toFixed(1)}h/{maxH.toFixed(0)}h</span>
       </div>

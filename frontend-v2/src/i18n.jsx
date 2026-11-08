@@ -92,7 +92,7 @@ const DICT = {
     'dash.col.upnl': '浮盈', 'dash.col.excursion': '峰值/谷值', 'dash.col.age': '持仓时间 / 上限',
     'dash.col.action': '操作', 'dash.long': '多', 'dash.short': '空',
     'dash.openMark': '开', 'dash.closeMark': '平',
-    'act.gates': '三道光闸', 'gate.bar': 'K线', 'gate.col.symbol': '币种', 'gate.col.dir': '方向', 'gate.col.ce': '①CE', 'gate.col.ha': '②HA', 'gate.col.bbw': '③BBW', 'gate.col.atr': 'ATR', 'gate.col.why': '结论', 'gate.opened': '已开仓', 'gate.outPool': '池外', 'gate.summary': ({ce, ha, bbw, n}) => `CE翻转 ${ce}/${n} · HA形态 ${ha}/${n} · BBW达标 ${bbw}/${n}`, 'act.signals': '信号流', 'act.trades': '成交记录', 'act.logs': '运行日志', 'act.events': '经济事件',
+    'act.gates': '四道光闸', 'gate.bar': 'K线', 'gate.col.symbol': '币种', 'gate.col.dir': '方向', 'gate.col.ce': '①CE', 'gate.col.ha': '②HA', 'gate.col.bbw': '③BBW', 'gate.col.dev': '④偏离', 'gate.col.atr': 'ATR', 'gate.col.why': '结论', 'gate.opened': '已开仓', 'gate.outPool': '池外', 'gate.summary': ({ce, ha, bbw, dev, n}) => `CE翻转 ${ce}/${n} · HA形态 ${ha}/${n} · BBW达标 ${bbw}/${n} · 偏离够 ${dev}/${n}`, 'act.signals': '信号流', 'act.trades': '成交记录', 'act.logs': '运行日志', 'act.events': '经济事件',
     // 经济事件面板（与「信号流」并列）—— 静默闸门要看得见
     'ev.quietNow': '静默中', 'ev.normal': '正常开仓', 'ev.window': '静默窗口',
     'ev.col.time': '时间', 'ev.col.cd': '倒计时', 'ev.col.title': '事件',
@@ -221,7 +221,7 @@ const DICT = {
     'dash.col.upnl': 'uPnL', 'dash.col.excursion': 'MFE/MAE', 'dash.col.age': 'Held / cap',
     'dash.col.action': 'Action', 'dash.long': 'L', 'dash.short': 'S',
     'dash.openMark': 'O', 'dash.closeMark': 'C',
-    'act.gates': 'Three Gates', 'gate.bar': 'Bar', 'gate.col.symbol': 'Coin', 'gate.col.dir': 'Side', 'gate.col.ce': '①CE', 'gate.col.ha': '②HA', 'gate.col.bbw': '③BBW', 'gate.col.atr': 'ATR', 'gate.col.why': 'Verdict', 'gate.opened': 'opened', 'gate.outPool': 'out', 'gate.summary': ({ce, ha, bbw, n}) => `CE flip ${ce}/${n} · HA ${ha}/${n} · BBW ok ${bbw}/${n}`, 'act.signals': 'Signals', 'act.trades': 'Fills', 'act.logs': 'Logs', 'act.events': 'Events',
+    'act.gates': 'Four Gates', 'gate.bar': 'Bar', 'gate.col.symbol': 'Coin', 'gate.col.dir': 'Side', 'gate.col.ce': '①CE', 'gate.col.ha': '②HA', 'gate.col.bbw': '③BBW', 'gate.col.dev': '④Dist', 'gate.col.atr': 'ATR', 'gate.col.why': 'Verdict', 'gate.opened': 'opened', 'gate.outPool': 'out', 'gate.summary': ({ce, ha, bbw, dev, n}) => `CE flip ${ce}/${n} · HA ${ha}/${n} · BBW ok ${bbw}/${n} · Dist ok ${dev}/${n}`, 'act.signals': 'Signals', 'act.trades': 'Fills', 'act.logs': 'Logs', 'act.events': 'Events',
     'ev.quietNow': 'QUIET', 'ev.normal': 'Open', 'ev.window': 'window',
     'ev.col.time': 'Time', 'ev.col.cd': 'In', 'ev.col.title': 'Event',
     'ev.col.imp': 'Imp', 'ev.col.gate': 'Gate',

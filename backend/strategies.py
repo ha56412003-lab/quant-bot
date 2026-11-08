@@ -383,6 +383,9 @@ class S15CeZlsma(Base):
         min_atr_pct = float(self._p("min_atr_pct", 2.5))
         bbw_pct_min = float(self._p("bbw_pct_min", 70.0))
         max_risk_pct = float(self._p("max_risk_pct", 30.0))
+        # ⑥ 进场位置闸（2026-11-08 浩哥批准落地）：进场价必须离 ZLSMA 至少这个百分比。
+        #    0 = 关闭该闸，行为退回三闸（回滚只需把这行配置删掉或设 0）。
+        min_dev_pct = float(self._p("min_dev_pct", 0.0))
         # 成本口径：默认按 maker 0.02% / 零滑点，和回测一致。
         # ⚠ 这是「假设挂单能成交」的记账口径，不代表线上真能挂到单。
         #    真实限价挂单能力是执行层待办（观察期后单独做）。
@@ -455,6 +458,7 @@ class S15CeZlsma(Base):
                 _GATE_STATE[sym] = {
                     "ts": bar_ts, "dir": "多" if d_now == 1 else "空",
                     "ce": _ce_ok, "ha": _ha_ok, "bbw": _bp, "bbw_thr": _thr,
+                    "dev": None, "dev_thr": min_dev_pct,
                     "atr_pct": round(atr / c * 100.0, 3) if c > 0 else None,
                     "ok": False, "why": _why,
                 }
@@ -491,6 +495,26 @@ class S15CeZlsma(Base):
                 # 导致实际盈亏比从 1.20 掉到 0.73、单笔风险从 0.5% 放大到 0.82%。
                 px = float(ks[i]["close"])
                 if px <= 0 or not math.isfinite(px):
+                    continue
+
+                # ⑥ 进场位置闸 —— 进场价离 ZLSMA 的距离必须够远（2026-11-08 浩哥批准）
+                #
+                #    为什么加这道（60 天 / 20 币回测，docs/S15_参数优化证伪记录.md 附二）：
+                #      偏离 <=0.5% 的 104 笔：净R −14.8  均笔 −0.143  胜率 34.6%  止损率 51.9%
+                #      偏离  >0.5% 的 640 笔：净R +90.9  均笔 +0.142  胜率 47.8%  止损率 31.7%
+                #    贴均线进场 = 突破还没走出去 = 假突破；离均线够远才说明趋势真启动了。
+                #
+                #    与前三闸的关系（实测，不是推理）：
+                #      · 与 BBW 分位相关系数 −0.020 → 完全不冗余
+                #      · 与 HA 形态同向（HA 要求「在均线这一侧」，本闸要求「离得够远」）→ 不矛盾
+                #      · 只剔掉 HA 通过但贴均线的 14%，不是限制过死
+                dev_pct = abs(px - z) / z * 100.0 if z else 0.0
+                _g = _GATE_STATE.get(sym)
+                if _g is not None:
+                    _g["dev"] = round(dev_pct, 3)
+                if min_dev_pct > 0 and dev_pct < min_dev_pct:
+                    if _g is not None:
+                        _g["why"] = f"离均线仅{dev_pct:.2f}%"
                     continue
 
                 # ⑤ 止损 = 20 根阶段低点/高点（原始 K 线真实价格）
@@ -544,7 +568,8 @@ class S15CeZlsma(Base):
     async def check_exit(self, ctx, pos):
         """S15 出场总入口（2026-11-08 浩哥定案，旧「破均线+回撤」已整段删除）。
 
-        出场只有四条路，按判定顺序：
+        出场有五条路，按判定顺序：
+            ⓪ 快速失败：进场 quickfail_hours 小时内峰顶没到 quickfail_min_r R → 平（_quick_fail）
             ① 2R 平一半（_half_take_profit）
             ② 半仓后再赚 1R → 3R 全平（_mirror_exit 里先判）
             ③ 镜像出场：CE 翻转 + HA 反向关键K线站在 ZLSMA50 错误一侧（_mirror_exit）
@@ -555,6 +580,12 @@ class S15CeZlsma(Base):
         只有跨过 bar 边界才真正去拉数据。不做这个缓存是每天几百 MB。
         """
         try:
+            # ⓪ 快速失败（2026-11-08 浩哥批准）：优先级仅次于 engine.py 的硬止损。
+            #    放在最前是因为判断最便宜（只读仓位字段，不拉 K 线），
+            #    且语义上「4 小时了还没起色」是最强的该走信号，没必要再等 2R 或镜像。
+            quick = self._quick_fail(ctx, pos)
+            if quick:
+                return quick
             half = await self._half_take_profit(ctx, pos)
             if half:
                 return half
@@ -562,6 +593,56 @@ class S15CeZlsma(Base):
         except Exception as exc:  # noqa: BLE001
             log.warning("S15 check_exit %s 失败: %s", pos.get("symbol"), exc)
             return None
+
+    def _quick_fail(self, ctx, pos):
+        """快速失败出场：进场后 quickfail_hours 小时内峰顶一直没到 quickfail_min_r R → 平仓。
+
+        为什么加（2026-11-08 浩哥批准，60 天 / 20 币回测）：
+            基准（无此闸）        744 笔  +78.1R  均笔+0.105  回撤−24.4
+            加本闸 4h/0.50        782 笔 +109.0R  均笔+0.139  回撤−21.4  ← 四条判据全过
+            与「进场偏离闸」叠加   681 笔 +120.7R  均笔+0.177  回撤−16.4  ← 净R +59%
+
+        动机是真实案例：2026-11-08 当天 4 笔止损，持仓只有 0.2 / 0.3 / 1.2 / 1.5 小时
+        就反向、每笔亏满 −1R（合计 −627U）。进场后几根 K 线内就能看出「这股不对」，
+        没必要非等它走到硬止损。
+
+        与镜像出场的关系：实测两者只重叠 15% —— 本闸看「时间」（进去 4h 还在磨），
+        镜像看「空间」（CE 翻 + 破均线）。只重叠 15%，所以两条都留。
+
+        峰顶来源：走 _touch_pos_state（与镜像出场共用同一份内存态 + 库里的 peak_r），
+        保证进程重启后不会从 0 重新算。已平过一半的仓位 peak 必然 ≥2R，本闸不会误伤。
+
+        quickfail_hours = 0 即关闭本闸（回滚只需把配置设 0）。
+        """
+        hours = float(self._p("quickfail_hours", 0.0))
+        if hours <= 0:
+            return None
+        min_r = float(self._p("quickfail_min_r", 0.5))
+        opened = float(pos.get("opened_at") or 0)
+        entry = float(pos.get("entry_price") or 0)
+        stop = float(pos.get("stop_price") or 0)
+        side = pos.get("side")
+        if opened <= 0 or entry <= 0 or stop <= 0 or side not in ("long", "short"):
+            return None
+        elapsed_h = (time.time() - opened) / 3600.0
+        if elapsed_h < hours:
+            return None
+        risk = abs(entry - stop)
+        if risk <= 0 or not math.isfinite(risk):
+            return None
+        px = ctx.price(pos.get("symbol"))
+        if not px or not math.isfinite(px):
+            return None
+        sign = 1.0 if side == "long" else -1.0
+        cur_r = (px - entry) * sign / risk
+        if not math.isfinite(cur_r):
+            return None
+        st = self._touch_pos_state(pos, entry, risk, cur_r)
+        peak = float(st.get("peak") or 0.0)
+        if peak >= min_r:
+            return None
+        return (f"快速失败({hours:.0f}h内峰顶{peak:.2f}R<{min_r:.1f}R "
+                f"现{cur_r:.2f}R)")
 
     async def _half_take_profit(self, ctx, pos):
         """浮盈达 half_at_r（默认 2.0R）且没平过一半 → 平掉 50%，剩一半放开跑。

@@ -495,6 +495,16 @@ async def api_positions():
         #   ma_break_cnt —— 旧「连续破均线根数」，镜像出场不数这个
         #   trail_atr    —— 旧 ATR 移动止损价，出场侧已无任何 ATR 移动止损
         #   time_exit_at —— 旧指定时间出场，现走 max_hold_hours 16h
+        # ── 快速失败出场闸的展示字段（2026-11-08 新增）──────────────────
+        # 这条闸不是「三闸全亮」型，而是「时间 + 峰顶」型：
+        #   持仓 >= quickfail_hours 且 峰顶一直没到 quickfail_min_r R → 平仓。
+        # 前端要知道 ① 门槛多少 ② 这笔是否已经脱险（峰顶够过了），
+        # 才能画出「还要撑多久」的倒计时。值从配置读，不在前端写死。
+        _qp = scfg.get("params") or {}
+        _qf_h = float(_qp.get("quickfail_hours") or 0.0)
+        _qf_r = float(_qp.get("quickfail_min_r") or 0.5)
+        _qf_ok = (float(peak_r_mem) >= _qf_r) if peak_r_mem is not None else None
+
         _dead_cols = ("ma_break_cnt", "trail_atr", "time_exit_at")
         _live = {k: v for k, v in p.items() if k not in _dead_cols}
 
@@ -508,6 +518,8 @@ async def api_positions():
                     "exit_n": _exit_n,
                     "exit_ce_flip": _cefl, "exit_ha_rev": _hrev, "exit_z_break": _zbrk,
                     "exit_ce_dir": _cev, "exit_ha_bar": _hbar, "exit_z_side": _zsd,
+                    # 快速失败闸：qf_hours 门槛、qf_min_r 峰顶要求、qf_ok 是否已脱险
+                    "qf_hours": _qf_h, "qf_min_r": _qf_r, "qf_ok": _qf_ok,
                     # 占用保证金按【当前价】计算，与币安口径一致（仓位价值随价格浮动）
                     "margin": abs(p["qty"] * price) / lev + extra,
                     "margin_at_entry": abs(p["qty"] * entry) / lev + extra,
@@ -624,7 +636,7 @@ async def api_signals(limit: int = 50):
 
 @app.get("/api/gates")
 async def api_gates():
-    """三道光闸诊断：监控池每个币最新一根 15m 的三道闸状态。
+    """四道光闸诊断：监控池每个币最新一根 15m 的四道闸状态。
 
     数据来自策略扫描时留在内存里的中间结果（strategies._GATE_STATE），
     不额外拉 K 线，零流量成本。回答的问题是：今天没开仓，是
@@ -640,10 +652,14 @@ async def api_gates():
             continue
         if v.get("ts") and (bar is None or v["ts"] > bar):
             bar = v["ts"]
-        rows.append({"symbol": sym, "in_monitor": sym in mon, **v})
-    # 有戏的排前面：已开仓 > CE 已翻 > 其它
+        dev = v.get("dev")
+        dev_thr = v.get("dev_thr") or 0
+        rows.append({"symbol": sym, "in_monitor": sym in mon,
+                     "dev_ok": (dev is not None and dev >= dev_thr) if dev_thr > 0 else True,
+                     **v})
+    # 有戏的排前面：已开仓 > CE 已翻 > HA 成立 > 偏离够 > BBW 高
     rows.sort(key=lambda r: (not r.get("ok"), not r.get("ce"),
-                             not r.get("ha"),
+                             not r.get("ha"), not r.get("dev_ok"),
                              -(r.get("bbw") or 0)))
     return {
         "ts": bar,
@@ -655,7 +671,9 @@ async def api_gates():
         "bbw_n": sum(1 for r in rows
                      if r.get("bbw") is not None
                      and r["bbw"] >= (r.get("bbw_thr") or 70)),
+        "dev_n": sum(1 for r in rows if r.get("dev_ok")),
         "bbw_thr": next((r.get("bbw_thr") for r in rows if r.get("bbw_thr")), 70),
+        "dev_thr": next((r.get("dev_thr") for r in rows if r.get("dev_thr")), 0),
     }
 
 

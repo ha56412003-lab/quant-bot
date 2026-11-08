@@ -164,6 +164,16 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
           {v.toFixed(0)}%<span style={{ fontSize: 9 }}>/{r.bbw_thr || 70}</span>
         </span>
       } },
+    { title: t('gate.col.dev'), dataIndex: 'dev', width: 82, align: 'right',
+      render: (v, r) => {
+        const thr = r.dev_thr || 0
+        if (thr <= 0) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>关</span>
+        if (v == null) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
+        const pass = v >= thr
+        return <span style={{ color: pass ? 'var(--green, #52c41a)' : 'var(--mute, #8c8c8c)', fontSize: 12 }}>
+          {v.toFixed(2)}%<span style={{ fontSize: 9 }}>/{thr}</span>
+        </span>
+      } },
     { title: t('gate.col.why'), dataIndex: 'why', width: 115,
       render: (v, r) => r.ok
         ? <Tag color="green" style={{ margin: 0 }}>{t('gate.opened')}</Tag>
@@ -216,7 +226,7 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
     : `${t('act.events')}${evRows.length ? ` (${evRows.length})` : ''}`
 
   // 「经济事件」放到最后一个标签（2026-11-06 浩哥要求）。
-  // 它偏参考信息，日常盯的是三道光闸 / 信号流 / 成交记录 / 运行日志。
+  // 它偏参考信息，日常盯的是四道光闸 / 信号流 / 成交记录 / 运行日志。
   const eventsItem = { key: 'events', label: evLabel,
       children: (
         <div>
@@ -248,7 +258,8 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
         <div>
           <div data-act-status style={{ fontSize: 12, color: 'var(--mute, #8c8c8c)', marginBottom: 6 }}>
             {t('gate.bar')} {gateBar} · {t('gate.summary')({
-              ce: g.ce_n || 0, ha: g.ha_n || 0, bbw: g.bbw_n || 0, n: gateRows.length,
+              ce: g.ce_n || 0, ha: g.ha_n || 0, bbw: g.bbw_n || 0,
+              dev: g.dev_n || 0, n: gateRows.length,
             })}
           </div>
           <Table rowKey="symbol" dataSource={gateRows} columns={gateCols} size="small"
