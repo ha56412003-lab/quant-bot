@@ -5,6 +5,7 @@ import { api } from './api'
 import { usePoll } from './hooks'
 import { useI18n } from './i18n'
 import { ModeSwitch } from './panels/StatusBar'
+import NetAlertBanner from './panels/NetAlertBanner'
 import SpiderBoard from './panels/SpiderBoard'
 import Dashboard from './pages/Dashboard'
 import StrategiesPage from './pages/StrategiesPage'
@@ -59,6 +60,7 @@ export default function App() {
         </div>
         <PageComp status={status} />
       </div>
+      <NetAlertBanner />
       </>
     )
   }
@@ -70,6 +72,7 @@ export default function App() {
                  activeNav={page} onNavigate={setPage}>
       <PageComp status={status} />
     </SpiderBoard>
+    <NetAlertBanner />
     </>
   )
 }

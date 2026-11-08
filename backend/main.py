@@ -15,7 +15,8 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import binance, config, daily_target, db, engine, executor, factors, pool, quality, radar, risk, shadow, strategies, ws
+from . import (binance, config, daily_target, db, engine, executor, factors,
+               netwatch, pool, quality, radar, risk, shadow, strategies, ws)
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -103,6 +104,13 @@ def _mk_supervisor(state):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init()
+    # 把 uvicorn 的事件循环登记给 netwatch —— 网络告警的飞书推送要在
+    # 「网络已挂」的环境里派发任务，不能依赖调用方的 loop 还活着。
+    try:
+        netwatch.set_loop(asyncio.get_running_loop())
+        netwatch.conn()          # 预热 + 建 system_alerts 表
+    except Exception as exc:  # noqa: BLE001
+        log.warning("netwatch 初始化失败: %s", exc)
     _prune_once = db.prune()   # 启动先清一次过期数据
     if _prune_once.get("factor_history") or _prune_once.get("logs"):
         log.info("启动清理: %s", _prune_once)
@@ -351,6 +359,50 @@ async def api_radar_alerts(limit: int = 50, symbol: str = ""):
         return {"rows": radar.alerts(limit=limit, symbol=symbol or None)}
     except Exception as exc:  # noqa: BLE001
         return {"rows": [], "error": str(exc)}
+
+
+# ── 网络健康告警（2026-11-08 浩哥定）────────────────────────────────────
+@app.get("/api/netstatus")
+async def api_netstatus():
+    """当前网络健康状态：ok / down。前端可以据此显示红点。"""
+    try:
+        return netwatch.status()
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "ok", "error": str(exc)}
+
+
+@app.get("/api/system-alerts")
+async def api_system_alerts(limit: int = 20, only_unacked: bool = False):
+    """系统级告警（网络中断 / 恢复）。
+
+    前端轮询这个接口：有未读的 critical 就弹窗。
+    不复用 radar_alerts —— 那张表是币种+评分语义，混进来雷达面板会读到脏数据。
+    """
+    try:
+        c = netwatch.conn()
+        q = "SELECT id, ts, kind, severity, message, detail, acked FROM system_alerts"
+        if only_unacked:
+            q += " WHERE acked = 0"
+        q += " ORDER BY id DESC LIMIT ?"
+        rows = [dict(r) for r in c.execute(q, (int(limit),))]
+        unacked_critical = sum(
+            1 for r in rows if r["severity"] == "critical" and not r["acked"])
+        return {"rows": rows, "unacked_critical": unacked_critical,
+                "net": netwatch.status()}
+    except Exception as exc:  # noqa: BLE001
+        return {"rows": [], "unacked_critical": 0, "error": str(exc)}
+
+
+@app.post("/api/system-alerts/{alert_id}/ack")
+async def api_system_alert_ack(alert_id: int):
+    """前端点「知道了」→ 置 acked=1，不再弹。"""
+    try:
+        c = netwatch.conn()
+        c.execute("UPDATE system_alerts SET acked = 1 WHERE id = ?", (int(alert_id),))
+        c.commit()
+        return {"ok": True}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
 
 
 @app.get("/api/positions")

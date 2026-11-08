@@ -15,7 +15,7 @@ import asyncio
 
 import httpx
 
-from . import config
+from . import config, netwatch
 
 log = logging.getLogger("binance")
 
@@ -64,24 +64,61 @@ async def aclose():
 
 
 async def _get(base, path, params=None, timeout=15):
-    client = _get_client()
-    resp = await client.get(base + path, params=params or {}, timeout=timeout)
-    resp.raise_for_status()
-    return resp.json()
+    """公开行情 GET —— 只读，失败自动重试 3 次（断网/代理挂/封 IP 时）。
+
+    重试后仍失败 → netwatch 记一次故障事件；60 秒内累计 3 次 → 判定网络瘫痪，
+    页面弹窗 + 飞书推送（2026-11-08 浩哥定）。
+    异常仍原样抛出，调用方照旧按「数据拿不到」跳过本轮。
+    """
+    async def _once():
+        client = _get_client()
+        resp = await client.get(base + path, params=params or {}, timeout=timeout)
+        resp.raise_for_status()
+        return resp.json()
+    return await netwatch.with_retry(_once, f"GET {path}")
 
 
 async def _signed(method, base, path, params=None, timeout=15):
-    params = dict(params or {})
-    params["timestamp"] = int(time.time() * 1000)
-    params["recvWindow"] = 10000
-    qs = urllib.parse.urlencode(params)
-    sig = hmac.new(config.BINANCE_SECRET_KEY.encode(), qs.encode(), hashlib.sha256).hexdigest()
-    url = f"{base}{path}?{qs}&signature={sig}"
-    headers = {"X-MBX-APIKEY": config.BINANCE_API_KEY}
-    client = _get_client()
-    resp = await client.request(method, url, headers=headers, timeout=timeout)
-    resp.raise_for_status()
-    return resp.json()
+    """签名私有接口。
+
+    ★★ 写操作（POST / DELETE）绝不自动重试 ★★
+    原因：place_market_order 没有 newClientOrderId 幂等键。若下单请求超时但
+    币安其实已经成交，重试就会**重复开仓**——比拿不到数据危险一万倍。
+    所以只有 GET（查账户/查持仓/查模式）走 3 次重试，写操作失败直接抛，
+    由上层记录并放弃本轮，人工确认后在币安后台核对。
+
+    写操作失败仍然会上报 netwatch（用于判断是不是网络瘫痪），只是不重试。
+    """
+
+    def _build():
+        p = dict(params or {})
+        p["timestamp"] = int(time.time() * 1000)
+        p["recvWindow"] = 10000
+        qs = urllib.parse.urlencode(p)
+        sig = hmac.new(config.BINANCE_SECRET_KEY.encode(), qs.encode(),
+                       hashlib.sha256).hexdigest()
+        return f"{base}{path}?{qs}&signature={sig}"
+
+    async def _once():
+        url = _build()          # 每次重试都重新签名（timestamp 会过期）
+        client = _get_client()
+        resp = await client.request(method, url,
+                                    headers={"X-MBX-APIKEY": config.BINANCE_API_KEY},
+                                    timeout=timeout)
+        resp.raise_for_status()
+        return resp.json()
+
+    if method.upper() == "GET":
+        return await netwatch.with_retry(_once, f"{method} {path}")
+
+    # ── 写操作：只试一次 ──
+    try:
+        r = await _once()
+        netwatch.report_success()
+        return r
+    except Exception as exc:  # noqa: BLE001
+        netwatch.report_failure(f"{method} {path}（写操作，未重试）", exc)
+        raise
 
 
 # -- public market data (futures) -------------------------------------------

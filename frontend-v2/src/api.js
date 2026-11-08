@@ -42,6 +42,11 @@ export const api = {
   },
   journal: (q = {}) => get(`/api/journal?${new URLSearchParams(q)}`),
   risk: () => get('/api/risk'),
+  // 网络健康告警（2026-11-08）
+  systemAlerts: (limit = 20, onlyUnacked = false) =>
+    get(`/api/system-alerts?limit=${limit}&only_unacked=${onlyUnacked}`),
+  ackSystemAlert: (id) => post(`/api/system-alerts/${id}/ack`, {}),
+  netStatus: () => get('/api/netstatus'),
   setGlobalRisk: (payload) => post('/api/risk/global', payload),
   universe: () => get('/api/universe'),
   // 三层池：候选池（每天 100 只）
