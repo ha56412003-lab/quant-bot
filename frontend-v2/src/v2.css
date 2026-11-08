@@ -963,77 +963,7 @@ html, body, #root {
       rgba(255, 255, 255, .38) 100%);
 }
 
-/* ③ 出局标记：红色倒三角（闪烁）+ 后面两个小圆点
-      点亮的个数 = 已经触碰过 0.8R 出局线的次数，亮满 2 个就该出场 */
-.spider-root .cards .card .bar.prog .exit-mark {
-  position: absolute;
-  bottom: calc(100% + 2px);
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  margin-left: -5px;          /* 让三角尖端对准刻度位置 */
-  z-index: 8;
-  transition: left .55s cubic-bezier(.4, 0, .2, 1);
-}
-.spider-root .cards .card .bar.prog .exit-mark .tri {
-  width: 0 !important; height: 0 !important;
-  border-left: 5px solid transparent !important;
-  border-right: 5px solid transparent !important;
-  border-top: 8px solid #ff4d5e !important;
-  /* 底部这条是别的规则带进来的浅色边，不清掉三角下面会挂一条灰线 */
-  border-bottom: 0 solid transparent !important;
-  filter: drop-shadow(0 0 5px rgba(255, 77, 94, 1));
-  animation: triBlink .62s ease-in-out infinite;
-}
-/* 暗相位只降到 .55：原来降到 .22 时有一半时间几乎看不见，
-   截图/肉眼都会以为"箭头没出现"。闪烁靠 scale + 外发光表达，不靠消失。 */
-@keyframes triBlink {
-  0%, 100% { opacity: 1;   transform: scale(1);    filter: drop-shadow(0 0 6px rgba(255,77,94,1)) brightness(1.15); }
-  50%      { opacity: .55; transform: scale(.86);  filter: drop-shadow(0 0 2px rgba(255,77,94,.5))  brightness(.9); }
-}
-.spider-root .cards .card .bar.prog .exit-mark .dot {
-  width: 6px !important; height: 6px !important;
-  border-radius: 50% !important;
-  box-sizing: border-box;
-  background: rgba(255, 77, 94, .14);
-  border: 1.5px solid rgba(255, 77, 94, .5);
-  transition: background .3s, box-shadow .3s, border-color .3s;
-}
-/* 点亮：已经触线一次 */
-.spider-root .cards .card .bar.prog .exit-mark .dot.on {
-  background: #ff4d5e;
-  border-color: #ff9aa4;
-  box-shadow: 0 0 7px rgba(255, 77, 94, 1);
-}
 
-/* 破均线计数点：跟峰顶箭头走，独立于出局线。
-   用青色（均线信号）跟红色（回撤出局）区分开，一眼能分清是哪条条件在推进。 */
-.spider-root .cards .card .bar.prog .ma-dots {
-  position: absolute;
-  bottom: calc(100% + 2px);
-  display: flex;
-  gap: 3px;
-  margin-left: 6px;
-  z-index: 8;
-  transition: left .55s cubic-bezier(.4, 0, .2, 1);
-}
-.spider-root .cards .card .bar.prog .ma-dots.flip {
-  transform: translateX(-100%);
-  margin-left: -6px;
-}
-.spider-root .cards .card .bar.prog .ma-dots .dot {
-  width: 6px !important; height: 6px !important;
-  border-radius: 50% !important;
-  box-sizing: border-box;
-  background: rgba(69, 230, 245, .12);
-  border: 1.5px solid rgba(69, 230, 245, .5);
-  transition: background .3s, box-shadow .3s, border-color .3s;
-}
-.spider-root .cards .card .bar.prog .ma-dots .dot.on {
-  background: #45e6f5;
-  border-color: #a8f4fb;
-  box-shadow: 0 0 7px rgba(69, 230, 245, 1);
-}
 
 /* ④ 峰顶箭头：轨道【上方】的绿色倒三角 */
 .spider-root .cards .card .bar.prog .peak-arrow {
@@ -1160,7 +1090,6 @@ html, body, #root {
   .spider-root .cards .card .bar.prog i,
   .spider-root .cards .card .bar.prog .dd-zone,
   .spider-root .cards .card .bar.prog .dd-zone::after,
-  .spider-root .cards .card .bar.prog .exit-mark .tri,
   .spider-root .cards .card .bar.prog .peak-arrow,
   .spider-root .cards .card .bar.prog .cur-arrow,
   .spider-root .cards .card .bar.prog.free .halflayer,
@@ -2519,23 +2448,8 @@ html[data-theme="paper"] .spider-root .cards .card .bar.prog.free .halflayer {
     0 0 10px rgba(168, 112, 0, .45) !important;
 }
 
-/* ④ 破均线小点：亮青在白底上发飘，改纸面青 */
-html[data-theme="paper"] .spider-root .cards .card .bar.prog .exit-mark .dot,
-html[data-theme="paper"] .spider-root .cards .card .bar.prog .ma-dots .dot {
-  background: rgba(43, 109, 128, .28) !important;
-  border-color: rgba(43, 109, 128, .45) !important;
-}
-html[data-theme="paper"] .spider-root .cards .card .bar.prog .exit-mark .dot.on,
-html[data-theme="paper"] .spider-root .cards .card .bar.prog .ma-dots .dot.on {
-  background: #2b6d80 !important;
-  border-color: #2b6d80 !important;
-}
 
-/* ⑤ 出局三角 / 峰顶三角：亮红亮绿在米白上偏嫩，压深一档 */
-html[data-theme="paper"] .spider-root .cards .card .bar.prog .exit-mark .tri {
-  border-top-color: #b8303c !important;
-  filter: drop-shadow(0 0 4px rgba(184, 48, 60, .55)) !important;
-}
+/* 峰顶三角：亮绿在米白上偏嫩，压深一档 */
 html[data-theme="paper"] .spider-root .cards .card .bar.prog .peak-arrow {
   border-bottom-color: #1f7a4d !important;
 }

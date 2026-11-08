@@ -304,7 +304,7 @@ _GATE_STATE = {}   # symbol -> {ts, dir, ce, ha, bbw, bbw_thr, atr_pct, ok, why}
 # 16 次/秒。若每次都去拉 1h K 线，一天约 553MB —— 而且 99.9% 的调用
 # 拿到的都是同一根未收盘 bar，算出来的 ZLSMA 完全一样。
 # 这里只缓存「当前 bar 的 ZLSMA / ATR 值」，跨过 bar 边界才重新拉取。
-# 键: (symbol, interval)  值: (bar_ts, zlsma, atr, ready)
+# 键: (symbol, interval)  值: (cur_bar, zlsma, ha_close, bar_ts, dir_now, dir_prev, ha_open)
 _S15_ZL_CACHE = {}
 
 # ── S15 逐仓位状态（峰顶浮盈 / 连续破均线计数）──────────────────────────
