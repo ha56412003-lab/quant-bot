@@ -283,9 +283,12 @@ def _ce_zlsma(ks, ce_len=1, ce_mult=2.0, z_len=50, use_close=True, use_ha=True):
             dirs[i] = -1
         else:
             dirs[i] = dirs[i - 1]
+    bbw = _bollinger_width(close, 20, 2.0)
+    bbw_pct = _pct_rank(bbw, 100)
     return dict(zlsma=zlsma, atr=atr, dir=dirs, close=close, open=openp,
                 long_stop=long_stop, short_stop=short_stop,
-                low_raw=low_raw, high_raw=high_raw)
+                low_raw=low_raw, high_raw=high_raw,
+                bbw=bbw, bbw_pct=bbw_pct)
 
 
 _LAST_BAR = {}   # (sid, symbol) -> 已评估过的K线时间戳，防止高频扫描重复出信号
@@ -309,6 +312,11 @@ _S15_ZL_CACHE = {}
 # 为什么不放数据库：这两个值只影响出场时机，丢了最多晚一根 K 线出场，
 # 不值得为它加一次写库（positions 每次写都要加锁，已有 database is locked 隐患）。
 _S15_POS_STATE = {}
+
+# ── S15 镜像出场的逐仓位去重状态 ──────────────────────────────────────
+# 键: pos_id（或 symbol）-> {"bar_ts": 已判定过的 K 线时间戳}
+# 目的：同一根 15m K 线只判一次镜像出场，避免 0.5 秒一轮反复触发。
+_S15_MIRROR_STATE = {}
 
 
 class S15CeZlsma(Base):
@@ -558,6 +566,10 @@ class S15CeZlsma(Base):
             half = await self._half_take_profit(ctx, pos)
             if half:
                 return half
+            # 2026-11-08 浩哥定案：出场改为「开仓条件镜像 + 布林带确认」。
+            # mirror_exit: false 时回退到旧的「破均线 + 回撤」，方便一键回滚。
+            if bool(self._p("mirror_exit", True)):
+                return await self._mirror_exit(ctx, pos)
             return await self._trend_reversal_exit(ctx, pos)
         except Exception as exc:  # noqa: BLE001
             log.warning("S15 check_exit %s 失败: %s", pos.get("symbol"), exc)
@@ -606,6 +618,132 @@ class S15CeZlsma(Base):
         if cur_r < thr:
             return None
         return f"HALF:{thr:.1f}R止盈(先平一半,剩一半放开跑)"
+
+    async def _mirror_exit(self, ctx, pos):
+        """镜像出场（2026-11-08 浩哥定案，替代原来的「破均线 + 回撤」）。
+
+        逻辑 = 开仓条件的完全镜像：
+            做多：① CE 方向由多翻空
+                  ② HA 阴线（HA收 < HA开）且 HA收 < ZLSMA50
+                  ③ 布林带宽度近 100 根分位 > 70
+            做空：① CE 方向由空翻多
+                  ② HA 阳线（HA收 > HA开）且 HA收 > ZLSMA50
+                  ③ 布林带宽度近 100 根分位 > 70
+        三条必须落在同一根已收盘的 K 线上（与开仓口径一致）。
+
+        半仓之后另有一条（在镜像之前先判）：
+            平半价 2R 之上的新增浮盈 ≥ half_tp_r（默认 1R）→ 全平剩余半仓。
+            也就是 2R 平一半 → 3R 全平。
+
+        回测（20 币 / 60 天 / taker 0.05%）：
+            镜像 + 布林带>70 + 2R平半 + 再赚1R全平：945 笔 +100.1R 均笔+0.106 回撤−25.3
+            线上旧口径（破均线回撤 + 2R平半 + 再赚2R全平）：912 笔 +95.8R 回撤−27.6
+
+        为什么半仓看 cur_r 而不是 peak：这条规则只关心「从平半价又走了多远」，
+        回撤多少由镜像条件管，不需要另外记峰顶。
+        """
+        sym = pos.get("symbol")
+        side = pos.get("side")
+        entry = float(pos.get("entry_price") or 0)
+        stop_px = float(pos.get("stop_price") or 0)
+        if not sym or side not in ("long", "short") or entry <= 0 or stop_px <= 0:
+            return None
+        risk = abs(entry - stop_px)
+        if risk <= 0 or not math.isfinite(risk):
+            return None
+        px = ctx.price(sym)
+        if not px or not math.isfinite(px):
+            return None
+        sign = 1.0 if side == "long" else -1.0
+        cur_r = (px - entry) * sign / risk
+        if not math.isfinite(cur_r):
+            return None
+
+        # ── 半仓专属：再赚 half_tp_r 全平（默认 1R = 到 3R）──
+        if int(pos.get("half_closed") or 0):
+            base_r = float(self._p("half_at_r", 2.0))
+            ht = float(self._p("half_tp_r", 1.0))
+            if ht > 0 and (cur_r - base_r) >= ht:
+                return (f"半仓再赚{ht:.1f}R止盈(平半@{base_r:.1f}R "
+                        f"现{cur_r:.2f}R)")
+
+        # ── 指标：按 bar 边界取，一根 K 线没收盘指标不会变 ──
+        kline_iv = str(self.p.get("kline_interval", "15m"))
+        ce_len = int(self._p("ce_len", 1))
+        ce_mult = float(self._p("ce_mult", 2.0))
+        z_len = int(self._p("zlsma_len", 50))
+        use_close = bool(self._p("use_close", True))
+        use_ha = bool(self._p("use_ha", True))
+
+        bsec = 900
+        try:
+            if kline_iv.endswith("m"):
+                bsec = int(kline_iv[:-1]) * 60
+            elif kline_iv.endswith("h"):
+                bsec = int(kline_iv[:-1]) * 3600
+        except Exception:  # noqa: BLE001
+            pass
+        cur_bar = int(time.time() // bsec) * bsec
+        ck = (sym, kline_iv)
+        hit = _S15_ZL_CACHE.get(ck)
+        if hit and hit[0] == cur_bar and len(hit) >= 10:
+            z_now, bar_ts = hit[1], hit[5]
+            dir_now, dir_prev = hit[6], hit[7]
+            ha_close, ha_open, bp_now = hit[4], hit[8], hit[9]
+        else:
+            need = max(ce_len, z_len * 2, 100) + 80
+            ks = await ctx.klines(sym, kline_iv, need)
+            if not ks or len(ks) < need:
+                return None
+            ind = _ce_zlsma(ks, ce_len, ce_mult, z_len, use_close, use_ha)
+            i = len(ks) - 2
+            if i < 2 or ind["zlsma"][i] is None:
+                return None
+            z_now = ind["zlsma"][i]
+            ha_close = ind["close"][i]
+            ha_open = ind["open"][i]
+            dir_now = ind["dir"][i]
+            dir_prev = ind["dir"][i - 1]
+            _bp = ind.get("bbw_pct") or []
+            bp_now = _bp[i] if i < len(_bp) else None
+            bar_ts = ks[i].get("ts", i)
+            _S15_ZL_CACHE[ck] = (cur_bar, z_now, ind["atr"][i], True,
+                                 ha_close, bar_ts,
+                                 dir_now, dir_prev, ha_open, bp_now)
+
+        if z_now is None or ha_close is None or ha_open is None:
+            return None
+
+        # ── 同一根 K 线只判一次，避免 0.5 秒一轮反复触发 ──
+        sk = pos.get("id") or sym
+        st = _S15_MIRROR_STATE.get(sk)
+        if st is None:
+            st = {"bar_ts": None}
+            _S15_MIRROR_STATE[sk] = st
+        if st["bar_ts"] == bar_ts:
+            return None
+        st["bar_ts"] = bar_ts
+
+        # ① CE 方向翻转
+        flipped = (dir_prev == 1 and dir_now == -1) if side == "long" \
+            else (dir_prev == -1 and dir_now == 1)
+        if not flipped:
+            return None
+        # ② HA 反向关键K线 + 站在 ZLSMA 错误一侧
+        if side == "long":
+            ha_ok = ha_close < ha_open and ha_close < z_now
+        else:
+            ha_ok = ha_close > ha_open and ha_close > z_now
+        if not ha_ok:
+            return None
+        # ③ 布林带分位
+        thr = float(self._p("bbw_pct_min", 70.0))
+        if thr > 0:
+            if bp_now is None or bp_now < thr:
+                return None
+        return (f"镜像出场(CE翻转+HA{'阴' if side == 'long' else '阳'}线"
+                f"{'跌破' if side == 'long' else '站上'}ZLSMA"
+                f"+BBW{bp_now:.0f}>{thr:.0f} 现{cur_r:.2f}R)")
 
     async def _trend_reversal_exit(self, ctx, pos):
         """出场③：收盘跌破 ZLSMA 且从峰顶回撤 ≥ trail_r，连续 N 根确认后全平。
@@ -701,6 +839,8 @@ class S15CeZlsma(Base):
         hit = _S15_ZL_CACHE.get(ck)
         if hit and hit[0] == cur_bar:
             z_now, ha_close, bar_ts = hit[1], hit[4], hit[5]
+            dir_now, dir_prev = hit[6], hit[7]
+            ha_open, bp_now = hit[8], hit[9]
         else:
             need = max(ce_len, z_len * 2, 100) + 80
             ks = await ctx.klines(sym, kline_iv, need)
@@ -712,9 +852,15 @@ class S15CeZlsma(Base):
                 return None
             z_now = ind["zlsma"][i]
             ha_close = ind["close"][i]
+            ha_open = ind["open"][i]
+            dir_now = ind["dir"][i]
+            dir_prev = ind["dir"][i - 1]
+            _bp = ind.get("bbw_pct") or []
+            bp_now = _bp[i] if i < len(_bp) else None
             bar_ts = ks[i].get("ts", i)
             _S15_ZL_CACHE[ck] = (cur_bar, z_now, ind["atr"][i], True,
-                                 ha_close, bar_ts)
+                                 ha_close, bar_ts,
+                                 dir_now, dir_prev, ha_open, bp_now)
 
         if z_now is None or ha_close is None:
             return None
