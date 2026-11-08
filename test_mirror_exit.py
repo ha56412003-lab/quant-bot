@@ -16,6 +16,21 @@ sys.path.insert(0, ".")
 import backend.strategies as S
 
 
+class _FakeDB:
+    """落库打桩：单测不碰真库。"""
+    def __init__(self, boom=False):
+        self.boom = boom
+        self.writes = []
+
+    def update_position(self, pid, **kw):
+        if self.boom:
+            raise RuntimeError("模拟写库失败")
+        self.writes.append((pid, kw))
+
+
+S.db = _FakeDB()
+
+
 class FakeCtx:
     def __init__(self, price):
         self._price = price
@@ -161,6 +176,18 @@ async def _(st):
     first = await st._mirror_exit(ctx, p)
     second = await st._mirror_exit(ctx, p)
     return second if (first and not second) else first
+
+
+# ── 落库失败不能拖垮出场判断 ──────────────────────────────────────
+@case("写库抛异常 → 出场判断照常生效", True)
+async def _(st):
+    patch_ind(zl=100.0, ha_open=100.5, ha_close=99.0, dir_now=-1, dir_prev=1, bbw=80.0)
+    old = S.db
+    S.db = _FakeDB(boom=True)
+    try:
+        return await st._mirror_exit(FakeCtx(101.0), pos("long"))
+    finally:
+        S.db = old
 
 
 # ── 数据不合法 ────────────────────────────────────────────────────

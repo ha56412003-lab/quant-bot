@@ -400,8 +400,9 @@ class S15CeZlsma(Base):
                     continue
 
                 ind = _ce_zlsma(ks, ce_len, ce_mult, z_len, use_close, use_ha)
-                bbw = _bollinger_width(ind["close"], 20, 2.0)
-                bbw_pct = _pct_rank(bbw, 100)
+                # _ce_zlsma 已内部算好 bbw / bbw_pct，这里不再重复计算
+                bbw = ind["bbw"]
+                bbw_pct = ind["bbw_pct"]
 
                 i = len(ks) - 2          # 最后一根已收完的 K 线
                 if i < 1 or i < swing_lb:
@@ -619,6 +620,49 @@ class S15CeZlsma(Base):
             return None
         return f"HALF:{thr:.1f}R止盈(先平一半,剩一半放开跑)"
 
+    def _touch_pos_state(self, pos, entry, risk, cur_r):
+        """维护逐仓位的峰顶状态（内存态 + 节流落库）。
+
+        为什么单独抽出来：2026-11-08 加镜像出场之前，这段只存在于
+        _trend_reversal_exit 里。镜像出场一旦接管（mirror_exit: true），
+        旧方法不再执行 → peak_r 永远不更新 → 前端卡片的「峰顶 R」冻结、
+        半仓回撤展示全部失真。两个出场分支必须共用同一份维护逻辑。
+        """
+        sym = pos.get("symbol")
+        st_key = (sym, pos.get("side"), pos.get("opened_at"))
+        st = _S15_POS_STATE.get(st_key)
+        if st is None:
+            # 顺手清理已平仓留下的孤儿状态（超过 7 天没被访问）
+            now_ts = time.time()
+            for k in [k for k, v in _S15_POS_STATE.items()
+                      if now_ts - v.get("seen", now_ts) > 7 * 86400]:
+                _S15_POS_STATE.pop(k, None)
+            # peak 初始化三重兜底：库里存的 peak_r、mfe_pct 反推、当前浮盈。
+            # mfe_pct 由引擎每轮刷新，比 peak_r 更新得勤；只取 peak_r 会偏低，
+            # 偏低就会把「回撤门槛」算小 → 提前出场。
+            _peak_db = float(pos.get("peak_r") or 0.0)
+            _peak_mfe = abs(float(pos.get("mfe_pct") or 0.0)) / 100 * entry / risk
+            _peak_init = max(_peak_db, _peak_mfe, max(0.0, cur_r))
+            st = {"peak": _peak_init,
+                  "peak_db": _peak_db,
+                  "bar_ts": None,
+                  "cnt": int(pos.get("ma_break_cnt") or 0)}   # 重启后从库里接着数
+            _S15_POS_STATE[st_key] = st
+        st["seen"] = time.time()
+        if cur_r > st["peak"]:
+            st["peak"] = cur_r
+            # 峰顶落库（节流：每抬高 0.05R 才写一次）。
+            # 不节流的话 check_exit 每 0.5 秒跑一次，8 个仓位就是每天几十万次写库。
+            if cur_r - st.get("peak_db", 0.0) >= 0.05:
+                st["peak_db"] = cur_r
+                # 落库是旁路：写库失败（锁超时、库被占用）不能把出场判断一起拖死，
+                # 否则一次写库异常就等于这一轮「不检查出场」，仓位裸奔。
+                try:
+                    db.update_position(pos["id"], peak_r=cur_r)
+                except Exception as exc:  # noqa: BLE001
+                    log.debug("peak_r 落库失败 %s: %s", pos.get("symbol"), exc)
+        return st
+
     async def _mirror_exit(self, ctx, pos):
         """镜像出场（2026-11-08 浩哥定案，替代原来的「破均线 + 回撤」）。
 
@@ -658,6 +702,9 @@ class S15CeZlsma(Base):
         cur_r = (px - entry) * sign / risk
         if not math.isfinite(cur_r):
             return None
+
+        # 峰顶状态维护（与旧出场分支共用，否则前端峰顶 R 会冻结）
+        self._touch_pos_state(pos, entry, risk, cur_r)
 
         # ── 半仓专属：再赚 half_tp_r 全平（默认 1R = 到 3R）──
         if int(pos.get("half_closed") or 0):
@@ -718,8 +765,15 @@ class S15CeZlsma(Base):
         sk = pos.get("id") or sym
         st = _S15_MIRROR_STATE.get(sk)
         if st is None:
-            st = {"bar_ts": None}
+            # 顺手清理已平仓留下的孤儿状态（超过 7 天没被访问），
+            # 与 _S15_POS_STATE 同一套策略：这个 dict 只增不减会一直占内存。
+            now_ts = time.time()
+            for k in [k for k, v in _S15_MIRROR_STATE.items()
+                      if now_ts - v.get("seen", now_ts) > 7 * 86400]:
+                _S15_MIRROR_STATE.pop(k, None)
+            st = {"bar_ts": None, "seen": now_ts}
             _S15_MIRROR_STATE[sk] = st
+        st["seen"] = time.time()
         if st["bar_ts"] == bar_ts:
             return None
         st["bar_ts"] = bar_ts
@@ -802,34 +856,8 @@ class S15CeZlsma(Base):
             return None
         cur_r = (px - entry) * sign / risk
 
-        # ── 逐仓位状态 ──
-        st_key = (sym, side, pos.get("opened_at"))
-        st = _S15_POS_STATE.get(st_key)
-        if st is None:
-            # 顺手清理已平仓留下的孤儿状态（超过 7 天没被访问）
-            now_ts = time.time()
-            for k in [k for k, v in _S15_POS_STATE.items()
-                      if now_ts - v.get("seen", now_ts) > 7 * 86400]:
-                _S15_POS_STATE.pop(k, None)
-            # peak 初始化三重兜底：库里存的 peak_r、mfe_pct 反推、当前浮盈。
-            # mfe_pct 由引擎每轮刷新，比 peak_r 更新得勤；只取 peak_r 会偏低，
-            # 偏低就会把「回撤门槛」算小 → 提前出场。
-            _peak_db = float(pos.get("peak_r") or 0.0)
-            _peak_mfe = abs(float(pos.get("mfe_pct") or 0.0)) / 100 * entry / risk
-            _peak_init = max(_peak_db, _peak_mfe, max(0.0, cur_r))
-            st = {"peak": _peak_init,
-                  "peak_db": _peak_db,
-                  "bar_ts": None,
-                  "cnt": int(pos.get("ma_break_cnt") or 0)}   # 重启后从库里接着数
-            _S15_POS_STATE[st_key] = st
-        st["seen"] = time.time()
-        if cur_r > st["peak"]:
-            st["peak"] = cur_r
-            # 峰顶落库（节流：每抬高 0.05R 才写一次）。
-            # 不节流的话 check_exit 每 0.5 秒跑一次，8 个仓位就是每天几十万次写库。
-            if cur_r - st.get("peak_db", 0.0) >= 0.05:
-                st["peak_db"] = cur_r
-                db.update_position(pos["id"], peak_r=cur_r)
+        # ── 逐仓位状态（峰顶维护已抽到 _touch_pos_state，两个出场分支共用）──
+        st = self._touch_pos_state(pos, entry, risk, cur_r)
 
         # ── bar 边界缓存 ──
         bar_secs = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400}
@@ -837,7 +865,7 @@ class S15CeZlsma(Base):
         cur_bar = int(time.time() // bsec) * bsec
         ck = (sym, kline_iv)
         hit = _S15_ZL_CACHE.get(ck)
-        if hit and hit[0] == cur_bar:
+        if hit and hit[0] == cur_bar and len(hit) >= 10:
             z_now, ha_close, bar_ts = hit[1], hit[4], hit[5]
             dir_now, dir_prev = hit[6], hit[7]
             ha_open, bp_now = hit[8], hit[9]
