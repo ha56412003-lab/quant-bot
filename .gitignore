@@ -53,3 +53,8 @@ __pycache__/
 backtest/orig_*.json
 backtest/*.log
 strategies.yaml.bak_*
+
+# 提交信息临时文件（git commit -F 用），别提交进来
+*.tmp
+.cm*.tmp
+.commitmsg.tmp
