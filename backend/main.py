@@ -416,8 +416,6 @@ async def api_positions():
         sign = 1 if p["side"] == "long" else -1
         upnl = (price - p["entry_price"]) * p["qty"] * sign
         scfg = (cfg.get("strategies") or {}).get(p["strategy"], {}) or {}
-        # 策略参数都挂在 params: 下面；直接 scfg.get() 取不到，会一直吃默认值
-        sparams = scfg.get("params") or {}
         # 优先用该仓位自己的杠杆（可在持仓表手动改），否则回退到策略/全局配置
         lev = int(p.get("leverage") or ((scfg.get("risk") or {}).get("leverage")) or glev)
         lev = max(1, lev)
@@ -434,22 +432,17 @@ async def api_positions():
         stop = p.get("stop_price") or 0.0
         stop_dist = (abs(price - stop) / price * 100) if (price and stop) else 0.0
 
-        # ── S15 出场状态：连续破均线计数 / 峰顶 R ──
-        # 这两样原来是 check_exit 的私有内存态（_S15_POS_STATE），卡片看不到。
-        # 现在透出来，前端才能画「破均线 N/2」和「从峰顶回撤 X/0.80R」。
-        # 注意：cnt / peak 都是内存态，服务重启后归零重数（不影响出场判断本身）。
-        #
-        # ⚠️ 2026-11-08 出场改镜像后，下面这一段是「历史遗留的展示层」：
-        #    ma_break_cnt / ma_confirm_bars / trail_target_r 已不再参与任何出场判断
-        #    ！（旧的「破均线+回撤」出场已从 strategies.py 整段删除）
-        #    _S15_POS_STATE 里也不再维护 cnt，所以这些值恒为 0 / 默认值。
-        #    保留它们只是为了前端持仓卡不报错 —— 持仓卡归视觉批次统一改，
-        #    等那一批做的时候，把这里连同 SpiderBoard.jsx 里对应的展示一起删掉。
-        #    peak_r / drawdown_r 仍然是真实的（镜像出场每次都会刷新峰顶）。
+        # ── S15 出场状态：只剩峰顶 R 和距峰顶回撤 ──
+        # 2026-11-08 出场改镜像后，「连续破均线 + 回撤多少 R」这套判定已从
+        # strategies.py 整段删除 —— 镜像出场只看 CE 翻转 + HA 反向关键K线
+        # + 站上/跌破 ZLSMA，不存在「回撤出局线」这个概念。
+        # 所以 ma_break_cnt / ma_confirm_bars / trail_target_r 等展示字段一并
+        # 删除：它们对应的参数（trail_pct / trail_r / ma_bars_lt /
+        # ma_confirm_bars）在 yaml 里也已不存在，读出来永远是默认值，纯属空转。
+        # peak_r / drawdown_r 仍然真实保留：镜像出场每次都会刷新峰顶，
+        # 这两个数在卡片上是有意义的（能看到「曾经赚到多少、现在回吐了多少」）。
         st = strategies._S15_POS_STATE.get(
             (p["symbol"], p["side"], p.get("opened_at"))) or {}
-        ma_confirm = max(1, int((sparams.get("ma_confirm_bars") or 2)))
-        ma_break_cnt = int(st.get("cnt") or 0)
         # 峰顶优先用内存态；进程刚重启时内存还没重建，退回库里的 peak_r
         peak_r_mem = st.get("peak")
         if peak_r_mem is None:
@@ -461,38 +454,19 @@ async def api_positions():
         drawdown_r = (float(peak_r_mem) - ((price - p["entry_price"]) *
                       sign / risk_abs)) if (peak_r_mem is not None and risk_abs > 0) else None
 
-        # ── K5 分段回撤：当前这一刻实际要求「破几根线 + 回撤多少 R」──
-        # 峰顶不足 trail_pct_max_r 时走比例（留住一半），满 2R 后走固定 trail_r。
-        # 前端按这两个值显示目标，不然卡片上永远写「0.80R」会误导。
-        _pct = float(sparams.get("trail_pct") or 0.0)
-        _pct_max = float(sparams.get("trail_pct_max_r") or 2.0)
-        _pct_cap = float(sparams.get("trail_pct_cap") or 0.0)
-        _trail_r = float(sparams.get("trail_r") or 0.8)
-        _bars_lt = int(sparams.get("ma_bars_lt") or ma_confirm)
-        # peak<=0.05 时代码会算出 0 门槛 → 前端显示「回撤目标 0.00」，
-        # 实际出场判定也走固定 trail_r（见 strategies.py 同样的保护）
-        # 根数只看「峰顶是否满 2R」，与门槛分开判（否则新仓会显示成 0/2）
-        _pk = float(peak_r_mem or 0.0)
-        use_pct = bool(_pct > 0 and peak_r_mem is not None
-                       and 0.05 < _pk < _pct_max)
-        ma_bars_need = _bars_lt if _pk < _pct_max else ma_confirm
-        if use_pct:
-            trail_target_r = _pk * _pct
-            if _pct_cap > 0:
-                trail_target_r = min(trail_target_r, _pct_cap)
-        else:
-            trail_target_r = _trail_r
+        # 2026-11-08 清理：以下三列是旧出场逻辑的遗留（数据库列保留 —— 历史
+        # 仓位里还有非零值要看），但它们现在恒定为空/0，不再随 API 吐出，
+        # 免得前端/脚本把死值当真实状态读。
+        #   ma_break_cnt —— 旧「连续破均线根数」，镜像出场不数这个
+        #   trail_atr    —— 旧 ATR 移动止损价，出场侧已无任何 ATR 移动止损
+        #   time_exit_at —— 旧指定时间出场，现走 max_hold_hours 16h
+        _dead_cols = ("ma_break_cnt", "trail_atr", "time_exit_at")
+        _live = {k: v for k, v in p.items() if k not in _dead_cols}
 
-        out.append({**p, "mark_price": price, "unrealized_pnl": upnl,
+        out.append({**_live, "mark_price": price, "unrealized_pnl": upnl,
                     "notional": abs(p["qty"] * price),
                     "leverage": lev, "liq_price": liq, "liq_dist_pct": liq_dist,
                     "stop_dist_pct": stop_dist,
-                    # 出场条件可视化用（内存态，None 表示本轮尚未算过）
-                    "ma_break_cnt": ma_break_cnt,
-                    "ma_confirm_bars": ma_bars_need,      # 当前要求的穿线根数（2 或 5）
-                    "ma_confirm_bars_base": ma_confirm,   # 满 2R 之后回归的基准值
-                    "trail_target_r": trail_target_r,     # 当前要求的回撤 R（动态）
-                    "trail_is_pct": use_pct,              # True = 按浮盈百分比算的
                     "peak_r_mem": float(peak_r_mem) if peak_r_mem is not None else None,
                     "drawdown_r": drawdown_r,
                     # 占用保证金按【当前价】计算，与币安口径一致（仓位价值随价格浮动）

@@ -70,7 +70,6 @@ strategies:
       min_atr_pct: 0
       bbw_pct_min: 70.0
       max_risk_pct: 30.0
-      rr_ratio: 1.2
       half_at_r: 2.0
       half_tp_r: 1.0
       fee_rate: 0.0005

@@ -377,7 +377,6 @@ class S15CeZlsma(Base):
         ce_len = int(self._p("ce_len", 1))
         ce_mult = float(self._p("ce_mult", 2.0))
         z_len = int(self._p("zlsma_len", 50))
-        rr = float(self._p("rr_ratio", 1.2))
         use_close = bool(self._p("use_close", True))
         use_ha = bool(self._p("use_ha", True))
         swing_lb = int(self._p("swing_lookback", 20))
@@ -499,19 +498,23 @@ class S15CeZlsma(Base):
                     stop = min(ind["low_raw"][i - swing_lb + 1:i + 1])
                     risk = px - stop
                     side = "long"
-                    tp = px + risk * rr
                 else:
                     stop = max(ind["high_raw"][i - swing_lb + 1:i + 1])
                     risk = stop - px
                     side = "short"
-                    tp = px - risk * rr
 
                 if risk <= 0 or not math.isfinite(risk):
                     continue
                 # 止损距离过宽直接放弃：R 太大 → 仓位被压得极小，且可能有数据问题
                 if risk / px * 100.0 > max_risk_pct:
                     continue
-                if not (math.isfinite(stop) and math.isfinite(tp) and stop > 0 and tp > 0):
+                # 2026-11-08 清理：原来这里还校验 tp > 0（tp = px ± risk×rr_ratio）。
+                # 那道校验在现有配置下恒成立 —— max_risk_pct=30% 已保证 risk ≤ 0.3×px，
+                # 空头 tp = px − 1.2×risk ≥ 0.64×px > 0；多头 px + 1.2×risk 必正。
+                # rr_ratio 只是个让 tp 保持为正的占位值，改成 1.0 / 2.0 / 3.0 结果完全一样，
+                # 而 take_profit 落库时硬写 0.0（固定止盈已关）。所以 rr_ratio 和 tp
+                # 整条链路一并删除，行为零变化。
+                if not (math.isfinite(stop) and stop > 0 and px > 0):
                     continue
 
                 _GATE_STATE[sym]["ok"] = True
@@ -528,7 +531,7 @@ class S15CeZlsma(Base):
                     # 引擎的 take_profit 检查排在 check_exit 之前，一到 1.2R
                     # 就整仓全平 → 永远走不到「2R 平一半」，后面的趋势也全丢。
                     # 回测里 1.2R 全平只有 -3.08R，放开后是 +38.22R。
-                    # tp 变量仍参与上面的合法性校验，只是不再作为平仓价落到库里。
+                    # 固定止盈整条已关：不回测价、不落库，出场全靠下面四条路。
                     take_profit=0.0,
                     max_hold_sec=self.max_hold,
                     fresh=0, strength=abs(c - z) / atr,
