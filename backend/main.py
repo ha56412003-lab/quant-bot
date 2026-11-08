@@ -644,6 +644,20 @@ async def api_gates():
     """
     gs = strategies._GATE_STATE
     mon = set(quality.monitor_list() or [])
+    # ★ 2026-11-09 修：策略说「四闸全过」≠ 真开仓。
+    #   信号后面还有 risk.allow_entry 九道闸，任何一道拒绝都没有仓位
+    #   （实例：RSR 06:45 四闸全过，但被「已达日目标」拦下，页面却写「已开仓」）。
+    #   所以结论列必须用两样真实事实覆盖：
+    #     ① positions 表里真在持仓 → 「已开仓」
+    #     ② signals 表本根 K 线的最新信号被拒 → 直接显示它的 skip_reason
+    held = {p["symbol"] for p in db.open_positions()}
+    sig_map = {}
+    try:
+        for s in db.recent_signals(400):
+            sig_map.setdefault(s.get("symbol"), s)      # 已按 id DESC，首条即最新
+    except Exception as exc:  # noqa: BLE001
+        log.debug("gates: read signals failed: %s", exc)
+
     rows = []
     bar = None
     for sym in config.UNIVERSE:
@@ -654,9 +668,23 @@ async def api_gates():
             bar = v["ts"]
         dev = v.get("dev")
         dev_thr = v.get("dev_thr") or 0
+        # ── 结论列：以真实事实为准 ──────────────────────────────
+        sig = sig_map.get(sym) or {}
+        sig_fresh = int(sig.get("ts") or 0) >= int(v.get("ts") or 0)
+        if sym in held:
+            verdict = "已开仓"
+        elif v.get("ok") and sig_fresh and not sig.get("acted") and sig.get("skip_reason"):
+            # 只有「这一轮四闸真的全过了、信号真被风控拦下」才报拦截原因，
+            # 否则会出现「CE 都没翻」却写着「已达日目标」的自相矛盾（2026-11-09 踩到）。
+            verdict = sig["skip_reason"]          # 例：已达日目标，今日停止开新仓
+        elif v.get("ok"):
+            verdict = "四闸全过·未成交"
+        else:
+            verdict = v.get("why") or ""
         rows.append({"symbol": sym, "in_monitor": sym in mon,
                      "dev_ok": (dev is not None and dev >= dev_thr) if dev_thr > 0 else True,
-                     **v})
+                     "opened": sym in held, "verdict": verdict,
+                     **v, "why": verdict})
     # 有戏的排前面：已开仓 > CE 已翻 > HA 成立 > 偏离够 > BBW 高
     rows.sort(key=lambda r: (not r.get("ok"), not r.get("ce"),
                              not r.get("ha"), not r.get("dev_ok"),

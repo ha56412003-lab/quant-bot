@@ -175,9 +175,15 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
         </span>
       } },
     { title: t('gate.col.why'), dataIndex: 'why', width: 115,
-      render: (v, r) => r.ok
+      // 绿标签只给「真在持仓」的；四闸全过但被风控拦下的用橙色文字，
+      // 直接写明被哪道闸挡了（例：已达日目标，今日停止开新仓）。
+      render: (v, r) => r.opened
         ? <Tag color="green" style={{ margin: 0 }}>{t('gate.opened')}</Tag>
-        : <span style={{ fontSize: 12, color: 'var(--mute, #8c8c8c)', whiteSpace: 'normal' }}>{v}</span> },
+        : <span style={{
+            fontSize: 12,
+            color: r.ok ? 'var(--amber, #d4a017)' : 'var(--mute, #8c8c8c)',
+            whiteSpace: 'normal',
+          }}>{v}</span> },
   ]
   const evCols = [
     { title: t('ev.col.time'), dataIndex: 'ts', width: 96, render: ts },

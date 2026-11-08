@@ -541,8 +541,12 @@ class S15CeZlsma(Base):
                 if not (math.isfinite(stop) and stop > 0 and px > 0):
                     continue
 
+                # 这里只是「信号已生成」——后面还要过 risk.allow_entry 九道闸
+                # （熔断 / 日目标 / 事件静默 / 并发 / 杠杆 / 单币上限…），
+                # 任何一道拒绝都不会有仓位。所以策略层只能说「四闸全过」，
+                # 真实结论由 /api/gates 用持仓表 + 信号表的 skip_reason 覆盖。
                 _GATE_STATE[sym]["ok"] = True
-                _GATE_STATE[sym]["why"] = "已开仓"
+                _GATE_STATE[sym]["why"] = "四闸全过"
                 out.append(Signal(
                     strategy=self.sid, symbol=sym, side=side,
                     reason=(f"CE{'多' if side == 'long' else '空'}翻向+"

@@ -21,6 +21,16 @@ os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1,::1")
 
 from backend import binance, netwatch  # noqa: E402
 
+# ★★★ 必须打桩 ★★★
+# report_failure() 到阈值后会做两件有副作用的事：
+#   ① _write_alert()  —— 往真实 quantbot.db 的 system_alerts 表插一行
+#   ② _push_async()   —— 往真实飞书群推消息
+# 不桩的话，每跑一次这个测试，前端就会弹一次「交易系统网络中断」红色告警，
+# 而且写的是生产库（2026-11-09 实际踩过：跑了测试→浩哥屏幕弹窗→库里 3 条假告警）。
+_written = []
+netwatch._write_alert = lambda *a, **k: (_written.append(a), True)[1]
+netwatch._push_async = lambda *a, **k: None
+
 PASS = FAIL = 0
 
 
@@ -128,6 +138,14 @@ async def real_path():
 
 
 asyncio.run(real_path())
+
+print()
+print("=" * 76)
+print("⑦ 污染隔离：告警写入被桩拦住，一行都没落进生产库")
+print("=" * 76)
+check("确实触发了告警写入（逻辑正常）", len(_written) >= 1, f"（{len(_written)} 次）")
+check("全部落在桩上，未写真实库", netwatch._write_alert.__module__ != "backend.netwatch"
+      if hasattr(netwatch._write_alert, "__module__") else True)
 
 print()
 print("=" * 76)

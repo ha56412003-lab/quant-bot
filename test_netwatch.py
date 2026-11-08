@@ -10,6 +10,27 @@ sys.path.insert(0, '.')
 
 from backend import netwatch
 
+# ★★★ 隔离生产库 ★★★
+# 这个测试的 reset() 里有一句 DELETE FROM system_alerts，而且 alerts() / reset()
+# 都直接走 netwatch.conn() —— 默认就是生产库 quantbot.db。
+# 后果（2026-11-09 实测踩到）：跑一次测试 = 清空全部历史告警 + 写入伪造的网络中断告警，
+# 前端随即弹出「交易系统网络中断」红色浮窗，浩哥看到时以为真断网了。
+# 修法：把 netwatch.conn 指向一个临时库，测试读写全在沙箱里。
+import os as _os
+import sqlite3 as _sq
+import tempfile as _tf
+
+_TMPDB = _os.path.join(_tf.gettempdir(), f"netwatch_test_{_os.getpid()}.db")
+_CONN = _sq.connect(_TMPDB)
+_CONN.row_factory = _sq.Row
+_CONN.execute("""CREATE TABLE IF NOT EXISTS system_alerts(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, kind TEXT,
+    severity TEXT, message TEXT, detail TEXT, acked INTEGER DEFAULT 0)""")
+_CONN.commit()
+netwatch.conn = lambda: _CONN
+# 飞书推送也断掉（reset() 里本来也关，这里提前关，避免第一轮就真发）
+netwatch._feishu_targets = lambda: None
+
 PASS = FAIL = 0
 
 
