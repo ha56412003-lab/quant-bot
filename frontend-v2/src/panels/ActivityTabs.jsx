@@ -153,21 +153,21 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
           {!r.in_monitor && !r.opened && <Tag color="default" style={{ marginLeft: 2, fontSize: 9, padding: '0 3px' }}>{t('gate.outPool')}</Tag>},
         </span>
       ) },
-    { title: t('gate.col.dir'), dataIndex: 'dir', width: 40,
+    { title: t('gate.col.dir'), dataIndex: 'dir', width: 34,
       // 持仓中的币不参与扫描 → dir 为 null，显示「-」而不是画一个空 Tag
       render: (v) => (v == null ? <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
         : <Tag color={v === '多' ? 'red' : 'green'} style={{ margin: 0, padding: '0 4px' }}>{v}</Tag>) },
     // ★ 2026-11-09：null = 这轮没扫过（持仓币被策略跳过），必须显示「-」。
     //   以前 v ? ✓ : ✗ 会把 null 画成 ✗，误导成「这道闸没过」（STRK/SEI 实例）。
-    { title: t('gate.col.ce'), dataIndex: 'ce', width: 52, align: 'center',
+    { title: t('gate.col.ce'), dataIndex: 'ce', width: 42, align: 'center',
       render: (v) => (v == null ? <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
         : v ? <span style={{ color: 'var(--green, #52c41a)' }}>✓</span>
             : <span style={{ color: 'var(--mute, #8c8c8c)' }}>✗</span>) },
-    { title: t('gate.col.ha'), dataIndex: 'ha', width: 52, align: 'center',
+    { title: t('gate.col.ha'), dataIndex: 'ha', width: 42, align: 'center',
       render: (v) => (v == null ? <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
         : v ? <span style={{ color: 'var(--green, #52c41a)' }}>✓</span>
             : <span style={{ color: 'var(--mute, #8c8c8c)' }}>✗</span>) },
-    { title: t('gate.col.bbw'), dataIndex: 'bbw', width: 88, align: 'right',
+    { title: t('gate.col.bbw'), dataIndex: 'bbw', width: 72, align: 'right',
       render: (v, r) => {
         if (v == null) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
         const pass = v >= (r.bbw_thr || 70)
@@ -175,7 +175,7 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
           {v.toFixed(0)}%<span style={{ fontSize: 9 }}>/{r.bbw_thr || 70}</span>
         </span>
       } },
-    { title: t('gate.col.dev'), dataIndex: 'dev', width: 82, align: 'right',
+    { title: t('gate.col.dev'), dataIndex: 'dev', width: 72, align: 'right',
       render: (v, r) => {
         const thr = r.dev_thr || 0
         if (thr <= 0) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>关</span>
@@ -185,7 +185,19 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
           {v.toFixed(2)}%<span style={{ fontSize: 9 }}>/{thr}</span>
         </span>
       } },
-    { title: t('gate.col.why'), dataIndex: 'why', width: 115,
+    // ⑤ 止损距离上限（2026-11-09 新增）—— 与④偏离方向相反：这道是「越近越好」。
+    //   以前被它拦掉的币在面板上显示「四闸全过·待成交」，等一晚上也不开仓，误导。
+    { title: t('gate.col.risk'), dataIndex: 'risk', width: 72, align: 'right',
+      render: (v, r) => {
+        const thr = r.risk_thr || 0
+        if (thr <= 0) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>关</span>
+        if (v == null) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
+        const pass = v <= thr
+        return <span style={{ color: pass ? 'var(--green, #52c41a)' : 'var(--red, #c4182c)', fontSize: 12 }}>
+          {v.toFixed(2)}%<span style={{ fontSize: 9 }}>/{thr}</span>
+        </span>
+      } },
+    { title: t('gate.col.why'), dataIndex: 'why', width: 96,
       // 绿标签只给「真在持仓」的；四闸全过但被风控拦下的用橙色文字，
       // 直接写明被哪道闸挡了（例：已达日目标，今日停止开新仓）。
       render: (v, r) => r.opened
@@ -276,7 +288,7 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
           <div data-act-status style={{ fontSize: 12, color: 'var(--mute, #8c8c8c)', marginBottom: 6 }}>
             {t('gate.bar')} {gateBar} · {t('gate.summary')({
               ce: g.ce_n || 0, ha: g.ha_n || 0, bbw: g.bbw_n || 0,
-              dev: g.dev_n || 0, n: gateRows.length,
+              dev: g.dev_n || 0, risk: g.risk_n || 0, n: gateRows.length,
             })}
           </div>
           <Table rowKey="symbol" dataSource={gateRows} columns={gateCols} size="small"

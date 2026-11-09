@@ -744,6 +744,8 @@ async def api_gates():
             bar = v["ts"]
         dev = v.get("dev")
         dev_thr = v.get("dev_thr") or 0
+        risk = v.get("risk")
+        risk_thr = v.get("risk_thr") or 0
         # ── 结论列：以真实事实为准 ──────────────────────────────
         sig = sig_map.get(sym) or {}
         sig_ts = int(sig.get("ts") or 0)
@@ -773,17 +775,19 @@ async def api_gates():
             # 否则会出现「CE 都没翻」却写着「已达日目标」的自相矛盾（2026-11-09 踩到）。
             verdict = sig["skip_reason"]          # 例：已达日目标，今日停止开新仓
         elif v.get("ok"):
-            verdict = "四闸全过·待成交"
+            verdict = "全闸通过·待成交"
         else:
             verdict = v.get("why") or ""
         rows.append({"symbol": sym, "in_monitor": sym in mon,
                      "dev_ok": (dev is not None and dev >= dev_thr) if dev_thr > 0 else True,
+                     # 第五道闸：止损距离 ≤ 上限（risk_thr=0 表示这道闸关闭）
+                     "risk_ok": (risk is not None and risk <= risk_thr) if risk_thr > 0 else True,
                      "opened": sym in held, "verdict": verdict,
                      "eff": (qdata.get(sym) or {}).get("eff"),
                      **v, "why": verdict})
-    # 有戏的排前面：在池 > CE 已翻 > HA 成立 > 偏离够 > BBW 高
+    # 有戏的排前面：在池 > CE 已翻 > HA 成立 > 偏离够 > 止损够近 > BBW 高
     rows.sort(key=lambda r: (not r.get("in_monitor"), not r.get("ok"), not r.get("ce"),
-                             not r.get("ha"), not r.get("dev_ok"),
+                             not r.get("ha"), not r.get("dev_ok"), not r.get("risk_ok"),
                              -(r.get("bbw") or 0)))
     return {
         "ts": bar,
@@ -796,6 +800,7 @@ async def api_gates():
                      if r.get("bbw") is not None
                      and r["bbw"] >= (r.get("bbw_thr") or 70)),
         "dev_n": sum(1 for r in rows if r.get("dev_ok")),
+        "risk_n": sum(1 for r in rows if r.get("risk_ok")),
         "bbw_thr": next((r.get("bbw_thr") for r in rows if r.get("bbw_thr")), 70),
         "dev_thr": next((r.get("dev_thr") for r in rows if r.get("dev_thr")), 0),
     }

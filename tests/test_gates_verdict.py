@@ -52,7 +52,7 @@ def _setup(held_syms=(), signals=None, in_pool=True, eff=0.55):
     S._GATE_STATE[SYM] = {
         "ts": BAR, "dir": "空", "ce": True, "ha": True,
         "bbw": 90.0, "bbw_thr": 70.0, "dev": 1.885, "dev_thr": 0.5,
-        "atr_pct": 3.077, "ok": True, "why": "四闸全过",
+        "atr_pct": 3.077, "ok": True, "why": "全闸通过",
     }
     Q.monitor_list = lambda: [SYM] if in_pool else []
     # snapshot 打桩：只需 eff / why，别真去算指标
@@ -101,7 +101,7 @@ def main():
     d = run_gates()
     r = d["rows"][0]
     ck("opened=False", r.get("opened") is False, r.get("opened"))
-    ck("verdict=四闸全过·待成交", r.get("verdict") == "四闸全过·待成交", r.get("verdict"))
+    ck("verdict=四闸全过·待成交", r.get("verdict") == "全闸通过·待成交", r.get("verdict"))
 
     # ── 4. 信号是上一根 K 线的（过期）→ 不能拿来当结论 ────────────
     print("\n  4. 信号来自更早的 K 线（过期）→ 不得套用它的 skip_reason")
@@ -111,7 +111,7 @@ def main():
     }])
     d = run_gates()
     r = d["rows"][0]
-    ck("verdict 不套用旧原因", r.get("verdict") == "四闸全过·待成交", r.get("verdict"))
+    ck("verdict 不套用旧原因", r.get("verdict") == "全闸通过·待成交", r.get("verdict"))
 
     # ── 5. 四闸没全过 → 保持原诊断 ──────────────────────────
     print("\n  5. 四闸没全过 → 结论用诊断原文")
@@ -155,7 +155,7 @@ def main():
     }])
     d = run_gates()
     r = d["rows"][0]
-    ck("旧拒绝原因已失效", r.get("verdict") == "四闸全过·待成交", r.get("verdict"))
+    ck("旧拒绝原因已失效", r.get("verdict") == "全闸通过·待成交", r.get("verdict"))
     ck("不再是「已达日目标」", "已达日目标" not in (r.get("verdict") or ""), r.get("verdict"))
 
     # ── 9. 池外的币：四闸是历史残留，绝不能显示「待成交」─────────────

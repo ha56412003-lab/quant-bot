@@ -459,6 +459,10 @@ class S15CeZlsma(Base):
                     "ts": bar_ts, "dir": "多" if d_now == 1 else "空",
                     "ce": _ce_ok, "ha": _ha_ok, "bbw": _bp, "bbw_thr": _thr,
                     "dev": None, "dev_thr": min_dev_pct,
+                    # 2026-11-09：第五道闸（止损距离上限）在面板上原本不可见，
+                    # 被拦的币显示「四闸全过·待成交」，等一晚上也不开仓，误导。
+                    # 这里先占位，算完止损后回填真实值。
+                    "risk": None, "risk_thr": max_risk_pct,
                     "atr_pct": round(atr / c * 100.0, 3) if c > 0 else None,
                     "ok": False, "why": _why,
                 }
@@ -529,12 +533,20 @@ class S15CeZlsma(Base):
 
                 if risk <= 0 or not math.isfinite(risk):
                     continue
-                # 止损距离过宽直接放弃：R 太大 → 仓位被压得极小，且可能有数据问题
-                if risk / px * 100.0 > max_risk_pct:
+                # ⑤ 止损距离上限（第五道闸）—— 2026-11-09 浩哥定：30% → 5%
+                #    止损距离 = 1R 的大小。太宽的单子价格根本跑不到 1.8R/2R：
+                #    实盘 80 笔中止损 ≥5% 的 23 笔（占 29%）合计 -118.78U，均峰值仅 0.32R。
+                #    这里回填面板可见值，让「被拦」有痕迹，不再假装「待成交」。
+                _rpct = risk / px * 100.0
+                if _g is not None:
+                    _g["risk"] = round(_rpct, 3)
+                if _rpct > max_risk_pct:
+                    if _g is not None:
+                        _g["why"] = f"止损太远{_rpct:.2f}%"
                     continue
                 # 2026-11-08 清理：原来这里还校验 tp > 0（tp = px ± risk×rr_ratio）。
-                # 那道校验在现有配置下恒成立 —— max_risk_pct=30% 已保证 risk ≤ 0.3×px，
-                # 空头 tp = px − 1.2×risk ≥ 0.64×px > 0；多头 px + 1.2×risk 必正。
+                # 那道校验在现有配置下恒成立 —— max_risk_pct 上限（现为 5%）已保证
+                # risk ≤ 0.05×px，空头 tp = px − 1.2×risk ≥ 0.94×px > 0；多头 px + 1.2×risk 必正。
                 # rr_ratio 只是个让 tp 保持为正的占位值，改成 1.0 / 2.0 / 3.0 结果完全一样，
                 # 而 take_profit 落库时硬写 0.0（固定止盈已关）。所以 rr_ratio 和 tp
                 # 整条链路一并删除，行为零变化。
@@ -546,7 +558,7 @@ class S15CeZlsma(Base):
                 # 任何一道拒绝都不会有仓位。所以策略层只能说「四闸全过」，
                 # 真实结论由 /api/gates 用持仓表 + 信号表的 skip_reason 覆盖。
                 _GATE_STATE[sym]["ok"] = True
-                _GATE_STATE[sym]["why"] = "四闸全过"
+                _GATE_STATE[sym]["why"] = "全闸通过"
                 out.append(Signal(
                     strategy=self.sid, symbol=sym, side=side,
                     reason=(f"CE{'多' if side == 'long' else '空'}翻向+"
