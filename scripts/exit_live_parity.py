@@ -5,8 +5,12 @@
   回测 sim()   → 每根 15m K 线，用 close 判定出场、用 high/low 记峰值
   实盘 engine  → 每 0.5 秒轮询，用实时价判定出场、用实时价记峰值
 
-两者判定时刻不同：回测「等收盘」，实盘「K 线内就动」。
-本脚本用「线上路径复现器」跑同一批 K 线，把净 R 拉出来对比。
+本脚本回答的是：同一批 15m K 线，线上 check_exit 函数与回测 sim() 是否
+给出同样的出场 —— 即两条「实现」是否一致。
+
+⚠ 它不能回答「0.5 秒轮询 vs 15m 收盘差多少」：手上只有 15m K 线，
+复现不出 K 线内部的实时采样。那个问题必须用 1m 数据另做，
+不要把本脚本的差值当成采样频率的代价。
 
 跑法： PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe scripts/exit_live_parity.py
 """
@@ -30,7 +34,7 @@ _spec.loader.exec_module(est)
 BLK = yaml.safe_load(open('strategies.yaml', encoding='utf-8'))['strategies']['S15_CE_ZLSMA']
 ST = S15CeZlsma(BLK)
 CAP = 5.0
-MAXH = 48          # 12 小时 = 48 根 15m
+MAXH = 64          # 16 小时 = 64 根 15m（线上 max_hold_hours: 16）
 
 BARS = []
 for fp in sorted(glob.glob("backtest/data/*_15m_60d.json")):
@@ -112,6 +116,7 @@ async def live_path(ks, sym):
                      entry_price=entry, stop_price=stop, opened_at=entry_ts,
                      half_closed=0, peak_r=0.0, mfe_pct=0.0, ma_pct=0.0, qty=1.0)
             S._S15_POS_STATE.clear()
+            S._S15_MIRROR_STATE.clear()
 
             half_r = None       # 平半时的 R
             peak = 0.0
@@ -141,7 +146,13 @@ async def live_path(ks, sym):
                 peak = max(peak, ((h_ - entry) if want == "long" else (entry - l_)) / risk)
                 ST._touch_pos_state(p, entry, risk, peak)
                 # ③ 其余分支交给线上真函数
-                r = await ST.check_exit(Ctx(c_, ks, j + 1), p)
+                # ⚠ Ctx 喂到 j+2 不是 j+1：_mirror_exit 的保护是
+                #   if int(ks[-1]["ts"]) < cur_bar: return None
+                #   而 cur_bar = bar_ts + 900（本根收盘后的下一格）。只喂到 j 时
+                #   ks[-1].ts = bar_ts < cur_bar 恒成立 → 镜像一次都不执行。
+                #   线上能过是因为那一刻交易所已生成下一根；多喂的这根只做
+                #   「窗口已生成」占位，指标取 i = len-2 仍指向第 j 根，不偷看未来。
+                r = await ST.check_exit(Ctx(c_, ks, j + 2), p)
                 if r:
                     if r.startswith("HALF:"):
                         p["half_closed"] = 1
@@ -182,7 +193,8 @@ async def main():
         st_ = est.sim(ks, _ce_zlsma(ks, 1, 2.0, 50, True, True),
                       max_risk_pct=CAP, half_at_r=1.8, half_tp_r=1.0,
                       trail_arm=1.5, trail_dd=1.2, trail_after_half=True,
-                      time_stop_always=True, maxh=MAXH)
+                      time_stop_always=True, maxh=MAXH,
+                      qf_bars=16, qf_min_r=0.5)   # 线上 _quick_fail 4h/0.5R
         live_all += lt
         sim_all += st_
         if lt and st_:

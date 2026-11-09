@@ -28,7 +28,8 @@ from backtest.s15_live_parity import simulate as ref_simulate, stats, FEE, SWING
 BARS_PER_HOUR = 4          # 15m K 线
 
 
-def sim(ks, ind, half_at_r=2.0, half_tp_r=1.0, maxh=64,
+def sim(ks, ind, half_at_r=2.0, half_tp_r=1.0, maxh=64, mirror_bbw=True,
+        mirror_bbw_min=70.0, min_dev_pct=0.5,
         trail_arm=0.0, trail_dd=0.0, trail_after_half=False,
         max_risk_pct=None, swing=None, time_stop_always=False,
         qf_bars=0, qf_min_r=0.0):
@@ -74,6 +75,13 @@ def sim(ks, ind, half_at_r=2.0, half_tp_r=1.0, maxh=64,
         if bp[i] is None or bp[i] < BBW_MIN:
             i += 1
             continue
+        # ⑥ 进场位置闸（线上 yaml min_dev_pct: 0.5）：进场价离 ZLSMA 必须够远。
+        #    贴均线 = 突破还没走出去 = 假突破。线上一直有，回测此前没有 → 多开单。
+        if min_dev_pct > 0:
+            _dev = abs(float(ks[i]["close"]) - float(zl[i])) / float(zl[i]) * 100.0
+            if _dev < min_dev_pct:
+                i += 1
+                continue
         entry = float(ks[i + 1]["open"])
         if entry <= 0:
             i += 1
@@ -135,7 +143,13 @@ def sim(ks, ind, half_at_r=2.0, half_tp_r=1.0, maxh=64,
                 else (dirs[j] == 1 and dirs[j - 1] == -1)
             ha_ok = (hc[j] < ho[j] and hc[j] < zl[j]) if want == "long" \
                 else (hc[j] > ho[j] and hc[j] > zl[j])
-            ok_bp = bp[j] is not None and bp[j] >= BBW_MIN
+            # 2026-11-09 浩哥选 B：镜像加布林带宽度分位门槛，线上已落地（yaml
+            # mirror_bbw_min: 70.0），所以这里默认 mirror_bbw=True 才是线上真实口径。
+            # 历史：2026-11-08 曾定过「出场不加 BBW」，但那是在比两套完全不同的
+            #   出场方案（旧破均线 vs 新镜像），不是单变量；换成 1.8半+移动止盈
+            #   之后前提变了，实测 8 仓并发下带 ≥70 比不带多赚 15.0R、回撤还小 2.0R。
+            #   不带时镜像占出场 43%、均笔 −0.08R（在震荡里被反复扫）。
+            ok_bp = (not mirror_bbw) or (bp[j] is not None and bp[j] >= mirror_bbw_min)
             if flip and ha_ok and ok_bp:
                 ep, er, ei = c_, "mirror", j
                 break
@@ -149,6 +163,7 @@ def sim(ks, ind, half_at_r=2.0, half_tp_r=1.0, maxh=64,
             r = 0.5 * half_at_r + 0.5 * r
         out.append(dict(side=want, r=r, bars=ei - i, reason=er, peak=peak,
                         risk_pct=risk / entry * 100,
+                        entry_ts=int(ks[i + 1].get("ts", i + 1)),
                         exit_ts=int(ks[ei].get("ts", ei))))
         i = ei + 1
     return out

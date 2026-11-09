@@ -259,6 +259,27 @@ chk(qf_h == 4.0 and qf_r == 0.5, "yaml 的快速失败参数与回测注入值�
     "%sh / %sR → qf_bars=%d" % (qf_h, qf_r, int(qf_h * 4)))
 chk(int(qf_h * 4) == 16, "4h 换算成 15m K 线 = 16 根", "与 LIVE_QF 对得上")
 
+sec("八之三、镜像出场的布林带门槛（2026-11-09 浩哥选 B，加锁防回归）")
+_strat_src = open('backend/strategies.py', encoding='utf-8').read()
+chk('m_bbw = float(self._p("mirror_bbw_min", 0.0))' in _strat_src,
+    "线上 _mirror_exit 实现了 BBW 门槛")
+chk('if bp_now is None or bp_now < m_bbw:' in _strat_src,
+    "BBW 数据缺失时 fail-closed（不放行）",
+    "与入场闸口径一致：门槛开着时 None 一律不通过")
+chk('len(hit) >= 8' in _strat_src and 'bp_now = hit[7]' in _strat_src,
+    "指标缓存元组带上了 bbw（第 8 项）",
+    "旧缓存 7 项会因 len<8 自动重算，无兼容坑")
+_m_bbw = float(ST._p("mirror_bbw_min", 0.0))
+chk(_m_bbw == 70.0, "yaml 的 mirror_bbw_min = 70.0", "扫描峰值，且回撤最小")
+chk("mirror_bbw=True" in _src_est,
+    "回测 sim() 默认开启镜像 BBW（对齐线上）",
+    "默认关会重演「回测比线上宽松」的老毛病")
+chk("mirror_bbw_min=70.0" in _src_est,
+    "回测默认门槛值也是 70.0")
+chk("min_dev_pct=0.5" in _src_est,
+    "回测默认带上偏离闸 0.5%（线上 min_dev_pct: 0.5）",
+    "2026-11-09 发现：漏这道闸会多开 109 笔")
+
 # ══════════════════════════════════════════════════════════════════════
 # 7. peak 口径（回测 high/low vs 线上实时）
 # ══════════════════════════════════════════════════════════════════════

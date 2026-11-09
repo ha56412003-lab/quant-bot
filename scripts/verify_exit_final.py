@@ -76,6 +76,7 @@ EXPECT = [
     ("用 Heikin Ashi",     "use_ha",           True, bool),
     ("止损摆动根数",       "swing_lookback",   20,   int),
     ("入场布林带门槛",     "bbw_pct_min",      70.0, float),
+    ("镜像出场布林带门槛", "mirror_bbw_min",   70.0, float),
     ("止损距离上限",       "max_risk_pct",     5.0,  float),
     ("K 线周期",           "kline_interval",   "15m", str),
 ]
@@ -114,9 +115,15 @@ print("=" * 78)
 FEE = 0.0005
 SWING = 20
 MAXH = 64          # 16 小时 / 15 分钟 = 64 根
+# 出场参数（与 strategies.yaml 对齐；改 yaml 记得同步这里，否则本自检就是在验旧口径）
+HALF_AT = 1.8      # 平半线
+HALF_TP = 1.0      # 平半后再赚 1R → 3R 全平
+TRAIL_ARM = 1.5    # 移动止盈武装线
+TRAIL_DD = 1.2     # 移动止盈回吐量
+MIRROR_BBW = 70.0  # 镜像出场的布林带分位门槛（2026-11-09 起）
 files = sorted(glob.glob(os.path.join(_ROOT, "backtest", "data", "*_15m_60d.json")))
 
-stat = {"mirror": 0, "half_tp": 0, "timeout": 0, "hard_stop": 0}
+stat = {"mirror": 0, "trail": 0, "half_tp": 0, "timeout": 0, "hard_stop": 0}
 mirror_samples = []
 violation = []       # 触发时刻不满足定义的样本（应为 0）
 
@@ -174,23 +181,31 @@ def scan(ks, ind):
                 break
             peak = max(peak, ((h_ - entry) if want == "long" else (entry - l_)) / risk)
             cur = ((c_ - entry) if want == "long" else (entry - c_)) / risk
-            if peak >= 2.0:
+            if peak >= HALF_AT - 1e-9:
                 half = True
             if not half and (j - i) >= MAXH:
                 stat["timeout"] += 1
                 ei = j
                 break
-            if half and (cur - 2.0) >= 1.0:
+            if half and (cur - HALF_AT) >= HALF_TP - 1e-9:
                 stat["half_tp"] += 1
                 ei = j
                 break
-            # 镜像：CE 翻转 + HA 反向 + 站错边（无布林带）
+            # 移动止盈（线上 trail_arm 1.5 / trail_dd 1.2，仅平半后启用）
+            if half and peak >= TRAIL_ARM - 1e-9 and (peak - cur) >= TRAIL_DD - 1e-9:
+                stat["trail"] += 1
+                ei = j
+                break
+            # 镜像：CE 翻转 + HA 反向 + 站错边 + BBW 分位 ≥ 70
+            #   ⚠ 2026-11-09 起线上 _mirror_exit 带 mirror_bbw_min: 70.0
             flip = (dirs[j] == -1 and dirs[j - 1] == 1) if want == "long" \
                 else (dirs[j] == 1 and dirs[j - 1] == -1)
             if flip:
                 ha_ok = (hc[j] < ho[j] and hc[j] < zl[j]) if want == "long" \
                     else (hc[j] > ho[j] and hc[j] > zl[j])
-                if ha_ok:
+                _mbbw = ind["bbw_pct"][j]
+                bbw_ok = (MIRROR_BBW <= 0) or (_mbbw is not None and _mbbw >= MIRROR_BBW)
+                if ha_ok and bbw_ok:
                     stat["mirror"] += 1
                     # ★ 逐条验算：这个触发真的满足定义吗？
                     if want == "long":
@@ -279,11 +294,15 @@ async def e2e():
     n = len(ks)
     ho, hc, zl, dirs = ind["open"], ind["close"], ind["zlsma"], ind["dir"]
 
-    # 找一个真实的「CE 翻空 + HA 阴线跌破 ZLSMA」时刻
+    # 找一个真实的「CE 翻空 + HA 阴线跌破 ZLSMA + BBW 分位 ≥ 70」时刻
+    # ⚠ 2026-11-09 起镜像出场多了 BBW 门槛（yaml mirror_bbw_min: 70.0），
+    #   只按三条件找会撞上 BBW 不够的 bar → 门槛正确拦掉 → 测试误报失败。
+    bpx = ind["bbw_pct"]
     hit = None
     for j in range(200, n - 1):
         if (dirs[j] == -1 and dirs[j - 1] == 1
-                and hc[j] < ho[j] and hc[j] < zl[j]):
+                and hc[j] < ho[j] and hc[j] < zl[j]
+                and bpx[j] is not None and bpx[j] >= 70.0):
             hit = j
             break
     if not hit:
@@ -307,6 +326,26 @@ async def e2e():
     if reason:
         check("出场原因文案里没有 BBW（布林带已移除）", "BBW" not in str(reason), str(reason))
         check("出场原因含「镜像出场」", "镜像出场" in str(reason), str(reason))
+
+    # 负向：CE 翻转 + HA 反向 三条件全满足，但 BBW 分位 < 70 → 新门槛必须拦掉
+    S._S15_MIRROR_STATE.clear()
+    S._S15_ZL_CACHE.clear()
+    low = None
+    for j in range(200, n - 1):
+        if (dirs[j] == -1 and dirs[j - 1] == 1
+                and hc[j] < ho[j] and hc[j] < zl[j]
+                and bpx[j] is not None and bpx[j] < 70.0):
+            low = j
+            break
+    if low:
+        pos2 = dict(pos)
+        pos2["id"] = "e2e-2"
+        ctx3 = RealCtx(ks, low + 1, float(ks[low]["close"]))
+        r3 = await strat._mirror_exit(ctx3, pos2)
+        check("三条件全满足但 BBW<70 时不触发出场（新门槛生效）",
+              r3 is None, f"bar={low} BBW={bpx[low]:.0f} → {r3}")
+    else:
+        check("能找到 BBW<70 的镜像时刻（用于负向测试）", False, "数据里没有")
 
     # 反向：把 cut 挪到「CE 没翻转」的 bar，应该不出场
     S._S15_MIRROR_STATE.clear()

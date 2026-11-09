@@ -854,10 +854,13 @@ class S15CeZlsma(Base):
         cur_bar = int(time.time() // bsec) * bsec
         ck = (sym, kline_iv)
         hit = _S15_ZL_CACHE.get(ck)
-        # 元组 7 项：(cur_bar, z_now, ha_close, bar_ts, dir_now, dir_prev, ha_open)
-        if hit and hit[0] == cur_bar and len(hit) >= 7:
+        # 元组 8 项：(cur_bar, z_now, ha_close, bar_ts, dir_now, dir_prev, ha_open, bp_now)
+        # 2026-11-09 加第 8 项 bp_now（布林带宽度分位），供镜像 BBW 门槛读。
+        # 旧缓存是 7 项 → len(hit) >= 8 不成立 → 自然走 else 重算，无兼容问题。
+        if hit and hit[0] == cur_bar and len(hit) >= 8:
             z_now, ha_close, bar_ts = hit[1], hit[2], hit[3]
             dir_now, dir_prev, ha_open = hit[4], hit[5], hit[6]
+            bp_now = hit[7]
         else:
             need = max(ce_len, z_len * 2, 100) + 80
             ks = await ctx.klines(sym, kline_iv, need)
@@ -881,11 +884,12 @@ class S15CeZlsma(Base):
             dir_now = ind["dir"][i]
             dir_prev = ind["dir"][i - 1]
             bar_ts = ks[i].get("ts", i)
-            # 元组 9 项：出场只用 CE 方向 / HA 开收 / ZLSMA；布林带是入场的事，这里不存
-            # 只存出场真正要用的 7 项。atr 出场不用（止损价在开仓时就算好落库了），
-            # 早先那版存了进来但从来没人读，已删。
+            # 2026-11-09：bp_now = 布林带宽度分位，只给镜像 BBW 门槛用。
+            # 之前注释写「布林带是入场的事，这里不存」——入场确实用它，但出场
+            # 判定「这次翻转值不值得认」同样需要它（低波动时的翻转是噪音）。
+            bp_now = ind["bbw_pct"][i]
             _S15_ZL_CACHE[ck] = (cur_bar, z_now, ha_close, bar_ts,
-                                 dir_now, dir_prev, ha_open)
+                                 dir_now, dir_prev, ha_open, bp_now)
 
         if z_now is None or ha_close is None or ha_open is None:
             return None
@@ -919,6 +923,28 @@ class S15CeZlsma(Base):
             ha_ok = ha_close > ha_open and ha_close > z_now
         if not ha_ok:
             return None
+        # ③ 布林带宽度分位门槛（2026-11-09 浩哥选 B：只加这一条，其余不动）
+        #
+        # 为什么只在镜像加：CE 是 ATR 通道，低波动时价格来回穿，方向翻转会非常
+        # 频繁 —— 那是噪音不是翻转。BBW 分位只衡量「价格分散程度」，正是
+        # 「这次翻转够不够格」的过滤器。入场早就在用它（bbw_pct_min: 70）。
+        #
+        # 实测（20 币 / 60 天 / cap5% / 偏离闸 0.5% / 8 仓并发 / 当前出场）：
+        #   不带 BBW      620 笔  +50.6R  回撤 −22.5   镜像出场 327 笔（占 43%）
+        #   ≥50           603 笔  +61.8R  −23.4        172 笔
+        #   ≥60           602 笔  +61.3R  −22.2        140 笔
+        #   ≥70           598 笔  +65.5R  −20.5        105 笔  ← 峰
+        #   ≥80           594 笔  +56.5R  −21.9         73 笔
+        #   ≥90           586 笔  +55.3R  −23.8         38 笔
+        # 六档里带 BBW 的五档全好于不带，不是靠一个点撑起来的；70 是峰且回撤最小。
+        #
+        # 不带 BBW 时镜像均笔只 −0.08R —— 等于在震荡里来回被扫。
+        # 过滤后那些单子改走时间止损和移动止盈，反而赚钱。
+        # 置 0 = 关闭本闸（回滚只需把 yaml 的 mirror_bbw_min 改 0）。
+        m_bbw = float(self._p("mirror_bbw_min", 0.0))
+        if m_bbw > 0:
+            if bp_now is None or bp_now < m_bbw:
+                return None
         return (f"镜像出场(CE翻转+HA{'阴' if side == 'long' else '阳'}线"
                 f"{'跌破' if side == 'long' else '站上'}ZLSMA 现{cur_r:.2f}R)")
 
