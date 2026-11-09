@@ -92,7 +92,12 @@ MONITOR_SIZE = 40        # 监控池容量（2026-11-08 从 200 收紧，实测�
 # ── 第 1 道：止损距离 ──────────────────────────────────────
 STOP_MIN_PCT = 1.00      # 进池线（%）
 STOP_EXIT_PCT = 0.85     # 出池线（%），必须低于进池线
-STOP_LOOKBACK = 20       # 摆动回看根数：与 strategies.py 的 swing_lookback 一致
+# 摆动回看根数 —— 只作回退默认值，真实值从 strategies.yaml 的
+# S15_CE_ZLSMA.params.swing_lookback 读（见 _swing_lb）。
+# 2026-11-09 修：原先是硬编码 20，与策略各存一份 —— 一旦改 yaml，
+# 池表仍按 20 算止损距离、策略按新窗口算，两边对不上，
+# 会出现「池表显示止损 3% 通过过滤、实际开仓却按 1.8% 算」的鬼故事。
+STOP_LOOKBACK = 20
 
 # ── 第 2 道：趋势效率 ──────────────────────────────────────
 EFF_MIN = 0.30           # 进池线
@@ -187,11 +192,46 @@ def _atr(bars, n: int = ATR_N):
     return val
 
 
-def _stop_dist(bars, lb: int = STOP_LOOKBACK):
+# swing_lookback 读取缓存：(值, yaml mtime)。改完 yaml 自动失效，无需重启。
+_SWING_LB_CACHE = None
+_SWING_LB_MTIME = None
+
+
+def _swing_lb() -> int:
+    """读 strategies.yaml → S15_CE_ZLSMA.params.swing_lookback。
+
+    必须与 strategies.py 同源：池表第 1 道闸（止损距离 ≥1.00%）和策略的
+    止损价必须是同一个窗口算出来的。各存一份的后果是——
+      池表说「止损 3.0%，通过」→ 实际开仓按另一窗口算出 4.8%
+      → 看着该开却没开，或者开了之后 R 全对不上，排查时白费一整天。
+
+    按文件 mtime 缓存：改完 yaml 下一轮池刷新即生效，不需要重启服务。
+    """
+    global _SWING_LB_CACHE, _SWING_LB_MTIME
+    try:
+        from . import config          # 延迟导入，避开 config ↔ quality 循环
+        import yaml
+        path = config.STRATEGIES_PATH
+        mtime = path.stat().st_mtime
+        if _SWING_LB_CACHE is not None and mtime == _SWING_LB_MTIME:
+            return _SWING_LB_CACHE
+        cfg = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        sc = (cfg.get("strategies") or {}).get("S15_CE_ZLSMA") or {}
+        val = int((sc.get("params") or {}).get("swing_lookback") or STOP_LOOKBACK)
+        if val <= 0:
+            raise ValueError("swing_lookback 非法: %r" % (val,))
+        _SWING_LB_CACHE, _SWING_LB_MTIME = val, mtime
+        return val
+    except Exception as exc:  # noqa: BLE001
+        log.warning("quality: 读 swing_lookback 失败，回退 %d（%s）", STOP_LOOKBACK, exc)
+        return STOP_LOOKBACK
+
+
+def _stop_dist(bars, lb: int | None = None):
     """做多止损距离（%）=（现价 − 最近 lb 根最低价）÷ 现价 × 100。
 
-    与 strategies.py 的止损算法同口径：用原始 K 线 low（不是 HA），
-    swing_lookback=20 → 15m × 20 = 5 小时窗口。
+    与 strategies.py 的止损算法同口径：用原始 K 线 low（不是 HA）。
+    lb 默认从 strategies.yaml 的 swing_lookback 读（20 → 15m × 20 = 5 小时窗口）。
 
     返回 None 的情况：K 线不够、价格非法、现价已在最低点之下。
     注意：这里只算「做多」方向。做空的距离是 (最高价 − 现价)/现价，
@@ -199,6 +239,7 @@ def _stop_dist(bars, lb: int = STOP_LOOKBACK):
     现价离区间低点远 → 做多止损宽；离区间高点远 → 做空止损宽。
     实际取 max(多, 空)，理由：只要有一个方向能做，这币就值得监控。
     """
+    lb = _swing_lb() if lb is None else lb      # 与策略止损同源（见 _swing_lb）
     if not bars or len(bars) < lb + 1:
         return None
     px = bars[-1]["close"]

@@ -543,6 +543,17 @@ class S15CeZlsma(Base):
                 if _rpct > max_risk_pct:
                     if _g is not None:
                         _g["why"] = f"止损太远{_rpct:.2f}%"
+                    # 2026-11-09：以前这里静默 continue —— 事后查「这个币明明有信号
+                    # 却没开仓」无从下手：信号流里没有它（信号压根没生成），
+                    # 光闸面板也不显示原因。留一行痕迹。
+                    # 只有过了前四道闸的币才会走到这里（实测每轮 1~3 个），不会刷屏。
+                    _msg = (f"S15 {sym} 止损距离 {_rpct:.2f}% > {max_risk_pct:.1f}%"
+                            f"（上限），跳过开仓")
+                    log.info(_msg)
+                    try:
+                        db.log("info", _msg)
+                    except Exception:  # noqa: BLE001
+                        pass          # 记日志失败绝不能影响开仓判定
                     continue
                 # 2026-11-08 清理：原来这里还校验 tp > 0（tp = px ± risk×rr_ratio）。
                 # 那道校验在现有配置下恒成立 —— max_risk_pct 上限（现为 5%）已保证
