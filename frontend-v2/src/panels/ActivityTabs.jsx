@@ -147,7 +147,10 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
       render: (v, r) => (
         <span>
           {v.replace('USDT', '')}
-          {!r.in_monitor && <Tag color="default" style={{ marginLeft: 2, fontSize: 9, padding: '0 3px' }}>{t('gate.outPool')}</Tag>}
+          {/* 池内池外只决定「能不能开新仓」，跟已持仓的币无关：
+              仓位一旦开了就由持仓循环管到底（出场不看池）。
+              给持仓币挂「池外」只会让人以为它没人管，所以只在未持仓时显示。 */}
+          {!r.in_monitor && !r.opened && <Tag color="default" style={{ marginLeft: 2, fontSize: 9, padding: '0 3px' }}>{t('gate.outPool')}</Tag>},
         </span>
       ) },
     { title: t('gate.col.dir'), dataIndex: 'dir', width: 40,
