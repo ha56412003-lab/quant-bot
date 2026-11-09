@@ -138,30 +138,10 @@ async def manage_positions(ctx, strategies):
             #   保留豁免 12h → +86.7R 最长 42.5h   （只差 0.8R，买掉 30 小时尾巴）
             # 「让利润奔跑」靠移动止盈（trail_arm/trail_dd）来做，不靠免死金牌。
             reason = "达到最长持仓时限"
-        elif pos["time_exit_at"] and now >= pos["time_exit_at"]:
-            reason = "策略时间出场"
-        if not reason and pos["trail_atr"]:
-            extreme = pos["extreme"] or pos["entry_price"]
-            if side == "long":
-                if price > extreme:
-                    db.update_position(pos["id"], extreme=price)
-                    extreme = price
-                if extreme - price >= pos["trail_atr"]:
-                    reason = "移动止损触发"
-            else:
-                if price < extreme:
-                    db.update_position(pos["id"], extreme=price)
-                    extreme = price
-                if price - extreme >= pos["trail_atr"]:
-                    reason = "移动止损触发"
         if not reason and pos["stop_price"]:
             if (side == "long" and price <= pos["stop_price"]) or \
                (side == "short" and price >= pos["stop_price"]):
                 reason = "止损触发"
-        if not reason and pos["take_profit"]:
-            if (side == "long" and price >= pos["take_profit"]) or \
-               (side == "short" and price <= pos["take_profit"]):
-                reason = "止盈触发"
         if not reason:
             strat = strategies.get(pos["strategy"])
             if strat:
@@ -316,7 +296,7 @@ async def scan_loop():
                     # 影子模式：不管开没开仓，都记录三套因子规则的判定 + 虚拟跟踪
                     try:
                         _px = factors.mark_price_of(sig.symbol) or sig.stop_price
-                        shadow.record(sig, _px, sig.stop_price, sig.take_profit, acted=allowed)
+                        shadow.record(sig, _px, sig.stop_price, acted=allowed)
                     except Exception as _exc:  # noqa: BLE001
                         log.debug("shadow record failed: %s", _exc)
                     if not allowed:

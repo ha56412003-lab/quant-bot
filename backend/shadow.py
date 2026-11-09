@@ -82,8 +82,17 @@ def judge(symbol: str, side: str):
                 r3_half=r3_half)
 
 
-def record(sig, px, stop, tp, acted: bool):
-    """记录一个信号的三套判定（无论实际是否开仓）。"""
+def record(sig, px, stop, acted: bool):
+    """记录一个信号的三套判定（无论实际是否开仓）。
+
+    ⚠ 2026-11-09：原签名是 record(sig, px, stop, tp, acted)，tp 直接取
+    sig.take_profit —— 而 S15 从 2026-11-06 起把 take_profit 写死 0.0，
+    于是 settle() 里 `px >= tp` 变成 `px >= 0` 恒真，**所有单子都被判成
+    「触及止盈」**（库里 1208 行有 597 行 outcome='tp'，全是假的）。
+    Signal.take_profit 已随本次死代码清理删除，这里改为按「2R」推一个
+    虚拟目标价：long 时 stop 在下方、tp 在上方，short 反之，天然对称。
+    """
+    tp = stop + (px - stop) * 2
     j = judge(sig.symbol, sig.side)
     db.shadow_insert(
         ts=int(time.time()), strategy=sig.strategy, symbol=sig.symbol,

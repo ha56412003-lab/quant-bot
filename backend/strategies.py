@@ -21,10 +21,7 @@ class Signal:
     side: str                 # long / short
     reason: str
     stop_price: float = 0.0
-    take_profit: float = 0.0
-    trail_dist: float = 0.0   # absolute price distance for chandelier trailing
     max_hold_sec: int = 86400
-    time_exit_at: int = 0
     size_mult: float = 1.0
     fresh: int = 999          # 距信号触发（如 CE 翻转）已过几根 K 线，越小越新鲜
     strength: float = 0.0     # 信号强度（如 |close-ZLSMA| / ATR），越大趋势越强
@@ -329,11 +326,13 @@ class S15CeZlsma(Base):
                  "方向翻转那一刻就是信号；ZLSMA(50) 零延迟均线用来确认趋势站没站稳；"
                  "布林带宽度分位衡量波动是否扩张，只在市场真的在动的时候才出手。"
                  "入场用真实收盘价算钱，用 HA 合成价判方向。",
-        "entry": "三道闸全过才开仓：① CE 方向翻转 ② HA 出现关键K线（阳线站上 ZLSMA / 阴线跌破）"
-                 " ③ 布林带宽度近 100 根分位 > 70%",
-        "exit": "五条并列，谁先满足谁执行：① 时间止损 16 小时 ② 硬止损 = 20 根 15m 摆动低/高点"
-                " ③ 到 2R 平一半（锁定 1R）④ 半仓后再到 3R 全部平 ⑤ 开仓条件镜像出现"
-                "（CE 方向翻转 + HA 反向关键K线 + 站错 ZLSMA）。出场不含布林带。",
+        "entry": "五道闸全过才开仓：① CE 方向翻转 ② HA 出现关键K线（阳线站上 ZLSMA / 阴线跌破）"
+                 " ③ 布林带宽度近 100 根分位 > 70% ④ 进场价离 ZLSMA 至少 0.5%（贴均线是假突破）"
+                 " ⑤ 止损距离不超过 5%（离得太远的单性价比差）",
+        "exit": "七条并列，谁先满足谁执行：① 时间止损 16 小时（无条件，平半后照样平）"
+                " ② 硬止损 = 20 根 15m 摆动低/高点 ③ 快速失败：满 4 小时峰顶仍不到 0.5R"
+                " ④ 到 1.8R 平一半 ⑤ 平半后再到 3R 全部平 ⑥ 移动止盈：峰顶 ≥1.5R 后回吐 1.2R 平剩余"
+                " ⑦ 开仓条件镜像出现（CE 方向翻转 + HA 反向关键K线 + 站错 ZLSMA + 布林带宽度分位 ≥ 70）。",
         "factors": "15m K线（自算 CE(1×2) / ZLSMA50 / ATR / 布林带宽度分位）",
         "risk": "震荡市 CE 会频繁翻转，所以入场加了 BBW 分位闸（近 100 根布林带宽度分位 > 70%），"
                 "把开仓限在波动扩张期。费率口径敏感：maker 0.02% 勉强赚，市价 0.05% 明显亏——"
@@ -343,12 +342,16 @@ class S15CeZlsma(Base):
                     "ZLSMA(50) confirms price is on the right side; Bollinger-band width percentile "
                     "gates entries to expanding-volatility regimes. Directions use HA prices, "
                     "money uses real closes.",
-        "entry_en": "All three gates: (1) CE direction flip (2) HTF key bar (bull close above ZLSMA / "
-                    "bear close below) (3) BBW percentile over last 100 bars > 70%",
-        "exit_en": "Five parallel exits, first hit wins: 16h time stop / hard stop at 20-bar swing "
-                   "extreme / take half at 2R (locks 1R) / close all at 3R after half taken / "
-                   "entry-mirror appears (CE flip + opposite HA key bar + wrong side of ZLSMA). "
-                   "No Bollinger band in exits.",
+        "entry_en": "All five gates: (1) CE direction flip (2) HTF key bar (bull close above ZLSMA / "
+                    "bear close below) (3) BBW percentile over last 100 bars > 70% "
+                    "(4) entry price at least 0.5% away from ZLSMA (hugging the line = false breakout) "
+                    "(5) stop distance <= 5% of price",
+        "exit_en": "Seven parallel exits, first hit wins: 16h hard time stop (unconditional) / "
+                   "hard stop at the 20-bar swing / quick-fail (4h with peak < 0.5R) / "
+                   "take half at 1.8R / close all at 3R after half taken / "
+                   "trailing (arm at 1.5R, close remainder on a 1.2R give-back) / "
+                   "entry-mirror appears (CE flip + opposite HA key bar + wrong side of ZLSMA "
+                   "+ BBW percentile >= 70).",
         "factors_en": "15m klines (self-computed CE 1x2 / ZLSMA50 / ATR / Bollinger width percentile)",
         "risk_en": "CE flips constantly in chop, so entries add a BBW percentile gate (>70% over last "
                    "100 bars) restricting them to expanding-volatility regimes. Fee-sensitive: "
@@ -363,16 +366,17 @@ class S15CeZlsma(Base):
             return default
 
     async def evaluate(self, ctx) -> list:
-        """入场：CE 方向翻转（事件）+ 均线同侧关键K线 + ATR 门槛 + 布林带宽度分位门槛。
+        """入场：CE 方向翻转（事件）+ 均线同侧关键K线 + 布林带宽度分位 + 偏离闸 + 止损距离。
 
         设计要点（都是 2026-11-05 那轮回测定下来的）：
           · CE 方向翻转是「事件」不是「状态」—— 只在翻那一刻出信号，否则每根
             都满足条件会刷出 7 倍的假箭头。
-          · ATR > 2.5% 是生死线：止损距离决定手续费占 R 的比例，ATR 太小
-            时手续费是毛利的 2.7 倍，数学上必亏。
           · 布林带宽度分位 > 70% 用来排除震荡市 —— 布林带宽度只衡量「价格分散
             程度」，是唯一没有被证伪的趋势过滤器（ADX、ADX上升、效率比全部失效）。
+          · 进场价离 ZLSMA 至少 0.5%：贴在均线上说明趋势没真站住，是假突破。
+          · 止损距离上限 5%：离得太远的单赔率差，实盘 80 笔验证过。
           · 止损取 20 根阶段低点（用原始 K 线真实价格，不用 HA 合成值）。
+          · ATR 门槛（min_atr_pct）已挪到监控池层，S15 里保持 0 = 不启用。
         """
         ce_len = int(self._p("ce_len", 1))
         ce_mult = float(self._p("ce_mult", 2.0))
@@ -578,12 +582,6 @@ class S15CeZlsma(Base):
                             f"ATR={atr_pct:.2f}%"
                             + (f" BBW分位={bp:.0f}%" if bp is not None else "")),
                     stop_price=round(stop, 8),
-                    # ⚠ 2026-11-06 改：原来这里写死 take_profit=1.2R 价位。
-                    # 引擎的 take_profit 检查排在 check_exit 之前，一到 1.2R
-                    # 就整仓全平 → 永远走不到「2R 平一半」，后面的趋势也全丢。
-                    # 回测里 1.2R 全平只有 -3.08R，放开后是 +38.22R。
-                    # 固定止盈整条已关：不回测价、不落库，出场全靠下面四条路。
-                    take_profit=0.0,
                     max_hold_sec=self.max_hold,
                     fresh=0, strength=abs(c - z) / atr,
                     fee_rate=fee_rate, slip_pct=slip_pct,
@@ -595,12 +593,25 @@ class S15CeZlsma(Base):
     async def check_exit(self, ctx, pos):
         """S15 出场总入口（2026-11-08 浩哥定案，旧「破均线+回撤」已整段删除）。
 
-        出场有五条路，按判定顺序：
-            ⓪ 快速失败：进场 quickfail_hours 小时内峰顶没到 quickfail_min_r R → 平（_quick_fail）
-            ① 2R 平一半（_half_take_profit）
-            ② 半仓后再赚 1R → 3R 全平（_mirror_exit 里先判）
-            ③ 镜像出场：CE 翻转 + HA 反向关键K线站在 ZLSMA50 错误一侧（_mirror_exit）
-            ④ 16 小时超时 / 硬止损（不在这里，在 engine.py 的每轮检查里）
+        出场共 **6 条**，按判定顺序（⓪①②③ 在这里，④⑤ 在 engine.py）：
+
+            —— 本方法负责（每 0.5 秒判一次）——
+            ⓪ 快速失败：满 quickfail_hours(4h) 且峰顶 < quickfail_min_r(0.5R) → 全平
+                         （_quick_fail）
+            ① 平一半：  峰顶 ≥ half_at_r(1.8R) → 平掉一半
+                         （_half_take_profit）
+            ② 3R 全平： 已平半 且 现价R − 1.8 ≥ half_tp_r(1.0) → 平剩余
+                         （_half_take_profit，**不是 _mirror_exit**）
+            ③ 移动止盈：已平半 且 峰顶 ≥ trail_arm(1.5R) 且 峰顶−现价 ≥ trail_dd(1.2R)
+                         → 平剩余（_half_take_profit）
+            ④ 镜像出场：CE 翻转 + HA 反向 K 线站 ZLSMA50 错误一侧
+                         + BBW 分位 ≥ mirror_bbw_min(70)（_mirror_exit）
+
+            —— engine.py 负责（优先级更高，先判）——
+            ⑤ 16h 强平（无条件，平半后照样平） / 硬止损（开仓时的 20 根摆动点）
+
+        ⚠ 2026-11-09 修正：本 docstring 之前写「五条路」，漏了移动止盈，
+          还把 3R 全平错标在 _mirror_exit 里 —— 正是这个错导致过一轮误判，别改回去。
 
         流量：check_exit 每 0.5 秒被调用一次，6 个仓位就是 12 次/秒。
         这里按「bar 边界」缓存指标 —— 一根 K 线没收盘指标不会变，
@@ -672,7 +683,11 @@ class S15CeZlsma(Base):
                 f"现{cur_r:.2f}R)")
 
     async def _half_take_profit(self, ctx, pos):
-        """浮盈达 half_at_r（默认 2.0R）且没平过一半 → 平掉 50%，剩一半放开跑。
+        """浮盈达 half_at_r（默认 1.8R，从 yaml 读）且没平过一半 → 平掉 50%，剩一半放开跑。
+
+        ⚠ 以下这张表是 **2026-08 的老记录（1.2R / 2.0R 时代）**，只作决策沿革参考，
+          **不是当前参数**。当前是 1.8R 平半 + 移动止盈 1.5/1.2 + 16h 无条件，
+          最新口径见 strategies.yaml 和 docs/S15_逻辑文档_20261109.md。
 
         为什么要这一条（20 币 / 60 天 / 双档 ATR 回测，费率 0.02% maker 进 +
         0.05% taker 出）：
@@ -680,12 +695,10 @@ class S15CeZlsma(Base):
             出场规则                 笔数   净R     胜率   最大回撤  赚几段
             1.2R 全平（原线上）       498   -3.08   43.0%   -32.1    1/4
             1.2R 平一半              472  +31.99   43.6%   -24.0    2/4
-            2.0R 平一半（本实现）     477  +38.22   42.1%   -25.8    2/4
+            2.0R 平一半（当时实现）   477  +38.22   42.1%   -25.8    2/4
             完全放开止盈              478  +46.99   42.3%   -29.2    3/4
 
-        选 2.0R 平一半而不是完全放开：收益只少 8.8R，但回撤小 3.4R，
-        且宽幅震荡行情亏得更少（-6.97R vs -10.13R）—— 浩哥明确要的是
-        「2R 平一半，后面放开跑」。
+        （当时选了 2.0R 平一半；后来实测 2.0R 达成率过低，已改为 1.8R —— 见 yaml。）
 
         按 30 天趋势效率分类，2.0R 平一半在三种行情里都不比原规则差：
             单边趋势   +11.00R（原 +9.99）

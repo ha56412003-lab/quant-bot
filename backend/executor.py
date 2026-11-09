@@ -250,10 +250,7 @@ async def open_position(sig, qty, price, leverage=None):
         pid = db.open_position(
             strategy=sig.strategy, symbol=sig.symbol, side=sig.side, qty=qty,
             entry_price=fill, stop_price=sig.stop_price or None,
-            take_profit=sig.take_profit or None,
-            trail_atr=sig.trail_dist or None,
             max_hold_sec=sig.max_hold_sec,
-            time_exit_at=sig.time_exit_at or None,
             entry_factors=json.dumps(factors.snapshot_for(sig.symbol), ensure_ascii=False),
             reason=sig.reason, leverage=float(leverage or 0) or None,
             fee_rate=sig.fee_rate, slip_pct=sig.slip_pct,

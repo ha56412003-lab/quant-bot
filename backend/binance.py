@@ -243,10 +243,6 @@ async def depth(symbol, limit=50):
     return await _get(FUT, "/fapi/v1/depth", {"symbol": symbol, "limit": limit})
 
 
-async def open_interest(symbol):
-    return await _get(FUT, "/fapi/v1/openInterest", {"symbol": symbol})
-
-
 async def open_interest_hist(symbol, period="1h", limit=48, isolated=False):
     return await _get(FUT, "/futures/data/openInterestHist",
                       {"symbol": symbol, "period": period, "limit": limit},
@@ -267,10 +263,6 @@ async def taker_ratio(symbol, period="5m", limit=48, isolated=False):
     return await _get(FUT, "/futures/data/takerlongshortRatio",
                       {"symbol": symbol, "period": period, "limit": limit},
                       timeout=8 if isolated else 15, isolated=isolated)
-
-
-async def funding_history(symbol, limit=30):
-    return await _get(FUT, "/fapi/v1/fundingRate", {"symbol": symbol, "limit": limit})
 
 
 async def ticker_24h_all():

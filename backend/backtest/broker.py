@@ -44,8 +44,7 @@ class SimBroker:
         pid = self.db.open_position(
             strategy=sig.strategy, symbol=sig.symbol, side=sig.side, qty=qty,
             entry_price=fill, stop_price=sig.stop_price or None,
-            take_profit=sig.take_profit or None, trail_atr=sig.trail_dist or None,
-            max_hold_sec=sig.max_hold_sec, time_exit_at=sig.time_exit_at or None,
+            max_hold_sec=sig.max_hold_sec,
             reason=sig.reason)
         pos = self.db.positions[pid]
         pos["open_fee"] = fee
@@ -126,28 +125,10 @@ class SimBroker:
             if pos["opened_at"] + pos["max_hold_sec"] < t + 60:
                 self._close(pos, op, "达到最长持仓时限", t)
                 continue
-            if pos["time_exit_at"] and pos["time_exit_at"] < t + 60:
-                self._close(pos, op, "策略时间出场", t)
-                continue
-            if pos["trail_atr"]:
-                extreme = pos["extreme"] or pos["entry_price"]
-                trail = pos["trail_atr"]
-                if side == "long" and extreme - lo_ >= trail:
-                    self._close(pos, extreme - trail, "移动止损触发", t)
-                    continue
-                if side == "short" and hi - extreme >= trail:
-                    self._close(pos, extreme + trail, "移动止损触发", t)
-                    continue
-                pos["extreme"] = max(extreme, hi) if side == "long" else min(extreme, lo_)
             if pos["stop_price"]:
                 if (side == "long" and lo_ <= pos["stop_price"]) or \
                    (side == "short" and hi >= pos["stop_price"]):
                     self._close(pos, pos["stop_price"], "止损触发", t)
-                    continue
-            if pos["take_profit"]:
-                if (side == "long" and hi >= pos["take_profit"]) or \
-                   (side == "short" and lo_ <= pos["take_profit"]):
-                    self._close(pos, pos["take_profit"], "止盈触发", t)
                     continue
             # strategy check_exit reads factor buckets that refresh at 5m/1h;
             # calling it on 5m edges loses nothing vs the live 0.5s loop but
@@ -179,32 +160,10 @@ class SimBroker:
             if t - pos["opened_at"] >= pos["max_hold_sec"]:
                 self._close(pos, price, "达到最长持仓时限", t)
                 continue
-            if pos["time_exit_at"] and t >= pos["time_exit_at"]:
-                self._close(pos, price, "策略时间出场", t)
-                continue
-            if pos["trail_atr"]:
-                extreme = pos["extreme"] or pos["entry_price"]
-                if side == "long":
-                    if price > extreme:
-                        pos["extreme"] = extreme = price
-                    if extreme - price >= pos["trail_atr"]:
-                        self._close(pos, price, "移动止损触发", t)
-                        continue
-                else:
-                    if price < extreme:
-                        pos["extreme"] = extreme = price
-                    if price - extreme >= pos["trail_atr"]:
-                        self._close(pos, price, "移动止损触发", t)
-                        continue
             if pos["stop_price"]:
                 if (side == "long" and price <= pos["stop_price"]) or \
                    (side == "short" and price >= pos["stop_price"]):
                     self._close(pos, price, "止损触发", t)
-                    continue
-            if pos["take_profit"]:
-                if (side == "long" and price >= pos["take_profit"]) or \
-                   (side == "short" and price <= pos["take_profit"]):
-                    self._close(pos, price, "止盈触发", t)
                     continue
             reason = await self._strategy_exit(pos, strategies, ctx)
             if reason:

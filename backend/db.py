@@ -57,9 +57,8 @@ def init():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             strategy TEXT NOT NULL, symbol TEXT NOT NULL, side TEXT NOT NULL,
             qty REAL NOT NULL, entry_price REAL NOT NULL,
-            stop_price REAL, take_profit REAL, trail_atr REAL,
+            stop_price REAL,
             opened_at INTEGER NOT NULL, max_hold_sec INTEGER NOT NULL,
-            time_exit_at INTEGER, extreme REAL,
             status TEXT NOT NULL DEFAULT 'open',
             closed_at INTEGER, close_price REAL, pnl REAL, close_reason TEXT
         );
@@ -101,10 +100,6 @@ def init():
             # 必须落库而不是只放内存 —— 重启后内存状态丢失 → 会再平一次一半，
             # 直接把仓位砍成 1/4。
             "ALTER TABLE positions ADD COLUMN half_closed INTEGER NOT NULL DEFAULT 0",
-            # 「连续几根收盘破 ZLSMA50」计数：出场条件之一是连续 2 根破位，
-            # 这个计数原本只在 _S15_POS_STATE 内存里 → 重启归零，
-            # 卡片上也看不到。落库后重启能接着数，前端也能显示 N/2。
-            "ALTER TABLE positions ADD COLUMN ma_break_cnt INTEGER NOT NULL DEFAULT 0",
             # 「持仓期最高浮盈 R」：新出场规则用它算「回撤浮盈的 50%」，
             # 峰顶不准 → 出局点就画错、也可能提前或拖后出场。
             # 原本只在 _S15_POS_STATE 内存里，重启归零后要重新爬。
@@ -268,28 +263,18 @@ def recent_signals(limit=50):
     return [dict(r) for r in rows]
 
 
-def signal_count_since(strategy, symbol, since_ts):
-    with _lock:
-        row = _conn.execute(
-            "SELECT COUNT(*) n FROM signals WHERE strategy=? AND symbol=? AND ts>=? AND acted=1",
-            (strategy, symbol, since_ts)).fetchone()
-    return row["n"]
-
-
-# -- positions / trades -----------------------------------------------------
-
 def open_position(**kw):
     mode = kw.get("mode") or current_mode()   # BEFORE _lock (non-reentrant)
     with _lock, _conn:
         cur = _conn.execute(
             "INSERT INTO positions(strategy,symbol,side,qty,entry_price,stop_price,"
-            "take_profit,trail_atr,opened_at,max_hold_sec,time_exit_at,extreme,status,"
+            "opened_at,max_hold_sec,status,"
             "entry_factors,reason,mode,leverage,extra_margin,fee_rate,slip_pct,exchange) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?,?,?,?,?,?,?)",
+            "VALUES(?,?,?,?,?,?,?,?,'open',?,?,?,?,?,?,?,?)",
             (kw["strategy"], kw["symbol"], kw["side"], kw["qty"], kw["entry_price"],
-             kw.get("stop_price"), kw.get("take_profit"), kw.get("trail_atr"),
-             int(time.time()), kw["max_hold_sec"], kw.get("time_exit_at"),
-             kw["entry_price"], kw.get("entry_factors"), kw.get("reason", ""),
+             kw.get("stop_price"),
+             int(time.time()), kw["max_hold_sec"],
+             kw.get("entry_factors"), kw.get("reason", ""),
              mode, kw.get("leverage"), kw.get("extra_margin", 0.0),
              kw.get("fee_rate"), kw.get("slip_pct"), kw.get("exchange", "") or ""))
         return cur.lastrowid
@@ -351,10 +336,10 @@ def open_positions(strategy=None, symbol=None, mode="auto"):
 # 但它是模块里唯一没护栏的写入口，任何新调用方传 **payload 就能改 status 等任意列。
 _POSITION_WRITABLE = {
     "strategy", "symbol", "side", "qty", "entry_price", "stop_price",
-    "take_profit", "trail_atr", "opened_at", "max_hold_sec", "time_exit_at",
-    "extreme", "status", "closed_at", "close_price", "pnl", "close_reason",
+    "opened_at", "max_hold_sec",
+    "status", "closed_at", "close_price", "pnl", "close_reason",
     "mfe_pct", "mae_pct", "entry_factors", "reason", "mode", "leverage",
-    "extra_margin", "fee_rate", "slip_pct", "half_closed", "ma_break_cnt",
+    "extra_margin", "fee_rate", "slip_pct", "half_closed",
     "peak_r",
 }
 
@@ -435,22 +420,10 @@ def recent_trades(limit=100, mode=None):
     return [dict(r) for r in rows]
 
 
-def closed_positions_today(day_start_ts, mode="auto"):
-    if mode == "auto":
-        mode = current_mode()
-    q = "SELECT * FROM positions WHERE status='closed' AND closed_at>=?"
-    args = [day_start_ts]
-    if mode:
-        q += " AND mode=?"; args.append(mode)
-    with _lock:
-        rows = _conn.execute(q, args).fetchall()
-    return [dict(r) for r in rows]
-
-
 def realized_pnl_since(ts, mode="auto"):
     """某时间点之后的**已实现盈亏**，直接对 trades 流水求和。
 
-    ⚠ 2026-11-09 新增。不能用 closed_positions_today 求和，因为
+    ⚠ 2026-11-09 新增。不能用 positions.pnl 求和，因为
     positions.pnl 是「该仓位全部平仓盈亏之和」，包含昨天已经 partial_close
     掉的那部分，却按 closed_at 整笔归到平仓当天。
 

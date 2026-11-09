@@ -573,18 +573,6 @@ def recompute(universe) -> list[str]:
     return picked
 
 
-async def refresh(universe) -> int:
-    """兼容旧接口：全量刷一次（K 线建缓存 + 日线插针）后重算名单。"""
-    await _update_quote_vol(universe)
-    await _bootstrap_kl(universe)
-    await _refresh_daily(universe)
-    _update_samples(universe)
-    recompute(universe)
-    return len(_rows)
-
-
-# ── 对外接口 ──────────────────────────────────────────────
-
 def get(symbol: str):
     """取单币质量明细。未采集到时返回 None。"""
     r = _rows.get(symbol)

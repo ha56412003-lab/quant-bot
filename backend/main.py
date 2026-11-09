@@ -503,12 +503,6 @@ async def api_positions():
                 _zbrk = bool((_hac < _znow) if _is_long else (_hac > _znow))
                 _exit_n = int(_cefl) + int(_hrev) + int(_zbrk)
 
-        # 2026-11-08 清理：以下三列是旧出场逻辑的遗留（数据库列保留 —— 历史
-        # 仓位里还有非零值要看），但它们现在恒定为空/0，不再随 API 吐出，
-        # 免得前端/脚本把死值当真实状态读。
-        #   ma_break_cnt —— 旧「连续破均线根数」，镜像出场不数这个
-        #   trail_atr    —— 旧 ATR 移动止损价，出场侧已无任何 ATR 移动止损
-        #   time_exit_at —— 旧指定时间出场，现走 max_hold_hours 16h
         # ── 快速失败出场闸的展示字段（2026-11-08 新增）──────────────────
         # 这条闸不是「三闸全亮」型，而是「时间 + 峰顶」型：
         #   持仓 >= quickfail_hours 且 峰顶一直没到 quickfail_min_r R → 平仓。
@@ -519,10 +513,7 @@ async def api_positions():
         _qf_r = float(_qp.get("quickfail_min_r") or 0.5)
         _qf_ok = (float(peak_r_mem) >= _qf_r) if peak_r_mem is not None else None
 
-        _dead_cols = ("ma_break_cnt", "trail_atr", "time_exit_at")
-        _live = {k: v for k, v in p.items() if k not in _dead_cols}
-
-        out.append({**_live, "mark_price": price, "unrealized_pnl": upnl,
+        out.append({**p, "mark_price": price, "unrealized_pnl": upnl,
                     # stale=True 表示这笔仓位当前**没有真实盘口价**，
                     # mark_price / unrealized_pnl / liq_dist_pct 都是按开仓价
                     # 兜底算出来的占位值，前端必须显示 --，不能当真实数字用。

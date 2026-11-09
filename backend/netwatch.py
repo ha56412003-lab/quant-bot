@@ -316,9 +316,3 @@ async def with_retry(fn, where, *args, **kwargs):
     raise last
 
 
-def env_flag(name, default=True):
-    """小工具：从环境变量读开关。"""
-    v = os.environ.get(name)
-    if v is None:
-        return default
-    return v.strip().lower() not in ("0", "false", "no", "off")

@@ -60,8 +60,7 @@ def conn():
             ts INTEGER NOT NULL,
             symbol TEXT NOT NULL,
             side TEXT,
-            score REAL,          -- -100(弱) ~ +100(强)
-            s_cvd REAL, s_taker REAL, s_oi REAL, s_book REAL, s_liq REAL,
+            score REAL,          -- 0(最弱) ~ 100(最强)
             r_now REAL,          -- 打分时的浮盈（R 倍数）
             verdict TEXT,        -- 强势/偏强/中性/转弱/弱势
             advice TEXT,         -- 给人工的建议
@@ -69,21 +68,19 @@ def conn():
         );
         CREATE INDEX IF NOT EXISTS ix_radar_sym_ts ON radar_history(symbol, ts);
 
-        -- 警报记录：什么时候叫过、叫的什么、后来准不准
+        -- 警报记录：什么时候叫过、叫的什么、什么档位
+        -- （2026-11-09 清理：删掉 from_level / r_at_alert / eval_1h_r / eval_4h_r / eval_ts
+        --   这 5 个字段从来没有被任何代码读过；eval_4h_r 更是全 NULL，功能从未跑通。
+        --   历史数据已导出 docs/archive/data/radar_alerts_20261109.csv）
         CREATE TABLE IF NOT EXISTS radar_alerts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ts INTEGER NOT NULL,
             symbol TEXT NOT NULL,
             side TEXT,
-            from_level INTEGER,
             level INTEGER,
             score REAL,
-            r_at_alert REAL,
             action TEXT,
-            advice TEXT,
-            eval_1h_r REAL,
-            eval_4h_r REAL,
-            eval_ts INTEGER
+            advice TEXT
         );
         CREATE INDEX IF NOT EXISTS ix_alert_sym_ts ON radar_alerts(symbol, ts);
         """)
@@ -373,16 +370,14 @@ async def sample(symbol, side, r_now=0.0, slow=True):
     row = {
         "ts": int(time.time()), "symbol": symbol, "side": side,
         "score": score,
-        "s_cvd": parts.get("cvd"), "s_taker": parts.get("taker"),
-        "s_oi": parts.get("oi"), "s_book": parts.get("book"), "s_liq": parts.get("liq"),
         "r_now": round(r_now, 3), "verdict": v, "advice": advice,
         "detail": json.dumps(detail, ensure_ascii=False),
     }
     c = conn()
     with c:
         c.execute("""INSERT INTO radar_history
-            (ts, symbol, side, score, s_cvd, s_taker, s_oi, s_book, s_liq, r_now, verdict, advice, detail)
-            VALUES (:ts,:symbol,:side,:score,:s_cvd,:s_taker,:s_oi,:s_book,:s_liq,:r_now,:verdict,:advice,:detail)""",
+            (ts, symbol, side, score, r_now, verdict, advice, detail)
+            VALUES (:ts,:symbol,:side,:score,:r_now,:verdict,:advice,:detail)""",
                   row)
     return row
 
@@ -468,60 +463,15 @@ def check_alert(row):
     if last and ts - last["ts"] < ALERT_COOLDOWN and lvl >= last["level"]:
         return None
 
-    rec = {"ts": ts, "symbol": sym, "side": row["side"], "from_level": prev_lvl,
-           "level": lvl, "score": round(score, 1), "r_at_alert": row["r_now"],
+    rec = {"ts": ts, "symbol": sym, "side": row["side"],
+           "level": lvl, "score": round(score, 1),
            "action": action, "advice": advice}
     with c:
         c.execute("""INSERT INTO radar_alerts
-            (ts, symbol, side, from_level, level, score, r_at_alert, action, advice)
-            VALUES (:ts,:symbol,:side,:from_level,:level,:score,:r_at_alert,:action,:advice)""", rec)
+            (ts, symbol, side, level, score, action, advice)
+            VALUES (:ts,:symbol,:side,:level,:score,:action,:advice)""", rec)
     log.info("RADAR ALERT %s %s %.0f分 %s", sym, row["side"], score, action)
     return rec
-
-
-async def evaluate_alerts():
-    """回填警报效果：这条提醒发出后 1h / 4h，行情是继续不利还是反转了。
-
-    eval_*_r = 从提醒那一刻起，朝【持仓有利方向】的 R 变化。
-      负数 -> 之后继续朝不利方向走 -> 提醒是对的
-      正数 -> 之后反弹了 -> 提醒早了
-    """
-    c = conn()
-    pending = [dict(r) for r in c.execute(
-        "SELECT * FROM radar_alerts WHERE eval_ts IS NULL AND ts < ? ORDER BY ts DESC LIMIT 20",
-        (int(time.time()) - 3600,))]
-    for a in pending:
-        try:
-            ks = await binance.klines(a["symbol"], "5m", 60, isolated=True)
-        except Exception:  # noqa: BLE001
-            continue
-        if not ks:
-            continue
-        # 注意：binance.klines 返回的 ts 已经是【秒】，不是毫秒
-        base = None
-        for k in ks:
-            if k["ts"] >= a["ts"]:
-                base = float(k["open"])
-                break
-        if not base:
-            continue
-        sign = 1 if a["side"] == "long" else -1
-        entry_stop = None
-        # 用当时记录的 r 反推 1R 价格距离不方便，这里直接用百分比变化评判
-        e1 = e4 = None
-        for k in ks:
-            mins = (k["ts"] - a["ts"]) / 60
-            chg = (float(k["close"]) / base - 1) * 100 * sign
-            if e1 is None and mins >= 60:
-                e1 = chg
-            if mins >= 240:
-                e4 = chg
-                break
-        with c:
-            c.execute("UPDATE radar_alerts SET eval_1h_r=?, eval_4h_r=?, eval_ts=? WHERE id=?",
-                      (round(e1, 3) if e1 is not None else None,
-                       round(e4, 3) if e4 is not None else None, int(time.time()), a["id"]))
-    return len(pending)
 
 
 def alerts(limit=100, symbol=None):
@@ -588,9 +538,6 @@ async def loop():
         try:
             await scan_once()
             tick += 1
-            # 每 15 分钟回填一次警报效果（要等 1h/4h 才够，不用勤跑）
-            if tick % 15 == 0:
-                await evaluate_alerts()
         except Exception as exc:  # noqa: BLE001
             log.warning("radar loop: %s", exc)
         await asyncio.sleep(SCAN_SEC)
