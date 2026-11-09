@@ -74,7 +74,7 @@ EXPECT = [
     ("用 Heikin Ashi",     "use_ha",           True, bool),
     ("止损摆动根数",       "swing_lookback",   20,   int),
     ("入场布林带门槛",     "bbw_pct_min",      70.0, float),
-    ("止损距离上限",       "max_risk_pct",     30.0, float),
+    ("止损距离上限",       "max_risk_pct",     5.0,  float),
     ("K 线周期",           "kline_interval",   "15m", str),
 ]
 for label, key, want, typ in EXPECT:
@@ -111,7 +111,7 @@ print("=" * 78)
 FEE = 0.0005
 SWING = 20
 MAXH = 64          # 16 小时 / 15 分钟 = 64 根
-files = sorted(glob.glob(os.path.join(ROOT, "backtest", "data", "*_15m_60d.json")))
+files = sorted(glob.glob(os.path.join(_ROOT, "backtest", "data", "*_15m_60d.json")))
 
 stat = {"mirror": 0, "half_tp": 0, "timeout": 0, "hard_stop": 0}
 mirror_samples = []
@@ -333,7 +333,7 @@ print("=" * 78)
 import subprocess
 for dead_name in ("_trend_reversal_exit",):
     r = subprocess.run(["grep", "-rn", dead_name, "backend/", "--include=*.py"],
-                       cwd=ROOT, capture_output=True, text=True)
+                       cwd=_ROOT, capture_output=True, text=True)
     hits = [l for l in r.stdout.strip().split("\n") if l and "__pycache__" not in l]
     check(f"{dead_name} 在 backend/*.py 中零引用", len(hits) == 0,
           f"命中 {len(hits)} 处: {hits[:2]}")
@@ -341,13 +341,13 @@ for dead_name in ("_trend_reversal_exit",):
 # 旧开关 mirror_exit：查的是「被当成参数读取」这个形态 —— _p("mirror_exit"
 # （方法名 _mirror_exit 必须存在，不能一起算进去）
 r2 = subprocess.run(["grep", "-rn", '_p("mirror_exit"', "backend/", "--include=*.py"],
-                    cwd=ROOT, capture_output=True, text=True)
+                    cwd=_ROOT, capture_output=True, text=True)
 h2 = [l for l in r2.stdout.strip().split("\n") if l and "__pycache__" not in l]
 check('旧开关 _p("mirror_exit") 零引用', len(h2) == 0, f"命中 {len(h2)} 处")
 
 # 镜像出场方法本身必须存在且真的被调用
 r3 = subprocess.run(["grep", "-rn", "await self._mirror_exit", "backend/", "--include=*.py"],
-                    cwd=ROOT, capture_output=True, text=True)
+                    cwd=_ROOT, capture_output=True, text=True)
 h3 = [l for l in r3.stdout.strip().split("\n") if l and "__pycache__" not in l]
 check("镜像出场真的被 check_exit 调用", len(h3) >= 1, f"调用点 {len(h3)} 处")
 

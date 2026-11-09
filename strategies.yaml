@@ -70,7 +70,11 @@ strategies:
       swing_lookback: 20
       min_atr_pct: 0
       bbw_pct_min: 70.0
-      max_risk_pct: 30.0
+      # 2026-11-09 浩哥定：30.0 → 5.0
+      # 依据实盘 80 笔：止损 ≥5% 的 23 笔（占 29%）合计 -118.78U，均峰值仅 0.32R，
+      # 永远够不到 1.8R/2R；止损 3~5% 的 32 笔才是唯一盈利档（+257.81U）。
+      # 收紧后剩余 57 笔合计 +225.80U。注意：新单生效，已有持仓不受影响。
+      max_risk_pct: 5.0
       min_dev_pct: 0.5
       quickfail_hours: 4.0
       quickfail_min_r: 0.5

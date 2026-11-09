@@ -1,0 +1,233 @@
+"""出场加速对比回测 —— 量化「持仓太長、回吐嚴重」的解法
+
+背景（2026-11-09 浩哥）：
+    78 笔纸面平仓记录里——
+      策略自动出场 35 笔：平均最大浮盈 2.67%，实际到手 -1.29%，回吐 3.96%，均持仓 8.9h
+      浩哥手动平   36 笔：平均最大浮盈 2.44%，实际到手 +1.63%，回吐 0.82%，均持仓 3.1h
+    结论：入场抓到的浮盈策略其实更多，但拿太久全吐回去还倒亏。
+
+口径：直接 import backend.strategies._ce_zlsma（线上同一份实现），
+      与 s15_live_parity.py 完全同源。不做任何自研指标。
+
+自证：本脚本 sim(trail_arm=0) 必须与 s15_live_parity.simulate(want_mirror=True)
+      的笔数与净 R 完全一致，否则拒绝出结果（防止又出现口径漂移）。
+
+用法：python backtest/exit_speed_test.py
+"""
+import glob
+import json
+import os
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
+from backend.strategies import _ce_zlsma
+from backtest.s15_live_parity import simulate as ref_simulate, stats, FEE, SWING, BBW_MIN, MAX_RISK_PCT
+
+BARS_PER_HOUR = 4          # 15m K 线
+
+
+def sim(ks, ind, half_at_r=2.0, half_tp_r=1.0, maxh=64,
+        trail_arm=0.0, trail_dd=0.0, trail_after_half=False,
+        max_risk_pct=None):
+    """与线上同源的单币逐笔回测，新增 trail_arm / trail_dd 移动止盈。
+
+    trail_arm=0 表示关闭移动止盈 → 行为必须与原 simulate 完全一致。
+    移动止盈语义：浮盈达到 trail_arm 倍 R 后，从峰值回吐 trail_dd 倍 R 即平仓。
+
+    trail_after_half=True 时，移动止盈只在「已平过一半」之后才启用 ——
+    用来测「1.8R 平一半，剩下半仓改用移动止损接管」这类方案。
+    否则 trail_arm(1.5) < half_at_r(1.8) 会在平半之前就砍掉，1.8R 永远到不了。
+    """
+    ho, hc = ind["open"], ind["close"]
+    zl, dirs, atr, bp = ind["zlsma"], ind["dir"], ind["atr"], ind["bbw_pct"]
+    hi_raw, lo_raw = ind["high_raw"], ind["low_raw"]
+    n = len(hc)
+    out = []
+    i = max(1, 60, SWING)
+    while i < n - 2:
+        if zl[i] is None or dirs[i] is None or dirs[i - 1] is None or atr[i] is None:
+            i += 1
+            continue
+        sl = dirs[i] == 1 and dirs[i - 1] == -1 and hc[i] > zl[i]
+        ss = dirs[i] == -1 and dirs[i - 1] == 1 and hc[i] < zl[i]
+        if not (sl or ss):
+            i += 1
+            continue
+        want = "long" if sl else "short"
+        key = (hc[i] > ho[i] and hc[i] > zl[i]) if want == "long" \
+            else (hc[i] < ho[i] and hc[i] < zl[i])
+        if not key:
+            i += 1
+            continue
+        if bp[i] is None or bp[i] < BBW_MIN:
+            i += 1
+            continue
+        entry = float(ks[i + 1]["open"])
+        if entry <= 0:
+            i += 1
+            continue
+        lo = max(0, i - SWING + 1)
+        s_lo = min(lo_raw[j] for j in range(lo, i + 1))
+        s_hi = max(hi_raw[j] for j in range(lo, i + 1))
+        stop = s_lo if want == "long" else s_hi
+        risk = (entry - stop) if want == "long" else (stop - entry)
+        _cap = MAX_RISK_PCT if max_risk_pct is None else max_risk_pct
+        if risk <= 0 or risk / entry * 100 > _cap:
+            i += 1
+            continue
+
+        sign = 1 if want == "long" else -1
+        peak = 0.0
+        half_done = False
+        ep = er = ei = None
+        for j in range(i + 1, n):
+            o_, h_, l_, c_ = (float(ks[j]["open"]), float(ks[j]["high"]),
+                              float(ks[j]["low"]), float(ks[j]["close"]))
+            # ① 硬止损
+            if want == "long" and l_ <= stop:
+                ep, er, ei = min(o_, stop), "hard_stop", j
+                break
+            if want == "short" and h_ >= stop:
+                ep, er, ei = max(o_, stop), "hard_stop", j
+                break
+            peak = max(peak, ((h_ - entry) if want == "long" else (entry - l_)) / risk)
+            cur = ((c_ - entry) if want == "long" else (entry - c_)) / risk
+            # ② 2R 平一半
+            if peak >= half_at_r and not half_done:
+                half_done = True
+            # ③ 时间止损（平过半豁免）
+            if not half_done and (j - i) >= maxh:
+                ep, er, ei = c_, "timeout", j
+                break
+            # ④ 半仓后再赚 half_tp_r 全平
+            if half_done and half_tp_r > 0 and (cur - half_at_r) >= half_tp_r:
+                ep, er, ei = c_, "half_tp", j
+                break
+            # ⑤ 移动止盈（arm 后才生效；trail_after_half 时只在平半后启用）
+            if trail_arm > 0 and (half_done or not trail_after_half) \
+                    and peak >= trail_arm and (peak - cur) >= trail_dd:
+                ep, er, ei = c_, "trail", j
+                break
+            # ⑥ 镜像出场
+            flip = (dirs[j] == -1 and dirs[j - 1] == 1) if want == "long" \
+                else (dirs[j] == 1 and dirs[j - 1] == -1)
+            ha_ok = (hc[j] < ho[j] and hc[j] < zl[j]) if want == "long" \
+                else (hc[j] > ho[j] and hc[j] > zl[j])
+            ok_bp = bp[j] is not None and bp[j] >= BBW_MIN
+            if flip and ha_ok and ok_bp:
+                ep, er, ei = c_, "mirror", j
+                break
+        if ep is None:
+            ei = n - 1
+            ep = float(ks[-1]["close"])
+            er = "eod"
+        g = (ep - entry) * sign
+        r = (g - (entry + ep) * FEE) / risk
+        if half_done:
+            r = 0.5 * half_at_r + 0.5 * r
+        out.append(dict(side=want, r=r, bars=ei - i, reason=er, peak=peak,
+                        risk_pct=risk / entry * 100,
+                        exit_ts=int(ks[ei].get("ts", ei))))
+        i = ei + 1
+    return out
+
+
+BASE = dict(half_at_r=1.8, half_tp_r=0.0, trail_arm=1.5, trail_after_half=True)
+PLANS = [
+    ("基线（现行 2R半/3R全平）",        dict()),
+    ("参考★ 当前最优 1.8半+移动1.5/1.1", dict(BASE, trail_dd=1.1)),
+    # ── 用户方案：1.2R 平一半，剩余半仓移动止损 ──
+    ("1.2半 + 移动1.0/0.5 ★用户",     dict(half_at_r=1.2, half_tp_r=0.0, trail_arm=1.0,
+                                        trail_dd=0.5, trail_after_half=True)),
+    ("1.2半 + 移动1.0/0.4",           dict(half_at_r=1.2, half_tp_r=0.0, trail_arm=1.0,
+                                        trail_dd=0.4, trail_after_half=True)),
+    ("1.2半 + 移动1.0/0.6",           dict(half_at_r=1.2, half_tp_r=0.0, trail_arm=1.0,
+                                        trail_dd=0.6, trail_after_half=True)),
+    ("1.2半 + 移动0.8/0.5",           dict(half_at_r=1.2, half_tp_r=0.0, trail_arm=0.8,
+                                        trail_dd=0.5, trail_after_half=True)),
+    ("1.4半 + 移动1.0/0.5",           dict(half_at_r=1.4, half_tp_r=0.0, trail_arm=1.0,
+                                        trail_dd=0.5, trail_after_half=True)),
+]
+
+
+def main():
+    files = sorted(glob.glob(os.path.join(ROOT, "backtest", "data", "*_15m_60d.json")))
+    cache = []
+    for fp in files:
+        sym = os.path.basename(fp).replace("_15m_60d.json", "")
+        ks = json.load(open(fp, encoding="utf-8"))
+        if len(ks) < 800:
+            continue
+        cache.append((sym, ks))
+    print("载入 %d 币" % len(cache))
+
+    inds = {sym: _ce_zlsma(ks, 1, 2.0, 50, True, True) for sym, ks in cache}
+
+    # ── 口径自证 ────────────────────────────────────────────────
+    ref = []
+    for sym, ks in cache:
+        ref.extend(ref_simulate(ks, inds[sym], want_mirror=True, use_bbw=True))
+    ref_s = stats(ref)
+    mine = []
+    for sym, ks in cache:
+        mine.extend(sim(ks, inds[sym]))
+    my_s = stats(mine)
+    print("\n【口径自证】trail 关闭时，必须与 s15_live_parity 完全一致")
+    print("  参考实现: %d 笔 / %+.2fR" % (ref_s["n"], ref_s["r"]))
+    print("  本脚本  : %d 笔 / %+.2fR" % (my_s["n"], my_s["r"]))
+    if ref_s["n"] != my_s["n"] or abs(ref_s["r"] - my_s["r"]) > 1e-6:
+        print("  ✗ 口径不一致，拒绝出结果")
+        return 1
+    print("  ✓ 一致（%d 笔零差异）" % ref_s["n"])
+
+    # ── 参数矩阵 ────────────────────────────────────────────────
+    print("\n" + "=" * 112)
+    print("%-22s%7s%10s%9s%8s%10s%9s%8s" % (
+        "方案", "笔数", "净R", "均笔R", "胜率", "最大回撤", "均持仓h", "最长h"))
+    print("-" * 112)
+    results = []
+    for name, kw in PLANS:
+        trades = []
+        for sym, ks in cache:
+            trades.extend(sim(ks, inds[sym], **kw))
+        s = stats(trades)
+        hmax = max(t["bars"] for t in trades) / BARS_PER_HOUR
+        results.append((name, kw, s, trades))
+        print("%-22s%7d%+10.1f%+9.3f%7.1f%%%+10.1f%9.2f%8.1f" % (
+            name, s["n"], s["r"], s["avg"], s["win"], s["mdd"],
+            s["bars"] / BARS_PER_HOUR, hmax))
+    print("=" * 112)
+
+    # ── 出场原因分布（看各出口贡献）──────────────────────────────
+    print("\n【出场原因分布：笔数 / 合计R】")
+    reasons = ["hard_stop", "timeout", "half_tp", "trail", "mirror", "eod"]
+    print("%-22s" % "方案" + "".join("%16s" % r for r in reasons))
+    print("-" * 112)
+    for name, kw, s, trades in results:
+        line = "%-22s" % name
+        for rn in reasons:
+            sel = [t for t in trades if t["reason"] == rn]
+            if sel:
+                line += "%16s" % ("%d/%+.0fR" % (len(sel), sum(t["r"] for t in sel)))
+            else:
+                line += "%16s" % "-"
+        print(line)
+
+    # ── 与基线对比 ──────────────────────────────────────────────
+    base_r = results[0][2]["r"]
+    base_h = results[0][2]["bars"] / BARS_PER_HOUR
+    print("\n【相对基线的变化】")
+    print("%-22s%12s%12s%10s" % ("方案", "净R差", "持仓缩短", "回撤差"))
+    print("-" * 60)
+    for name, kw, s, trades in results[1:]:
+        print("%-22s%+12.1f%11.1f%%%+10.1f" % (
+            name, s["r"] - base_r,
+            (base_h - s["bars"] / BARS_PER_HOUR) / base_h * 100 if base_h else 0,
+            s["mdd"] - results[0][2]["mdd"]))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
