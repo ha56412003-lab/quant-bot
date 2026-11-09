@@ -73,13 +73,12 @@ def main():
     print("光闸结论列口径测试")
     print("=" * 78)
 
-    # ── 1. 真在持仓 → 已开仓 ────────────────────────────────
-    print("\n  1. 持仓表里有这个币 → 必须显示「已开仓」")
+    # ── 1. 真在持仓 → 整行跳过（浩哥 2026-11-09 定：光照只答"能不能开"）────
+    print("\n  1. 持仓表里有这个币 → 整行不出现（持仓状态看持仓卡）")
     _setup(held_syms=[SYM])
     d = run_gates()
-    r = d["rows"][0]
-    ck("opened=True", r.get("opened") is True, r.get("opened"))
-    ck("verdict=已开仓", r.get("verdict") == "已开仓", r.get("verdict"))
+    ck("行数为 0", len(d["rows"]) == 0, len(d["rows"]))
+    ck("symbol 不在表里", all(x.get("symbol") != SYM for x in d["rows"]), len(d["rows"]))
 
     # ── 2. 没持仓 + 信号被风控拒 → 显示真实原因 ─────────────────
     print("\n  2. 没持仓 + 本根信号被拒 → 必须显示 skip_reason（事故复现场景）")
@@ -176,25 +175,18 @@ def main():
     r = d["rows"][0]
     ck("池满未入选", r.get("verdict") == "池外·池满未入选", r.get("verdict"))
 
-    # ── 11. 池外但持仓里 → 仍是「已开仓」（持仓优先级最高）───────────
-    print("\n  11. 池外但真在持仓 → 仍显示「已开仓」")
+    # ── 11. 持仓中的币 → 整行不出现（浩哥 2026-11-09 定：看持仓卡，别看这里）──
+    print("\n  11. 持仓中的币不进光闸面板（避免 ce/ha 旧值被误读成「又反转了」）")
+    _setup(held_syms=[SYM], in_pool=True)
+    d = run_gates()
+    ck("表中没有它", all(r.get("symbol") != SYM for r in d["rows"]), len(d["rows"]))
+    ck("总行数为 0", len(d["rows"]) == 0, len(d["rows"]))
+
+    # ── 12. 池外 + 持仓 → 同样不出现 ──────────────────────────────
+    print("\n  12. 池外且持仓 → 也不出现（持仓状态一律去持仓卡看）")
     _setup(held_syms=[SYM], in_pool=False, eff=0.20)
     d = run_gates()
-    r = d["rows"][0]
-    ck("持仓优先", r.get("verdict") == "已开仓", r.get("verdict"))
-    ck("opened=True", r.get("opened") is True, r.get("opened"))
-
-    # ── 12. 持仓币被策略跳过、没有 _GATE_STATE 记录 → 仍必须列出来 ─────
-    print("\n  12. 持仓币没有四闸记录（策略跳过）→ 面板仍要显示「已开仓」，不能消失")
-    _setup(held_syms=[SYM], in_pool=True)
-    S._GATE_STATE.clear()          # 模拟：策略对持仓币 continue，没写状态
-    d = run_gates()
-    ck("行数不为 0", len(d["rows"]) == 1, len(d["rows"]))
-    r = d["rows"][0] if d["rows"] else {}
-    ck("symbol 是持仓币", r.get("symbol") == SYM, r.get("symbol"))
-    ck("verdict=已开仓", r.get("verdict") == "已开仓", r.get("verdict"))
-    ck("opened=True", r.get("opened") is True, r.get("opened"))
-    ck("四闸字段为空（诚实反映没扫）", r.get("ce") is None and r.get("bbw") is None, (r.get("ce"), r.get("bbw")))
+    ck("表中没有它", all(r.get("symbol") != SYM for r in d["rows"]), len(d["rows"]))
 
     print("\n" + "=" * 78)
     print(f"结果：{'全部通过' if not _fails else str(len(_fails)) + ' 项失败：' + ', '.join(_fails)}")

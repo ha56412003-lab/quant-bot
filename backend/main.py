@@ -655,7 +655,7 @@ async def api_gates():
     #   信号后面还有 risk.allow_entry 九道闸，任何一道拒绝都没有仓位
     #   （实例：RSR 06:45 四闸全过，但被「已达日目标」拦下，页面却写「已开仓」）。
     #   所以结论列必须用两样真实事实覆盖：
-    #     ① positions 表里真在持仓 → 「已开仓」
+    #     （持仓币已在上面的循环里整行跳过，不在本表出现）
     #     ② signals 表本根 K 线的最新信号被拒 → 直接显示它的 skip_reason
     # ★ 2026-11-09 再修：池外的币永远不会被扫描，_GATE_STATE 是历史残留。
     #   照旧显示「四闸全过·待成交」会让人以为在排队等开仓（实际等到天亮也不开）。
@@ -673,6 +673,12 @@ async def api_gates():
     for sym in config.UNIVERSE:
         v = gs.get(sym)
         if not v:
+            continue
+        # ★ 2026-11-09 浩哥定：已持仓的币不进光闸面板。
+        #   原因：策略对持仓币直接 continue（不用再判断能不能开），它的 ce/ha
+        #   是开仓前留下的旧值，挂在表上会让人以为「又反转了」（LIT 实例）。
+        #   能不能开仓看这张表，持仓状态看持仓卡，两边各管各的。
+        if sym in held:
             continue
         if v.get("ts") and (bar is None or v["ts"] > bar):
             bar = v["ts"]
@@ -715,26 +721,9 @@ async def api_gates():
                      "opened": sym in held, "verdict": verdict,
                      "eff": (qdata.get(sym) or {}).get("eff"),
                      **v, "why": verdict})
-    # ★ 2026-11-09 修：已持仓的币从面板上「消失」。
-    #   strategies.evaluate() 对持仓币直接 continue（不用再判断能不能开），
-    #   于是不写 _GATE_STATE → /api/gates 遍历 gs 时就没有它。
-    #   结果：明明还在跑的仓位，面板上看不到，像已经平了（STRK 实例）。
-    #   这里把持仓币补进列表，四闸状态留空（确实没扫），结论固定「已开仓」。
-    _listed = {r["symbol"] for r in rows}
-    for sym in held:
-        if sym in _listed:
-            continue
-        q = qdata.get(sym) or {}
-        rows.append({"symbol": sym, "in_monitor": sym in mon,
-                     "dev_ok": True, "opened": True, "verdict": "已开仓",
-                     "eff": q.get("eff"),
-                     "ts": None, "dir": None, "ce": None, "ha": None,
-                     "bbw": None, "bbw_thr": None, "dev": None,
-                     "dev_thr": 0, "atr_pct": None, "ok": None,
-                     "why": "已开仓（持仓中不参与扫描）"})
-    # 有戏的排前面：已开仓 > 在池 > CE 已翻 > HA 成立 > 偏离够 > BBW 高
-    rows.sort(key=lambda r: (not r.get("opened"), not r.get("in_monitor"), not r.get("ok"),
-                             not r.get("ce"), not r.get("ha"), not r.get("dev_ok"),
+    # 有戏的排前面：在池 > CE 已翻 > HA 成立 > 偏离够 > BBW 高
+    rows.sort(key=lambda r: (not r.get("in_monitor"), not r.get("ok"), not r.get("ce"),
+                             not r.get("ha"), not r.get("dev_ok"),
                              -(r.get("bbw") or 0)))
     return {
         "ts": bar,
