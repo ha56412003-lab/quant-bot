@@ -562,11 +562,24 @@ def monitor_list() -> list[str]:
 
 
 def is_tradable(symbol: str):
-    """(是否放行, 原因)。数据缺失时放行，避免因刷新失败误停整个系统。"""
+    """(是否放行, 原因)。
+
+    2026-11-09 改 fail-closed：之前监控池为空时**放行全部候选币**，注释写的是
+    「避免因刷新失败误停整个系统」。但那等于——池子因为 bootstrap 失败 / yaml
+    配错 / 全市场转横盘 而变空时，涨跌幅、成交额、趋势效率三道闸门加上池子
+    成员资格**全部失效**，引擎会从 200 个币里随便开仓。风控静默下线的代价
+    远大于「今天不交易」，所以改成空池直接拒绝。
+    """
+    if not _monitor and not _ts:
+        # 从未算过（启动阶段）：池子还没准备好，不该开任何仓
+        return False, "监控池尚未初始化"
+    if not _monitor:
+        # 算过但结果为空：所有候选都不合格，或刷新失败
+        return False, "监控池为空"
     ok, why = _judge(symbol)
     if not ok:
         return False, why
-    if _monitor and symbol not in _monitor:
+    if symbol not in _monitor:
         return False, "未进监控池"
     return True, ""
 

@@ -115,17 +115,22 @@ async def main():
         return {"avgPrice": "105.0", "executedQty": "10.0",
                 "cummulativeQuoteQty": "1050.0", "status": "FILLED"}
 
-    if not db.open_positions():
+    # 场景 2 会留下 TEST2USDT 的仓位，所以这里必须按 symbol 精确定位，
+    # 否则 [0] 取到的是上一场景的仓位（这就是首版测试误报的原因）。
+    _p3 = [p for p in db.open_positions() if p["symbol"] == "TEST3USDT"]
+    if not _p3:
         db.open_position(
             strategy="S15_CE_ZLSMA", symbol="TEST3USDT", side="long", qty=10.0,
             entry_price=100.0, stop_price=95.0, take_profit=None, trail_atr=None,
             max_hold_sec=16 * 3600, time_exit_at=None, entry_factors="{}",
             reason="审计测试3", leverage=6.0, fee_rate=0.0005, slip_pct=0.0)
+        _p3 = [p for p in db.open_positions() if p["symbol"] == "TEST3USDT"]
     binance.place_market_order = fake_place_far
-    pos = db.open_positions()[0]
+    pos = _p3[0]
     # 本地价 100.5，交易所实际成交 105.0
     await executor.close_position(pos, 100.5, "审计测试平仓3")
-    closed = db.closed_positions_today(0, "live")
+    closed = [c for c in db.closed_positions_today(0, "live")
+              if c["symbol"] == "TEST3USDT"]
     real_pnl = (105.0 - 100.0) * 10.0 - 105.0 * 10.0 * 0.0005   # 真实应为 +49.48
     booked = closed[0]["pnl"] if closed else None
     check("记账 PnL 应该接近真实成交价算出的 +49.48",
@@ -142,7 +147,7 @@ async def main():
             print(f"    · {f}")
     print("═" * 60)
 
-    executor.set_mode("paper")
+    executor.set_mode("paper", force=True)
     try:
         os.remove(_TMP)
     except OSError:

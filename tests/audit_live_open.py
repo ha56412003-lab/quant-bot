@@ -98,18 +98,31 @@ async def main():
         exc = e
     db.open_position = real_open
 
-    check("写库失败时，订单已经真实发出去了",
-          len(order_log) == 1,
-          f"下单次数 {len(order_log)} → "
-          f"{'★ 钱已经进了交易所' if len(order_log) >= 1 else '未下单'}")
+    # ⚠ 2026-11-09 改：这三个断言原来是「证明 BUG」的（旧实现在这里抛异常、留裸仓）。
+    # 现在实现已改成「自行兜底：不抛异常 + 反向市价平掉」，断言同步改成验证新行为。
+    check("写库失败不该把异常抛给调用方（否则整轮扫描中断）",
+          exc is None,
+          f"抛出了 {type(exc).__name__}: {exc}" if exc else "未抛异常，函数内部已处理")
+
+    # 订单已经真实发出去了（第 1 次开仓），写库失败后必须反向平掉（第 2 次）
+    check("写库失败后必须自动反向平掉，不能留裸仓",
+          len(order_log) == 2,
+          f"下单 {len(order_log)} 次 → "
+          f"{'开仓 1 次 + 反向平仓 1 次，已回滚' if len(order_log) == 2 else '★ 没有回滚 → 裸仓'}")
+
+    _rb = (len(order_log) == 2
+           and order_log[1]["args"][1] == "SELL"
+           and order_log[1]["kwargs"].get("reduce_only") is True)
+    check("回滚单必须是反向 + reduce_only（否则会变成反手开空）",
+          _rb,
+          f"第 2 笔: side={order_log[1]['args'][1] if len(order_log) > 1 else '-'} "
+          f"reduce_only={order_log[1]['kwargs'].get('reduce_only') if len(order_log) > 1 else '-'}")
+
     local = db.open_positions()
-    check("本地应该有这条仓位的记录（否则无人管）",
-          len(local) == 1,
+    check("本地不该留下仓位（已回滚）",
+          len(local) == 0,
           f"本地仓位数 {len(local)} → "
-          f"{'★ 交易所有仓、本地零记录 → 裸仓，无止损无出场' if len(local) == 0 else '有记录'}")
-    check("写库失败应该被显式处理（返回 None + 告警），不该裸抛异常",
-          False,   # 当前实现一定会抛
-          f"实际抛出：{type(exc).__name__}: {exc}" if exc else "未抛异常")
+          f"{'★ 残留裸仓记录' if len(local) else '已清干净'}")
 
     print("\n══ 场景 C：qty 被 round_step 归零 ══")
     order_log.clear()
@@ -134,7 +147,7 @@ async def main():
             print(f"    · {f}")
     print("═" * 60)
 
-    executor.set_mode("paper")
+    executor.set_mode("paper", force=True)
     try:
         os.remove(_TMP)
     except OSError:

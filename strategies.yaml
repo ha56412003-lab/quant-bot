@@ -45,7 +45,7 @@ global:
     enabled: true
     target_usd: 500
     sustain_sec: 30
-    auto_close_sec: 5
+    auto_close_sec: 300
     pause_new: true
     notify: true
 strategies:

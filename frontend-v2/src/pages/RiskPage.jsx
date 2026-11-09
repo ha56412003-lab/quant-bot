@@ -16,21 +16,33 @@ function GlobalRisk({ data, onSaved }) {
   const dt = dtData?.daily_target || data?.daily_target || {}
   const [v, setV] = useState({})
   const [orig, setOrig] = useState({})
+  /* 用户正在编辑时不能被轮询冲掉。
+     /api/risk 每几秒刷新一次，data 每次都是新对象 → [data] 每次都变 →
+     原来会把用户填到一半的数字直接重置回旧值。 */
+  const dirty = React.useRef(false)
   React.useEffect(() => {
+    if (dirty.current) return
     setV(g)
     // 记录加载时的原始值：保存时只提交**改过的**字段。
     // 否则表单里任何一个陈旧值都会覆盖掉别人刚改的参数
     // （2026-11-05 事故：max_same_side 被页面里的旧值 6 覆盖回写）
     setOrig(JSON.parse(JSON.stringify(g)))
   }, [data]) // eslint-disable-line
+  const edit = (k, x) => {
+    dirty.current = true
+    setV((s) => ({ ...s, [k]: x }))
+  }
+  // 每个字段都带硬边界：填 0 / 负数 / 天文数字在这里就被挡住。
+  // 之前没有任何限制 —— risk_per_trade_pct=0 会让仓位算成无穷大；
+  // max_concurrent_coins=0 会直接停掉所有开仓；这些都是「一次误触就废掉系统」。
   const fields = [
-    ['risk_per_trade_pct', t('risk.f.rpt'), t('risk.f.rptTip')],
-    ['max_gross_leverage', t('risk.f.lev'), t('risk.f.levTip')],
-    ['max_position_pct_per_coin', t('risk.f.coinCap'), t('risk.f.coinCapTip')],
-    ['max_concurrent_coins', t('risk.f.conc'), t('risk.f.concTip')],
-    ['max_same_side', t('risk.f.sameSide'), t('risk.f.sameSideTip')],
-    ['daily_loss_halt_pct', t('risk.f.halt'), t('risk.f.haltTip')],
-    ['event_quiet_minutes', t('risk.f.quiet'), t('risk.f.quietTip')],
+    ['risk_per_trade_pct', t('risk.f.rpt'), t('risk.f.rptTip'), 0.1, 10, 0.1],
+    ['max_gross_leverage', t('risk.f.lev'), t('risk.f.levTip'), 1, 20, 1],
+    ['max_position_pct_per_coin', t('risk.f.coinCap'), t('risk.f.coinCapTip'), 1, 100, 1],
+    ['max_concurrent_coins', t('risk.f.conc'), t('risk.f.concTip'), 1, 20, 1],
+    ['max_same_side', t('risk.f.sameSide'), t('risk.f.sameSideTip'), 1, 20, 1],
+    ['daily_loss_halt_pct', t('risk.f.halt'), t('risk.f.haltTip'), 1, 50, 0.5],
+    ['event_quiet_minutes', t('risk.f.quiet'), t('risk.f.quietTip'), 0, 240, 5],
   ]
   const save = async () => {
     const diff = {}
@@ -38,18 +50,34 @@ function GlobalRisk({ data, onSaved }) {
       if (JSON.stringify(v[k]) !== JSON.stringify(orig[k])) diff[k] = v[k]
     }
     if (!Object.keys(diff).length) { message.info(t('risk.noChange')); return }
-    try { await api.setGlobalRisk(diff); message.success(t('risk.globalSaved')); onSaved?.() }
+    // 提交前再挡一次（InputNumber 可以被直接输入绕过 min/max）
+    for (const [k, label, , lo, hi] of fields) {
+      if (k in diff) {
+        const n = Number(diff[k])
+        if (!Number.isFinite(n) || n < lo || n > hi) {
+          message.error(`${label} 必须在 ${lo} ~ ${hi} 之间（当前 ${diff[k]}）`)
+          return
+        }
+        diff[k] = n
+      }
+    }
+    try {
+      await api.setGlobalRisk(diff)
+      dirty.current = false
+      message.success(t('risk.globalSaved')); onSaved?.()
+    }
     catch (e) { message.error(`${t('config.saveFailed')}: ${e.message}`) }
   }
   return (
     <Card size="small" title={t('risk.global')}>
       <Row gutter={[16, 12]}>
-        {fields.map(([k, label, tip]) => (
+        {fields.map(([k, label, tip, lo, hi, step]) => (
           <Col xs={12} md={8} key={k}>
             <div style={{ fontSize: 12, color: 'var(--mute, #7d8590)', marginBottom: 4 }}>{label}</div>
             <InputNumber size="small" style={{ width: '100%' }} value={v[k]}
-                         onChange={(x) => setV((s) => ({ ...s, [k]: x }))} />
-            <div style={{ fontSize: 11, color: '#4d5661', marginTop: 2 }}>{tip}</div>
+                         min={lo} max={hi} step={step}
+                         onChange={(x) => edit(k, x)} />
+            <div style={{ fontSize: 11, color: '#4d5661', marginTop: 2 }}>{tip}（{lo} ~ {hi}）</div>
           </Col>
         ))}
       </Row>

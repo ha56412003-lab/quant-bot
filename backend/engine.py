@@ -213,7 +213,8 @@ async def scan_loop():
     db.set_meta("started_at", int(time.time()))
     last_book = 0.0
     equity_cache = config.PAPER_START_BALANCE
-    _t0 = time.time()
+    _boot_ts = time.time()      # 进程启动时刻（只用于「监控池等了多久」）
+    _t0 = time.time()           # 每轮扫描计时（下面会被反复覆盖）
     while True:
         started = time.monotonic()
         try:
@@ -255,14 +256,29 @@ async def scan_loop():
 
             # 池子还没算完就先别扫策略 —— 否则 monitor_list() 为空，
             # syms() 会回落到全量候选池 200 个币，既浪费流量又灌噪音信号。
-            # 5 分钟后仍没就绪则放行（宁可回到老行为，也不能一直不交易）。
+            # ⚠ 2026-11-09 修两处：
+            #   ① 这里原来用 _t0，而 _t0 在下面扫描时被覆盖成「本轮开始时间」，
+            #      一旦 READY 曾经 set 过又变回 clear，「等了 5 分钟」永远不成立 →
+            #      永久静默不交易。现在改用独立的 _boot_ts。
+            #   ② 原来等满 5 分钟会「放行全量扫描」。但 is_tradable 已改成
+            #      空池 fail-closed，放行了也全被拦；而且风控没准备好时本来
+            #      就不该开仓。现在改成持续告警 + 继续等待。
             if not quality.READY.is_set():
-                if time.time() - _t0 < 300:
+                waited = time.time() - _boot_ts
+                if waited < 300:
                     await asyncio.sleep(3)
                     continue
                 if not _READY_WARNED[0]:
-                    log.warning("监控池 5 分钟仍未就绪，放行全量扫描")
+                    msg = f"监控池启动 {int(waited)}s 仍未就绪，暂停开仓（其余风控照常）"
+                    log.error(msg)
+                    db.log("error", msg)
                     _READY_WARNED[0] = True
+                await asyncio.sleep(3)
+                continue
+            if _READY_WARNED[0]:
+                # 恢复后要能再报一次，否则下次故障就不告警了
+                _READY_WARNED[0] = False
+                db.log("info", "监控池已就绪，恢复扫描")
 
             strategies = _strategies(cfg) if equity_cache > 0 else {}
             ctx = Ctx(config.UNIVERSE, quality.monitor_list())

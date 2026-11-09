@@ -261,6 +261,19 @@ def set_strategy_risk(sid, risk):
 _GLOBAL_INT_KEYS = ("max_gross_leverage", "max_concurrent_coins", "max_same_side",
                     "event_quiet_minutes")
 _GLOBAL_FLOAT_KEYS = ("daily_loss_halt_pct", "risk_per_trade_pct", "max_position_pct_per_coin")
+
+# 风控参数硬边界（2026-11-09）。前端 InputNumber 的 min/max 只影响体验，
+# 接口可以被 curl 直接调用 / 也可被脚本写坏，所以必须在写盘前挡。
+# 下限都不是 0：0 在多数参数上等于「关掉这道风控」或「除以 0」。
+_RISK_BOUNDS = {
+    "risk_per_trade_pct": (0.1, 10.0),      # 每单亏净值百分比
+    "max_gross_leverage": (1, 20),          # 总杠杆上限
+    "max_position_pct_per_coin": (1.0, 100.0),  # 单币名义上限
+    "max_concurrent_coins": (1, 20),        # 同时持仓币数
+    "max_same_side": (1, 20),               # 同方向最多几笔
+    "daily_loss_halt_pct": (1.0, 50.0),     # 日内熔断线
+    "event_quiet_minutes": (0, 240),        # 事件静默窗口（0 = 不静默，允许）
+}
 _DAILY_TARGET_KEYS = ("enabled", "target_usd", "sustain_sec", "auto_close_sec",
                       "pause_new", "notify")
 
@@ -272,7 +285,29 @@ def set_global_risk(updates):
     第二个 for 循环遍历空元组 `()`，一次都不执行。结果前端风控页无论改什么
     （熔断线、每单风险、并发数、杠杆），接口都返回 {"ok": true}，
     yaml 里却一个字节都没变。改风控等于没改。
+
+    ⚠ 2026-11-09：范围校验必须放在**改 cfg 之前**。
+    load_strategies() 返回的是缓存对象，先写进去再校验的话，抛异常时
+    虽然没落盘，但内存里已经是脏值，下一次读就直接拿到 0。实测：
+    提交 {max_same_side:5, risk_per_trade_pct:0} 被拒后，
+    内存里 risk_per_trade_pct 已经是 0.0。
     """
+    # ① 先对入参做纯校验，一个字节都不碰 cfg
+    bad = []
+    for k, (lo, hi) in _RISK_BOUNDS.items():
+        if k not in updates or updates[k] is None:
+            continue
+        try:
+            got = float(updates[k])
+        except (TypeError, ValueError):
+            bad.append(f"{k}={updates[k]!r} 不是数字")
+            continue
+        if not (lo <= got <= hi):
+            bad.append(f"{k}={got:g} 超出允许范围 {lo:g} ~ {hi:g}")
+    if bad:
+        raise ValueError("风控参数不合法，已拒绝写入：" + "；".join(bad))
+
+    # ② 校验通过，才开始改
     cfg = load_strategies()
     g = cfg.setdefault("global", {})
     changed = {}
@@ -296,6 +331,7 @@ def set_global_risk(updates):
             if k in updates["daily_target"] and updates["daily_target"][k] is not None:
                 blk[k] = updates["daily_target"][k]
                 changed[f"daily_target.{k}"] = blk[k]
+    # ⚠ 2026-11-09：范围校验已经移到函数开头（必须在改 cfg 之前）。
     if not changed:
         raise ValueError("没有可更新的字段（或值非法）")
     save_strategies(cfg)

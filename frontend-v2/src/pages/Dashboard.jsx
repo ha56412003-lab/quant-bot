@@ -87,12 +87,39 @@ export default function Dashboard({ status }) {
   const isPop = (p, kind) => !!(pop && pop.pid === p.id && pop.kind === kind)
   const closePop = () => setPop(null)
 
+  /* 请求进行中标记：防止双击把同一个平仓发两次。
+     后端有 per-pid 锁 + status='open' 条件兜底，但「两个 50% 请求串行」
+     本身就会卖到 75% —— 用户只点了一次，不该承担这个后果。 */
+  const [busy, setBusy] = React.useState({})
+  const keyOf = (p, kind) => p.id + '-' + kind
+  const isBusy = (p, kind) => !!busy[keyOf(p, kind)]
+  const markBusy = (p, kind, v) => setBusy((s) => {
+    const n = { ...s }
+    if (v) n[keyOf(p, kind)] = true
+    else delete n[keyOf(p, kind)]
+    return n
+  })
+  const [closingAll, setClosingAll] = React.useState(false)
+
   const closeAll = async () => {
+    if (closingAll) return
+    setClosingAll(true)
     try {
       const r = await api.post('/api/positions/close-all', {})
-      message.success('已全平 ' + (r.closed || 0))
+      let msg = '已全平 ' + (r.closed || 0) + ' 个'
+      if (r.paused_today) msg += '，今日不再自动开新仓'
+      message.success(msg)
       refresh()
-    } catch (e) { message.error(e.message) }
+    } catch (e) {
+      // 部分失败时后端回 ok:false + closed/failed，必须如实说清楚
+      const pay = e.payload
+      if (pay && pay.closed > 0) {
+        message.warning(`平掉 ${pay.closed} 个，${pay.failed} 个没成功 — ${e.message}`)
+      } else {
+        message.error(e.message)
+      }
+      refresh()          // 无论成败都刷新，让用户看到真实持仓
+    } finally { setClosingAll(false) }
   }
 
   /* ── 杠杆：点按钮直接用原位浮窗确认 ── */
@@ -101,25 +128,34 @@ export default function Dashboard({ status }) {
     setPop({ pid: p.id, kind: 'lev', lev })
   }
   const doLev = async (p) => {
+    if (isBusy(p, 'lev')) return
     const lev = pop.lev
     const sym = (p.symbol || '').replace('USDT', '')
+    markBusy(p, 'lev', true)
     try {
       await api.post('/api/positions/' + p.id + '/leverage', { leverage: lev })
       message.success(sym + ' 杠杆已调至 ' + lev + 'x')
       closePop(); refresh()
     } catch (e) { message.error(e.message) }
+    finally { markBusy(p, 'lev', false) }
   }
 
   /* ── 平仓：三个比例按钮各自带原位浮窗 ── */
   const askClose = (p, frac) => setPop({ pid: p.id, kind: 'close', frac })
   const doClose = async (p) => {
+    if (isBusy(p, 'close')) return      // 双击直接吞掉
     const frac = pop.frac
     const sym = (p.symbol || '').replace('USDT', '')
+    markBusy(p, 'close', true)
     try {
       await api.post('/api/positions/' + p.id + '/close', { fraction: frac })
       message.success(sym + ' 已平 ' + (frac * 100).toFixed(0) + '%')
       closePop(); refresh()
-    } catch (e) { message.error(e.message) }
+    } catch (e) {
+      // ok:false 也会走到这里（平仓失败 / 已被别的路径平掉），不能弹成功
+      message.error(e.message)
+      closePop(); refresh()
+    } finally { markBusy(p, 'close', false) }
   }
 
   /* ── 补保证金：取消时清空输入框 ── */
@@ -152,7 +188,7 @@ export default function Dashboard({ status }) {
           {/* 滚动小绿字状态带（参考网站风格） */}
           <div className="ticker">
             <span>
-              {(pos.length ? pos.map(p => `${(p.symbol||'').replace('USDT','')} ${p.side === 'long' ? '多' : '空'} ${(p.unrealized_pnl||0) >= 0 ? '+' : ''}${(p.unrealized_pnl||0).toFixed(2)}`).join('  ·  ') : '等待开仓')}
+              {(pos.length ? pos.map(p => `${(p.symbol||'').replace('USDT','')} ${p.side === 'long' ? '多' : '空'} ${p.stale ? '缺价' : ((p.unrealized_pnl||0) >= 0 ? '+' : '') + (p.unrealized_pnl||0).toFixed(2)}`).join('  ·  ') : '等待开仓')}
               &nbsp;&nbsp;·&nbsp;&nbsp; S15_CE_ZLSMA 运行中 &nbsp;·&nbsp; 扫描间隔 {SCAN_SEC / 60}m &nbsp;·&nbsp; 15m K线
               &nbsp;&nbsp;·&nbsp;&nbsp; 引擎心跳正常 &nbsp;·&nbsp; 下一轮扫描 {(() => {
                 const base = status?.last_scan_ts || status?.last_tick_ts || 0
@@ -167,9 +203,17 @@ export default function Dashboard({ status }) {
           {/* 「持仓操作区 0 单」整行已取消；一键全平收成小胶囊，浮在状态带右侧，仅持仓时出现 */}
           {pos.length > 0 && (
             <div style={{ position: 'absolute', top: 3, right: 8, zIndex: 6 }}>
-              <Popconfirm title={'确定全平 ' + pos.length + ' 单？'} onConfirm={closeAll}>
-                <button className="btn close-all-fab" style={{ borderColor: 'var(--red, #ff4d5e)', color: 'var(--red, #ff4d5e)' }}>
-                  一键全平
+              <Popconfirm title={'确定全平 ' + pos.length + ' 单？'} onConfirm={closeAll}
+                okText={closingAll ? '正在平…' : '确定'}
+                okButtonProps={{ loading: closingAll, disabled: closingAll }}>
+                <button className="btn close-all-fab"
+                  disabled={closingAll}
+                  style={{
+                    borderColor: 'var(--red, #ff4d5e)', color: 'var(--red, #ff4d5e)',
+                    opacity: closingAll ? 0.6 : 1,
+                    cursor: closingAll ? 'not-allowed' : 'pointer',
+                  }}>
+                  {closingAll ? '平仓中…' : '一键全平'}
                 </button>
               </Popconfirm>
             </div>
@@ -286,8 +330,8 @@ ${r.advice}`}
                                   </div>
                                   <div className="pop-row">
                                     <span>距爆仓</span>
-                                    <b className={(p.liq_dist_pct || 99) < 20 ? 'up' : ''}>
-                                      {(p.liq_dist_pct || 0).toFixed(0)}%
+                                    <b className={(!p.stale && (p.liq_dist_pct || 99) < 20) ? 'up' : ''}>
+                                      {p.stale ? '--' : (p.liq_dist_pct || 0).toFixed(0) + '%'}
                                     </b>
                                   </div>
                                 </div>
@@ -310,8 +354,8 @@ ${r.advice}`}
                         </div>
                         <div style={{
                           fontSize: 9,
-                          color: (p.liq_dist_pct || 99) < 20 ? 'var(--red, #ff4d5e)' : 'var(--mute, #6b7183)',
-                        }}>距 {(p.liq_dist_pct || 0).toFixed(0)}%</div>
+                          color: (!p.stale && (p.liq_dist_pct || 99) < 20) ? 'var(--red, #ff4d5e)' : 'var(--mute, #6b7183)',
+                        }}>距 {p.stale ? '--' : (p.liq_dist_pct || 0).toFixed(0) + '%'}</div>
                       </td>
                       <td style={{ padding: '7px 8px' }}>
                         <span style={{
@@ -322,7 +366,7 @@ ${r.advice}`}
                         }}>S15</span>
                       </td>
                       <td style={{ padding: '7px 8px', textAlign: 'right' }}>{fmtPx(p.entry_price)}</td>
-                      <td style={{ padding: '7px 8px', textAlign: 'right' }}>{fmtPx(p.mark_price)}</td>
+                      <td style={{ padding: '7px 8px', textAlign: 'right' }}>{p.stale ? '--' : fmtPx(p.mark_price)}</td>
                       <td style={{ padding: '7px 8px', textAlign: 'right' }}>{fmtQty(p.qty)}</td>
                       <td style={{ padding: '7px 8px', textAlign: 'right' }}>{(p.notional || 0).toFixed(0)}U</td>
                       <td style={{ padding: '7px 8px', textAlign: 'right' }}>{(p.margin || 0).toFixed(0)}U</td>
@@ -369,10 +413,13 @@ ${r.advice}`}
                       </td>
                       <td style={{
                         padding: '7px 8px', textAlign: 'right', fontWeight: 700,
-                        color: win ? 'var(--red, #ff4d5e)' : 'var(--green, #35e08a)',
+                        color: p.stale ? 'var(--mute, #6b7183)'
+                          : (win ? 'var(--red, #ff4d5e)' : 'var(--green, #35e08a)'),
                       }}>
-                        {win ? '+' : ''}{(p.unrealized_pnl || 0).toFixed(2)}
-                        <span style={{ fontSize: 9, opacity: .55, marginLeft: 1 }}>U</span>
+                        {p.stale ? '--' : (win ? '+' : '') + (p.unrealized_pnl || 0).toFixed(2)}
+                        {!p.stale && (
+                          <span style={{ fontSize: 9, opacity: .55, marginLeft: 1 }}>U</span>
+                        )}
                       </td>
                       <td style={{ padding: '6px 8px' }}>
                         <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -387,6 +434,11 @@ ${r.advice}`}
                               onConfirm={() => doClose(p)}
                               onCancel={closePop}
                               okText="确认平仓" cancelText="取消"
+                              okButtonProps={{
+                                loading: isBusy(p, 'close'),
+                                disabled: isBusy(p, 'close'),
+                              }}
+                              cancelButtonProps={{ disabled: isBusy(p, 'close') }}
                               placement="top" overlayClassName="pop-dark"
                               description={
                                 <div className="pop-body">
@@ -408,9 +460,9 @@ ${r.advice}`}
                                   </div>
                                   <div className="pop-row">
                                     <span>浮盈</span>
-                                    <b className={(p.unrealized_pnl || 0) >= 0 ? 'up' : 'dn'}>
-                                      {(p.unrealized_pnl || 0) >= 0 ? '+' : ''}
-                                      {(p.unrealized_pnl || 0).toFixed(2)}U
+                                    <b className={p.stale ? '' : ((p.unrealized_pnl || 0) >= 0 ? 'up' : 'dn')}>
+                                      {p.stale ? '--' : ((p.unrealized_pnl || 0) >= 0 ? '+' : '')
+                                        + (p.unrealized_pnl || 0).toFixed(2) + 'U'}
                                     </b>
                                   </div>
                                   <div className="pop-warn">

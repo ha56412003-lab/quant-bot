@@ -420,7 +420,13 @@ async def api_positions():
     mmr = 0.005          # 维持保证金率近似值（币安 USDT 永续小额档 ~0.4-0.5%）
     out = []
     for p in db.open_positions():
-        price = factors.mark_price_of(p["symbol"]) or p["entry_price"]
+        # ⚠ 2026-11-09：原来 mark_price_of 返回 None 时用开仓价顶替，
+        # 于是 upnl=0、liq_dist 看着「离爆仓很远」——断线/新币还没订阅价时，
+        # 页面上就是一片「盈亏 0、安全」的假象，实际上可能在爆仓边缘。
+        # 现在把「没有真实价」这件事显式带出去，前端显示 --。
+        real_px = factors.mark_price_of(p["symbol"])
+        stale = not real_px
+        price = real_px or p["entry_price"]
         sign = 1 if p["side"] == "long" else -1
         upnl = (price - p["entry_price"]) * p["qty"] * sign
         scfg = (cfg.get("strategies") or {}).get(p["strategy"], {}) or {}
@@ -509,6 +515,10 @@ async def api_positions():
         _live = {k: v for k, v in p.items() if k not in _dead_cols}
 
         out.append({**_live, "mark_price": price, "unrealized_pnl": upnl,
+                    # stale=True 表示这笔仓位当前**没有真实盘口价**，
+                    # mark_price / unrealized_pnl / liq_dist_pct 都是按开仓价
+                    # 兜底算出来的占位值，前端必须显示 --，不能当真实数字用。
+                    "stale": stale,
                     "notional": abs(p["qty"] * price),
                     "leverage": lev, "liq_price": liq, "liq_dist_pct": liq_dist,
                     "stop_dist_pct": stop_dist,
@@ -536,11 +546,23 @@ async def api_close_position(pid: int, body: dict = Body(default=None)):
     price = factors.mark_price_of(pos["symbol"])
     if not price:
         raise HTTPException(503, "no live price available")
-    fraction = float((body or {}).get("fraction", 1.0) or 1.0)
-    fraction = max(0.01, min(1.0, fraction))
+    # ⚠ 2026-11-09：原来是 float(x or 1.0) —— fraction=0 会走 `0 or 1.0` 变成 1.0，
+    # 然后被当成「手动全平」。0 和 "0" 还得到不同结果（数字 0 → 全平，字符串 "0" → 1%）。
+    # 现在是显式区间校验：不在 (0,1] 直接 400，绝不做兜底转换。
+    raw = (body or {}).get("fraction", 1.0)
+    try:
+        fraction = float(raw)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "fraction must be a number")
+    if not (0 < fraction <= 1.0):
+        raise HTTPException(400, "fraction must be in (0, 1]（要全平请传 1.0，不能传 0）")
     label = "手动全平" if fraction >= 0.999 else f"手动平仓 {fraction*100:.0f}%"
     ok = await executor.close_position(pos, price, label, fraction)
-    return {"ok": ok, "fraction": fraction, "symbol": pos["symbol"]}
+    if not ok:
+        # 200 + ok:false 也是失败。前端会按失败弹窗，不会谎报「已平」。
+        return {"ok": False, "fraction": fraction, "symbol": pos["symbol"],
+                "error": "平仓未成交（交易所拒单/未成交），或该仓位已被其他路径平掉"}
+    return {"ok": True, "fraction": fraction, "symbol": pos["symbol"]}
 
 
 @app.post("/api/daily-target/reset")
@@ -561,9 +583,19 @@ async def api_dt_reset(payload: dict | None = None):
 @app.post("/api/positions/close-all")
 async def api_close_all():
     closed, failed = await executor.close_all("手动一键全平")
+    paused = False
     if closed:
+        # 手动全平 = 主动落袋，当天不再自动开新仓（这是既有语义，不改）。
+        # 但必须把这件事说出来 —— 否则用户以为是「平完继续做」，
+        # 结果等一整天没单，还以为策略坏了。
         daily_target.mark_done("手动一键全平")
-    return {"ok": failed == 0, "closed": closed, "failed": failed}
+        paused = True
+    out = {"ok": failed == 0, "closed": closed, "failed": failed,
+           "paused_today": paused}
+    if failed:
+        out["error"] = (f"{failed} 个仓位没平掉（交易所拒单/未成交，或已被其他路径平仓），"
+                        f"请刷新持仓确认后再试")
+    return out
 
 
 @app.post("/api/positions/{pid}/leverage")
@@ -572,6 +604,14 @@ async def api_set_position_leverage(pid: int, payload: dict):
     pos = db.get_position(pid)
     if not pos or pos["status"] != "open":
         raise HTTPException(404, "position not open")
+    # ⚠ 2026-11-09：实盘下这个接口只改本地库，交易所那边一点没动。
+    # 界面却按新杠杆重算并显示爆仓价 → 给操作员一个假的安全边际。
+    # 全仓改杠杆在交易所侧还要校验保证金是否够，不是改个数就完事，所以直接拒绝。
+    if executor.mode() == "live":
+        raise HTTPException(400, {
+            "error": "实盘仓位的杠杆不能在系统里改",
+            "fix": "请在交易所 App 里调整该币的杠杆，系统只做展示，不代改",
+        })
     try:
         lev = int(payload.get("leverage") or 0)
     except (TypeError, ValueError):
@@ -579,7 +619,9 @@ async def api_set_position_leverage(pid: int, payload: dict):
     if lev < 1 or lev > 125:
         raise HTTPException(400, "leverage must be 1-125")
     old = pos.get("leverage")
-    db.set_position_field(pid, "leverage", float(lev))
+    ok = db.set_position_field(pid, "leverage", float(lev))
+    if not ok:
+        raise HTTPException(409, "仓位已平，无法修改")
     db.log("info", f"手动调整杠杆 {pos['symbol']} {old or '-'}x → {lev}x")
     return {"ok": True, "leverage": lev, "previous": old}
 
@@ -590,6 +632,14 @@ async def api_add_position_margin(pid: int, payload: dict):
     pos = db.get_position(pid)
     if not pos or pos["status"] != "open":
         raise HTTPException(404, "position not open")
+    # ⚠ 2026-11-09：实盘下没有任何代码调交易所的追加保证金接口
+    # （binance.py / exchanges.py 都没实现），这里只写本地 extra_margin。
+    # 而前端拿这个值算「爆仓价拉远了多少」—— 纯属幻觉。
+    if executor.mode() == "live":
+        raise HTTPException(400, {
+            "error": "实盘不能追加保证金",
+            "fix": "请在交易所 App 里手动加保证金；系统这边不代操作，避免账面与实际不符",
+        })
     try:
         amt = float(payload.get("amount") or 0)
     except (TypeError, ValueError):
@@ -609,6 +659,8 @@ async def api_add_position_margin(pid: int, payload: dict):
     if amt > free + 1e-9:
         raise HTTPException(400, f"可用保证金不足（可用 {free:.2f} U）")
     new_extra = db.add_extra_margin(pid, amt)
+    if new_extra is None:
+        raise HTTPException(409, "仓位已平，无法追加保证金")
     db.log("info", f"追加保证金 {pos['symbol']} +{amt:.2f}U（累计 {new_extra:.2f}U）")
     return {"ok": True, "extra_margin": new_extra, "free_margin": free - amt}
 
@@ -1079,6 +1131,10 @@ async def api_executor_exchange_set(payload: dict):
         executor.set_exchange(venue)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    except RuntimeError as e:
+        # 实盘有持仓时不许换交易所（见 executor.set_exchange 注释）
+        raise HTTPException(400, {"error": str(e),
+                                  "fix": "先把实盘仓位全部平掉，再切换执行交易所"})
     db.log("warn", f"实盘执行交易所切换为 {venue}")
     return {"ok": True, "exchange": venue}
 
@@ -1147,6 +1203,20 @@ async def api_mode(payload: dict):
             bad = [{"label": i["label"], "detail": i["detail"], "fix": i["fix"]}
                    for i in pre["items"] if i["required"] and not i["ok"]]
             raise HTTPException(400, {"error": "实盘前置检查未通过", "problems": bad})
+    else:
+        # ⚠ 2026-11-09 加：切回纸面前必须确认实盘仓位已清空。
+        # 原因：db.open_positions() 默认只返回**当前模式**的仓位，
+        # engine.manage_positions 正是用它遍历。切到 paper 的那一刻，实盘仓位
+        # 立刻失去硬止损/快速失败/2R/3R/镜像/16h 全部管理 —— 而交易所侧没有
+        # 止损单，等于永久裸奔；同时页面按当前模式查询会显示「0 持仓」，骗人。
+        live_open = db.open_positions(mode="live")
+        if live_open and executor.mode() == "live":
+            syms = [p["symbol"] for p in live_open]
+            raise HTTPException(400, {
+                "error": f"实盘还有 {len(live_open)} 个持仓，切回纸面后它们将失去全部止损管理",
+                "positions": syms,
+                "fix": "请先在实盘模式下全部平仓，再切换",
+            })
     executor.set_mode(m)
     db.log("warn", f"交易模式切换为 {m}")
     return {"ok": True, "mode": m}

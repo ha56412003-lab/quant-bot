@@ -35,8 +35,13 @@ def daily_realized_pnl(mode="auto"):
     2026-11-07 浩哥发现：切到实盘后「今日已实现」还挂着纸面的 +182.87。
     根因是这里不接 mode，永远算当前运行模式。db.closed_positions_today
     本来就支持 mode 参数，传下去即可。
+
+    2026-11-09 改用 db.realized_pnl_since：原来对 positions.pnl 求和，
+    而那个字段是「该仓位历史全部平仓盈亏之和」，跨日的仓位会整笔挪到
+    平仓当天，昨天的亏损被抹掉（POLUSDT #19：昨天 −17.05、今天 +15.86，
+    账面显示今天赚 15.86，真实是 −1.20）。对 trades 流水求和才按天平。
     """
-    return sum(p["pnl"] or 0 for p in db.closed_positions_today(_day_start(), mode))
+    return db.realized_pnl_since(_day_start(), mode)
 
 
 def halted():

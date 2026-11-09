@@ -71,7 +71,17 @@ async def _okx(method, path, params=None, body=None, auth=True, timeout=15):
     if str(d.get("code")) != "0":
         raise RuntimeError(f"OKX {path}: code={d.get('code')} "
                            f"msg={d.get('msg')} data={str(d.get('data'))[:200]}")
-    return d.get("data")
+    data = d.get("data")
+    # ⚠ OKX 下单类接口：外层 code="0" 只表示「请求格式正确、签名通过」，
+    # 真正的业务结果在内层 data[i].sCode —— 非 "0" 就是失败（余额不足、
+    # 精度不对、仓位不够、限频……）。之前完全不查这一层，导致**拒单被当成功**，
+    # 平仓失败也把仓位标记成已平 → 裸仓。
+    # 查询类接口没有 sCode 字段，所以这个循环对所有接口都安全。
+    for _it in (data or []):
+        if isinstance(_it, dict) and "sCode" in _it and str(_it["sCode"]) != "0":
+            raise RuntimeError(f"OKX {path}: sCode={_it['sCode']} "
+                               f"sMsg={_it.get('sMsg')} ordId={_it.get('ordId')}")
+    return data
 
 
 _okx_ct = {}   # instId -> (ctVal, lotSz, minSz)

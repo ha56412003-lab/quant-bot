@@ -109,6 +109,12 @@ def init():
             # 峰顶不准 → 出局点就画错、也可能提前或拖后出场。
             # 原本只在 _S15_POS_STATE 内存里，重启归零后要重新爬。
             "ALTER TABLE positions ADD COLUMN peak_r REAL NOT NULL DEFAULT 0",
+            # 这笔仓位是在哪家交易所开的（binance / okx / bitget）。
+            # 为什么必须落库：曾经只存一个全局「当前执行交易所」，切过去之后
+            # close_position 会拿新交易所去平旧仓位 —— 旧仓位在另一家，
+            # 平不掉；万一那边恰好也有同名合约，还会平错仓。
+            # 空串 = 历史仓位/纸面仓位，按当前设置处理。
+            "ALTER TABLE positions ADD COLUMN exchange TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE equity_curve ADD COLUMN mode TEXT NOT NULL DEFAULT 'paper'",
         ):
             try:
@@ -278,15 +284,15 @@ def open_position(**kw):
         cur = _conn.execute(
             "INSERT INTO positions(strategy,symbol,side,qty,entry_price,stop_price,"
             "take_profit,trail_atr,opened_at,max_hold_sec,time_exit_at,extreme,status,"
-            "entry_factors,reason,mode,leverage,extra_margin,fee_rate,slip_pct) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?,?,?,?,?,?)",
+            "entry_factors,reason,mode,leverage,extra_margin,fee_rate,slip_pct,exchange) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?,?,?,?,?,?,?)",
             (kw["strategy"], kw["symbol"], kw["side"], kw["qty"], kw["entry_price"],
              kw.get("stop_price"), kw.get("take_profit"), kw.get("trail_atr"),
              int(time.time()), kw["max_hold_sec"], kw.get("time_exit_at"),
              kw["entry_price"], kw.get("entry_factors"), kw.get("reason", ""),
              mode, kw.get("leverage"), kw.get("extra_margin", 0.0),
-             kw.get("fee_rate"), kw.get("slip_pct")))
-    return cur.lastrowid
+             kw.get("fee_rate"), kw.get("slip_pct"), kw.get("exchange", "") or ""))
+        return cur.lastrowid
 
 
 def get_position(pid):
@@ -296,19 +302,28 @@ def get_position(pid):
 
 
 def set_position_field(pid, field, value):
-    """更新单个仓位的一个字段（白名单校验）。"""
+    """更新单个仓位的一个字段（白名单校验）。返回是否真的改了。
+
+    ⚠ 2026-11-09 加 status='open' 条件：已平仓位不该再被改杠杆/保证金，
+    否则历史记录会被污染，看起来像「平仓后参数还变了」。
+    """
     allowed = {"leverage", "extra_margin"}
     if field not in allowed:
         raise ValueError(f"field {field} not allowed")
     with _lock, _conn:
-        _conn.execute(f"UPDATE positions SET {field}=? WHERE id=?", (value, pid))
+        cur = _conn.execute(
+            f"UPDATE positions SET {field}=? WHERE id=? AND status='open'", (value, pid))
+        return cur.rowcount > 0
 
 
 def add_extra_margin(pid, amount):
-    """追加保证金（累加），返回新值。"""
+    """追加保证金（累加）。返回新值；仓位已平则返回 None。"""
     with _lock, _conn:
-        _conn.execute("UPDATE positions SET extra_margin=COALESCE(extra_margin,0)+? WHERE id=?",
-                      (amount, pid))
+        cur = _conn.execute(
+            "UPDATE positions SET extra_margin=COALESCE(extra_margin,0)+? "
+            "WHERE id=? AND status='open'", (amount, pid))
+        if cur.rowcount == 0:
+            return None
         row = _conn.execute("SELECT extra_margin FROM positions WHERE id=?", (pid,)).fetchone()
     return float(row[0] or 0) if row else 0.0
 
@@ -345,12 +360,22 @@ _POSITION_WRITABLE = {
 
 
 def update_position(pid, **fields):
+    """更新持仓字段。只作用于 status='open' 的仓位，返回是否真的改了。
+
+    ⚠ 2026-11-09 加 status='open' 条件：部分平仓走这条路改 qty，
+    而「引擎半平 + 手动半平」/「双击确认按钮」会拿着同一份快照各改一次，
+    无条件 UPDATE 会让两笔都生效 → 交易所卖光了、本地还显示持仓，
+    盈亏也双记。返回 False 表示仓位已被别处平掉，调用方必须撤销自己的账。
+    """
     bad = set(fields) - _POSITION_WRITABLE
     if bad:
         raise ValueError(f"update_position 非法列名: {sorted(bad)}")
     sets = ", ".join(f"{k}=?" for k in fields)
     with _lock, _conn:
-        _conn.execute(f"UPDATE positions SET {sets} WHERE id=?", (*fields.values(), pid))
+        cur = _conn.execute(
+            f"UPDATE positions SET {sets} WHERE id=? AND status='open'",
+            (*fields.values(), pid))
+        return cur.rowcount > 0
 
 
 def add_realized_pnl(pid, delta):
@@ -360,10 +385,15 @@ def add_realized_pnl(pid, delta):
     等剩下的仓位全平时 close_position 直接 SET pnl=? 把前面那笔覆盖掉。
     实测仓位 #19 POLUSDT：流水 −17.05 与 +15.86 两笔，positions.pnl 只剩
     +15.86，真实亏损 −1.19 被抹成盈利。而熔断读的正是 positions.pnl → 低估亏损。
+
+    ⚠ 2026-11-09 加 status='open' 条件：仓位已被别处平掉时不能再累加，
+    否则已结算仓位的 pnl 会被二次污染。返回 False 表示没加上，调用方要撤销余额。
     """
     with _lock, _conn:
-        _conn.execute(
-            "UPDATE positions SET pnl = COALESCE(pnl, 0) + ? WHERE id=?", (delta, pid))
+        cur = _conn.execute(
+            "UPDATE positions SET pnl = COALESCE(pnl, 0) + ? "
+            "WHERE id=? AND status='open'", (delta, pid))
+        return cur.rowcount > 0
 
 
 def close_position(pid, price, pnl, reason):
@@ -415,6 +445,32 @@ def closed_positions_today(day_start_ts, mode="auto"):
     with _lock:
         rows = _conn.execute(q, args).fetchall()
     return [dict(r) for r in rows]
+
+
+def realized_pnl_since(ts, mode="auto"):
+    """某时间点之后的**已实现盈亏**，直接对 trades 流水求和。
+
+    ⚠ 2026-11-09 新增。不能用 closed_positions_today 求和，因为
+    positions.pnl 是「该仓位全部平仓盈亏之和」，包含昨天已经 partial_close
+    掉的那部分，却按 closed_at 整笔归到平仓当天。
+
+    实测仓位 #19 POLUSDT：昨天 partial_close −17.0529，今天 close +15.8556，
+    positions.pnl = +15.8556（真实 −1.1973）。跨日时这笔仓位整笔被算进今天，
+    昨天的亏损凭空消失，甚至变成今天是赚的 → 熔断判断失真。
+
+    对 trades 求和则是「哪一天平的就记在哪一天」，不会串。
+    """
+    if mode == "auto":
+        mode = current_mode()
+    q = ("SELECT COALESCE(SUM(pnl), 0) FROM trades "
+         "WHERE ts >= ? AND kind IN ('close', 'partial_close')")
+    args = [ts]
+    if mode:
+        q += " AND mode=?"
+        args.append(mode)
+    with _lock:
+        row = _conn.execute(q, args).fetchone()
+    return float(row[0] or 0) if row else 0.0
 
 
 # -- equity / meta / logs ---------------------------------------------------

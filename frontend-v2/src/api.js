@@ -11,7 +11,27 @@ const post = async (path, body) => {
     body: JSON.stringify(body || {}),
   })
   const d = await r.json().catch(() => ({}))
-  if (!r.ok) throw new Error(d.detail || `${path}: ${r.status}`)
+  if (!r.ok) {
+    // FastAPI 的 HTTPException 可能是 {detail:"..."}，也可能是 {detail:{error,fix}}
+    const det = d.detail
+    let msg = `${path}: ${r.status}`
+    if (typeof det === 'string') msg = det
+    else if (det && typeof det === 'object') {
+      msg = det.error || JSON.stringify(det)
+      if (det.fix) msg += ` — ${det.fix}`
+    }
+    const err = new Error(msg)
+    err.detail = det
+    throw err
+  }
+  // ⚠ 后端有「HTTP 200 + {ok:false}」的返回（平仓失败、一键全平部分失败、
+  //   仓位已被别处平掉……）。只查 r.ok 会把这些当成功 → 页面弹「已平仓」
+  //   其实没平，风险敞口和认知彻底脱节。
+  if (d && d.ok === false) {
+    const err = new Error(d.error || d.detail || '操作失败')
+    err.payload = d          // 调用方可读 failed / positions / fix 这些字段
+    throw err
+  }
   return d
 }
 
