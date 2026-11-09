@@ -1,6 +1,6 @@
 """Global risk layer — every entry signal passes through here.
 
-Rules (from STRATEGIES.md): event quiet window, fear&greed sizing, per-coin
+Rules: event quiet window, fear&greed sizing, per-coin
 cap, gross leverage cap, daily loss halt, max concurrent coins, no hedged
 same-coin positions.
 """

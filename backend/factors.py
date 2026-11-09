@@ -4,7 +4,7 @@ Each factor = (name, interval_sec, per_symbol, fetch coroutine). The engine
 calls collect_due() every tick; only stale factors are refreshed. Values are
 stored in SQLite (latest + history) for strategies and the dashboard.
 
-Factor codes follow FACTORS.md.
+Factor codes are defined inline in this module (see the REGISTRY list below).
 """
 import asyncio
 import logging
