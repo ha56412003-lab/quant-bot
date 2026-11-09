@@ -104,11 +104,11 @@ async def f_oi_agg(symbol):
     return {"latest": closes[-1], "slope_3h_pct": slope}
 
 
-async def f_liq_agg(symbol):
+async def f_liq_agg(symbol, timeout=30):
     data = await clawby.relay_safe(
         "futures_liquidation_aggregated_history",
         {"exchange_list": "Binance,OKX,Bybit", "symbol": _coin(symbol),
-         "interval": "1h", "limit": 168})
+         "interval": "1h", "limit": 168}, timeout=timeout)
     if not data:
         return None
     longs = [float(d.get("aggregated_long_liquidation_usd")
@@ -344,10 +344,11 @@ async def f_net_position(symbol):
             "series": [float(d.get("net_position_change_cum") or 0) for d in data][-48:]}
 
 
-async def f_ob_imbalance(symbol):
+async def f_ob_imbalance(symbol, timeout=30):
     data = await clawby.relay_safe("futures_orderbook_aggregated_ask_bids_history",
                                    {**_EX3, "symbol": _coin(symbol),
-                                    "interval": "1h", "limit": 30, "range": "1"})
+                                    "interval": "1h", "limit": 30, "range": "1"},
+                                   timeout=timeout)
     if not isinstance(data, list) or not data:
         return None
     last = data[-1]
@@ -728,6 +729,46 @@ async def _run_one(name, symbol, fetcher):
         _IN_FLIGHT.discard(key)
 
 
+def _symbols_for(src, per_symbol):
+    """按币因子的取数范围。
+
+    Clawby 来源的因子只刷「关心的币」= 监控池 + 持仓。
+    原因：clawby 免费版 20 请求/分钟，clawby.relay() 里是一把全局锁 +
+    3.2 秒硬间隔。若按 UNIVERSE（519 币）全量刷，单轮 = 519 × 3.2 = 27
+    分钟，而 liq_agg 的间隔才 300 秒 → 永远刷不完、永远积压，雷达排在队尾
+    直接被饿死。2026-11-09 上云后实测：liq_agg 只覆盖 201 币、cvd 只有 30
+    币、ob_imbalance 一条都没有（雷达要的三个因子全废）。
+
+    缩小范围零损失：没有任何策略读 per_symbol 因子，策略只用 mark_all /
+    econ_cal / fear_greed（都是 symbol="" 的全局因子）。
+    """
+    if not per_symbol:
+        return [""]
+    if src != "Clawby":
+        return config.UNIVERSE
+    # Clawby 因子只刷**持仓币**（通常 ≤8 个）。
+    # 算过账：REGISTRY 里有 23 个 Clawby 按币因子，若刷监控池 46 币就是
+    # 46 × 23 = 1058 请求 × 3.2 秒 = 56 分钟/轮，而最短间隔只要 300 秒
+    # → 永远积压、永远刷不完，雷达要的 cvd/liq_agg/ob_imbalance 排在第
+    # 6/1/12 位，前面就堵死了（2026-11-09 实测 cvd 71 分钟没刷新）。
+    # 持仓币 6 个 → 6 × 23 = 138 请求 = 7.4 分钟/轮，cvd 约 96 秒就能轮到。
+    # 监控池的质量评估用 K 线算 EFF（quality.py 只依赖 binance），
+    # 前端 /api/factors 面板看的是"已刷到的因子"，范围缩小但仍有数据。
+    syms = set()
+    try:
+        syms.update(p["symbol"] for p in db.open_positions())
+    except Exception:  # noqa: BLE001
+        pass
+    if not syms:
+        # 空仓时留一小撮（监控池前几个）让因子面板不至于全空
+        try:
+            from . import quality as _q      # 延迟导入，避免模块级循环依赖
+            syms.update(_q.monitor_list()[:6])
+        except Exception:  # noqa: BLE001
+            pass
+    return sorted(syms) if syms else config.UNIVERSE[:6]
+
+
 async def collect_due():
     """Refresh enabled factors whose stored value is older than its interval.
 
@@ -739,11 +780,11 @@ async def collect_due():
     """
     now = time.time()
     n = 0
-    for name, default, per_symbol, fetcher, _label, _src, _en in REGISTRY:
+    for name, default, per_symbol, fetcher, _label, src, _en in REGISTRY:
         if not is_enabled(name):
             continue
         interval = get_interval(name, default)
-        symbols = config.UNIVERSE if per_symbol else [""]
+        symbols = _symbols_for(src, per_symbol)
         for sym in symbols:
             key = (name, sym or "")
             if key in _IN_FLIGHT:

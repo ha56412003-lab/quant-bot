@@ -33,6 +33,11 @@ log = logging.getLogger("radar")
 
 # 采集节奏：5m 级的因子每分钟采，1h 级的 5 分钟采一次就够（变化慢，省流量）
 SCAN_SEC = 60
+# 单个数据源的最长等待（秒）。
+# clawby 中继默认 30 秒超时：启动初期因子全量刷新把它打到 429 时，
+# 每个 clawby 因子都要等满 30 秒 → 6 币 × 3 个 clawby 因子 = 9 分钟，
+# 界面就一直「空仓·雷达待命」。雷达宁可少一个因子也必须整轮扫完。
+RADAR_SRC_TIMEOUT = 10
 
 _conn = None
 _last_slow = {}          # symbol -> ts
@@ -289,59 +294,72 @@ async def sample(symbol, side, r_now=0.0, slow=True):
     """
     detail, parts = {}, {}
 
-    # 价格（5m，24 根 = 2 小时）
-    px = []
-    try:
-        ks = await binance.klines(symbol, "5m", 24, isolated=True)
-        px = [float(k["close"]) for k in ks] if ks else []
-    except Exception as exc:  # noqa: BLE001
-        log.warning("radar klines %s: %s", symbol, exc)
+    # -- 五个因子并行取数 ----------------------------------------------------
+    # 三个 clawby 因子（CVD / 清算 / 盘口）**读 factors 缓存，不自己调 clawby**。
+    # 原因：clawby.relay() 是一把全局锁 + 3.2 秒硬间隔（免费版 20 req/min），
+    # 雷达 6 币 × 3 个 clawby 因子 = 18 次排队要等近 1 分钟，还要排在因子
+    # 刷新后面 → 整轮永远跑不完，界面一直「空仓·雷达待命」（2026-11-09）。
+    # 代价：CVD 粒度从 5m 退到 1h（factors 里 cvd 就是 1h × 48 根），灵敏度
+    # 下降但方向判断依然有效；清算/盘口本来就是 1h 桶，无损失。
+    async def _raw_klines(iv, limit):
+        try:
+            ks = await binance.klines(symbol, iv, limit, isolated=True)
+            return [float(k["close"]) for k in ks] if ks else []
+        except Exception as exc:  # noqa: BLE001
+            log.warning("radar klines %s/%s: %s", symbol, iv, exc)
+            return []
 
-    # 主动买卖比（5m）
-    try:
-        t = await binance.taker_ratio(symbol, "5m", 12, isolated=True)
-        ser = [float(x["buySellRatio"]) for x in t] if t else []
-        if ser:
-            parts["taker"], detail["taker"] = score_taker(ser, side)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("radar taker %s: %s", symbol, exc)
+    async def _raw_taker():
+        try:
+            t = await binance.taker_ratio(symbol, "5m", 12, isolated=True)
+            return [float(x["buySellRatio"]) for x in t] if t else []
+        except Exception as exc:  # noqa: BLE001
+            log.warning("radar taker %s: %s", symbol, exc)
+            return []
 
-    # CVD（5m，主动资金净流向）
-    try:
-        c = await clawby.relay_safe("futures_cvd_history",
-                                    {"exchange": "Binance", "symbol": symbol,
-                                     "interval": "5m", "limit": 12})
-        if isinstance(c, list) and c:
-            ser = [float(x.get("cum_vol_delta") or 0) for x in c]
-            parts["cvd"], detail["cvd"] = score_cvd(ser, px, side)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("radar cvd %s: %s", symbol, exc)
+    async def _raw_oi():
+        try:
+            o = await binance.open_interest_hist(symbol, "5m", 12, isolated=True)
+            return [float(x["sumOpenInterest"]) for x in o] if o else []
+        except Exception as exc:  # noqa: BLE001
+            log.warning("radar oi %s: %s", symbol, exc)
+            return []
 
-    # OI（5m）
-    try:
-        o = await binance.open_interest_hist(symbol, "5m", 12, isolated=True)
-        ser = [float(x["sumOpenInterest"]) for x in o] if o else []
-        if ser:
-            parts["oi"], detail["oi"] = score_oi(ser, px, side)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("radar oi %s: %s", symbol, exc)
+    def _cached(name, max_age):
+        try:
+            v = db.get_factor(name, symbol, max_age_sec=max_age)
+            return v if isinstance(v, dict) else None
+        except Exception as exc:  # noqa: BLE001
+            log.warning("radar cache %s/%s: %s", name, symbol, exc)
+            return None
 
-    # 清算（三所聚合，1h 桶）
-    try:
-        liq = await factors.f_liq_agg(symbol)
-        if liq:
-            parts["liq"], detail["liq"] = score_liq(liq, side)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("radar liq %s: %s", symbol, exc)
+    px5, px1h, ser_taker, ser_oi = await asyncio.gather(
+        _raw_klines("5m", 24), _raw_klines("1h", 48), _raw_taker(), _raw_oi())
+    # 缓存读取是同步的，放在 gather 之后（微秒级，不占 io）
+    cvd_cache = _cached("cvd", 1800)          # 900s 刷新，放宽到半小时
+    liq_cache = _cached("liq_agg", 1200)      # 300s 刷新
+    ob_cache = _cached("ob_imbalance", 1800)  # 900s 刷新
 
-    # 盘口挂单失衡
-    try:
-        ob = await factors.f_ob_imbalance(symbol)
-        if ob:
-            parts["book"], detail["book"] = score_book(
-                ob.get("bids_usd"), ob.get("asks_usd"), side)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("radar book %s: %s", symbol, exc)
+    ser_cvd = list(cvd_cache.get("series") or []) if cvd_cache else []
+    liq = liq_cache
+    ob = ob_cache
+    px = px5
+
+    # -- 评分（纯 CPU，瞬时） ------------------------------------------------
+    if ser_taker:
+        parts["taker"], detail["taker"] = score_taker(ser_taker, side)
+    # CVD 是 1h 粒度，价格必须用同一时间尺度，否则斜率对比无意义
+    if ser_cvd and px1h:
+        parts["cvd"], detail["cvd"] = score_cvd(ser_cvd, px1h, side)
+        if parts["cvd"] is not None:
+            detail["cvd"]["granularity"] = "1h"
+    if ser_oi and px:
+        parts["oi"], detail["oi"] = score_oi(ser_oi, px, side)
+    if liq:
+        parts["liq"], detail["liq"] = score_liq(liq, side)
+    if ob:
+        parts["book"], detail["book"] = score_book(
+            ob.get("bids_usd"), ob.get("asks_usd"), side)
 
     # 缺维度就按剩余权重重分配（不是简单补 0，否则缺数据会误判成中性）
     got = [(k, w) for k, w in WEIGHTS if parts.get(k) is not None]
@@ -525,7 +543,10 @@ async def scan_once():
     """
     try:
         poss = db.open_positions()
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        # 原来这里是静默 return []：一旦查询出错，界面就显示"空仓·雷达待命"，
+        # 完全看不出是查询失败还是真的没仓（2026-11-09 排查时踩到）。
+        log.warning("radar scan: open_positions 查询失败: %s", exc)
         return []
     out = []
     for p in poss:
@@ -537,13 +558,19 @@ async def scan_once():
             stop = float(p.get("stop_price") or 0)
             risk = abs(entry - stop) or entry * 0.01
             r_now = (mark - entry) / risk * (1 if side == "long" else -1) if risk else 0
-            r = await sample(sym, side, r_now)
+            # 单币整体硬上限：五个因子各自已有超时，这里再兜一层，
+            # 防止某个上游"半死不活"（连上了但不回包）把整轮拖住。
+            r = await asyncio.wait_for(sample(sym, side, r_now),
+                                       timeout=RADAR_SRC_TIMEOUT * 3)
             if r:
                 out.append(r)
                 try:
                     check_alert(r)
                 except Exception as exc:  # noqa: BLE001
                     log.warning("radar alert %s: %s", sym, exc)
+        except asyncio.TimeoutError:
+            log.warning("radar scan %s: 超时跳过（单币上限 %ss）",
+                        sym, RADAR_SRC_TIMEOUT * 3)
         except Exception as exc:  # noqa: BLE001
             log.warning("radar scan %s: %s", sym, exc)
     return out
