@@ -644,12 +644,22 @@ async def api_gates():
     """
     gs = strategies._GATE_STATE
     mon = set(quality.monitor_list() or [])
+    # 监控池快照：拿每个币的「趋势效率 EFF」和池子判定原因，用来解释「为什么在池外」
+    try:
+        qdata = (quality.snapshot() or {}).get("data") or {}
+    except Exception as exc:  # noqa: BLE001
+        log.debug("gates: quality snapshot failed: %s", exc)
+        qdata = {}
+    eff_min = float(getattr(quality, "EFF_MIN", 0.30) or 0.30)
     # ★ 2026-11-09 修：策略说「四闸全过」≠ 真开仓。
     #   信号后面还有 risk.allow_entry 九道闸，任何一道拒绝都没有仓位
     #   （实例：RSR 06:45 四闸全过，但被「已达日目标」拦下，页面却写「已开仓」）。
     #   所以结论列必须用两样真实事实覆盖：
     #     ① positions 表里真在持仓 → 「已开仓」
     #     ② signals 表本根 K 线的最新信号被拒 → 直接显示它的 skip_reason
+    # ★ 2026-11-09 再修：池外的币永远不会被扫描，_GATE_STATE 是历史残留。
+    #   照旧显示「四闸全过·待成交」会让人以为在排队等开仓（实际等到天亮也不开）。
+    #   池外一律明说「池外」，并尽可能带上被踢原因（EFF 不达标 / 池满）。
     held = {p["symbol"] for p in db.open_positions()}
     sig_map = {}
     try:
@@ -677,6 +687,21 @@ async def api_gates():
         sig_fresh = sig_ts >= int(v.get("ts") or 0) and (time.time() - sig_ts) <= 300
         if sym in held:
             verdict = "已开仓"
+        elif sym not in mon:
+            # 池外：策略扫不到它，上面的 ce/ha/bbw 是它上一次还在池里时的残留值。
+            # 必须明说「池外」，否则看起来像在排队等成交。
+            q = qdata.get(sym) or {}
+            eff = q.get("eff")
+            try:
+                eff = float(eff) if eff is not None else None
+            except (TypeError, ValueError):
+                eff = None
+            if eff is None:
+                verdict = "池外·不参与扫描"
+            elif eff < eff_min:
+                verdict = "池外·EFF %.2f 未达 %.2f" % (eff, eff_min)
+            else:
+                verdict = "池外·池满未入选"
         elif v.get("ok") and sig_fresh and not sig.get("acted") and sig.get("skip_reason"):
             # 只有「这一轮四闸真的全过了、信号刚刚真被风控拦下」才报拦截原因，
             # 否则会出现「CE 都没翻」却写着「已达日目标」的自相矛盾（2026-11-09 踩到）。
@@ -688,9 +713,10 @@ async def api_gates():
         rows.append({"symbol": sym, "in_monitor": sym in mon,
                      "dev_ok": (dev is not None and dev >= dev_thr) if dev_thr > 0 else True,
                      "opened": sym in held, "verdict": verdict,
+                     "eff": (qdata.get(sym) or {}).get("eff"),
                      **v, "why": verdict})
-    # 有戏的排前面：已开仓 > CE 已翻 > HA 成立 > 偏离够 > BBW 高
-    rows.sort(key=lambda r: (not r.get("ok"), not r.get("ce"),
+    # 有戏的排前面：在池 > 已开仓 > CE 已翻 > HA 成立 > 偏离够 > BBW 高
+    rows.sort(key=lambda r: (not r.get("in_monitor"), not r.get("ok"), not r.get("ce"),
                              not r.get("ha"), not r.get("dev_ok"),
                              -(r.get("bbw") or 0)))
     return {

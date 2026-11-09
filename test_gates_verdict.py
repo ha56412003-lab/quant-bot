@@ -46,15 +46,19 @@ def ck(name, cond, extra=""):
         _fails.append(name)
 
 
-def _setup(held_syms=(), signals=None):
-    """打桩：一个四闸全过的币 + 指定持仓/信号"""
+def _setup(held_syms=(), signals=None, in_pool=True, eff=0.55):
+    """打桩：一个四闸全过的币 + 指定持仓/信号/是否在监控池"""
     S._GATE_STATE.clear()
     S._GATE_STATE[SYM] = {
         "ts": BAR, "dir": "空", "ce": True, "ha": True,
         "bbw": 90.0, "bbw_thr": 70.0, "dev": 1.885, "dev_thr": 0.5,
         "atr_pct": 3.077, "ok": True, "why": "四闸全过",
     }
-    Q.monitor_list = lambda: [SYM]
+    Q.monitor_list = lambda: [SYM] if in_pool else []
+    # snapshot 打桩：只需 eff / why，别真去算指标
+    Q.snapshot = lambda: {"data": {SYM: {"eff": eff, "ok": True, "why": ""}},
+                          "monitor": [SYM] if in_pool else []}
+    Q.EFF_MIN = 0.30
     D.open_positions = lambda *a, **k: [{"symbol": s} for s in held_syms]
     D.recent_signals = lambda limit=50: (signals or [])
     C.UNIVERSE = [SYM]
@@ -154,6 +158,31 @@ def main():
     r = d["rows"][0]
     ck("旧拒绝原因已失效", r.get("verdict") == "四闸全过·待成交", r.get("verdict"))
     ck("不再是「已达日目标」", "已达日目标" not in (r.get("verdict") or ""), r.get("verdict"))
+
+    # ── 9. 池外的币：四闸是历史残留，绝不能显示「待成交」─────────────
+    print("\n  9. 池外 + 四闸历史全过 → 必须说「池外」，不能挂在「待成交」")
+    _setup(held_syms=[], in_pool=False, eff=0.153)
+    d = run_gates()
+    r = d["rows"][0]
+    ck("in_monitor=False", r.get("in_monitor") is False, r.get("in_monitor"))
+    ck("不再是「待成交」", "待成交" not in (r.get("verdict") or ""), r.get("verdict"))
+    ck("说明是池外", "池外" in (r.get("verdict") or ""), r.get("verdict"))
+    ck("带上 EFF 原因", "0.15" in (r.get("verdict") or ""), r.get("verdict"))
+
+    # ── 10. 池外但 EFF 达标（池满被挤）→ 说「池满未入选」───────────
+    print("\n  10. 池外但 EFF 达标 → 是池满被挤，不是指标差")
+    _setup(held_syms=[], in_pool=False, eff=0.42)
+    d = run_gates()
+    r = d["rows"][0]
+    ck("池满未入选", r.get("verdict") == "池外·池满未入选", r.get("verdict"))
+
+    # ── 11. 池外但持仓里 → 仍是「已开仓」（持仓优先级最高）───────────
+    print("\n  11. 池外但真在持仓 → 仍显示「已开仓」")
+    _setup(held_syms=[SYM], in_pool=False, eff=0.20)
+    d = run_gates()
+    r = d["rows"][0]
+    ck("持仓优先", r.get("verdict") == "已开仓", r.get("verdict"))
+    ck("opened=True", r.get("opened") is True, r.get("opened"))
 
     print("\n" + "=" * 78)
     print(f"结果：{'全部通过' if not _fails else str(len(_fails)) + ' 项失败：' + ', '.join(_fails)}")
