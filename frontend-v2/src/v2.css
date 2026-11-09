@@ -1627,13 +1627,26 @@ html, body, #root {
   transition: width .4s ease;
 }
 
-/* ═══ 修正：表格固定 392px（10 行）+ 数据区右侧给机柜让位 ═══ */
+/* ═══ 持仓表：10 行固定高 36px，容器按内容自适应，永不出现滑块 ═══
+   ★ 2026-11-09 浩哥定「去掉滑块」。
+   原来这里 flex/height/min-height/max-height 全锁 420px，而持仓行实际 49px
+   （多出补保输入框和三个平仓按钮），满 6 个时 6×49+4×36+34=472 > 420
+   → 冒出一条纵向滚动条。
+   现在：容器不再锁高，行高统一压到 36px（10 行 × 36 + 表头 34 = 394），
+   表格本身固定补足 10 行，所以高度恒定为 394px，装多少仓都不会溢出。 */
 .spider-root .stage > div:nth-child(3) {
-  flex: 0 0 420px !important;
-  height: 420px !important;
-  min-height: 420px !important;
-  max-height: 420px !important;
-  overflow: hidden !important;
+  flex: 0 0 auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+.spider-root .stage table tbody tr {
+  height: 36px !important;
+}
+.spider-root .stage table tbody td {
+  padding-top: 3px !important;
+  padding-bottom: 3px !important;
 }
 .spider-root .stage .stats {
   padding-right: 104px !important;   /* 右留给机柜 */

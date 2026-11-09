@@ -175,7 +175,11 @@ export default function Dashboard({ status }) {
             </div>
           )}
 
-          <div style={{ flex: '0 0 auto', height: 420, overflow: 'auto' }}>
+          {/* ★ 2026-11-09 浩哥定：去掉滑块。原先是写死 height:420 + overflow:auto，
+              持仓行高 49px，满 6 个时 6×49+4×36+34=472 > 420 → 冒出一条滚动条。
+              改成按内容自适应：表格有多少行就多高，父级 .stage 是 flex column，
+              下面还有空间（stage 718 = 表 420 + 雷达 176），撑开也挤不坏。 */}
+          <div style={{ flex: '0 0 auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5, tableLayout: 'fixed' }}>
               <colgroup>
                 <col style={{ width: '5.5%' }} />
