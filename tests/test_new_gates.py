@@ -279,8 +279,12 @@ def test_config():
     # 红线：ce_len 不许动
     chk(p.get("ce_len") == 1, "C4 ce_len 仍为 1（红线未动）", f"实际 {p.get('ce_len')}")
     chk(p.get("ce_mult") == 2.0, "C5 ce_mult 仍为 2.0", f"实际 {p.get('ce_mult')}")
-    chk(p.get("half_at_r") == 2.0, "C6 half_at_r 仍为 2.0（出场封版未动）",
+    chk(p.get("half_at_r") == 1.8, "C6 half_at_r = 1.8（2026-11-09 出场改版）",
         f"实际 {p.get('half_at_r')}")
+    chk(p.get("trail_arm") == 1.5, "C7 trail_arm = 1.5（移动止盈武装线）",
+        f"实际 {p.get('trail_arm')}")
+    chk(p.get("trail_dd") == 1.2, "C8 trail_dd = 1.2（移动止盈回吐量）",
+        f"实际 {p.get('trail_dd')}")
 
 
 def main():

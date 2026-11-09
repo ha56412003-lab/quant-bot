@@ -130,12 +130,14 @@ async def manage_positions(ctx, strategies):
             pos["mae_pct"] = exc_pct
         reason = None
         if now - pos["opened_at"] >= pos["max_hold_sec"]:
-            # ⚠ 到过 2R（half_closed=1）的单子豁免时间止损。
-            # 不然「让利润奔跑」会被 16 小时硬砍 —— 回测里时间止损的条件是
-            # peak_r < rr_target，也就是没到过止盈价的才按时间撤。
-            # 实盘原来是无条件平，和回测口径不一致，会把正在走的趋势单砍掉。
-            if not int(pos.get("half_closed") or 0):
-                reason = "达到最长持仓时限"
+            # 2026-11-09 浩哥定：去掉「平半豁免」，到点一律平。
+            # 原先 half_closed=1 就永不受时间约束，导致平半线越低长尾越长：
+            # 1.0 半时出现过 90.0 小时的单子，1.8 半也有 42.5 小时。
+            # 回测（20币/60天/cap5%/1.8半/移动1.5-1.2）：
+            #   去掉豁免 12h → +94.2R 最长 12.0h
+            #   保留豁免 12h → +86.7R 最长 42.5h   （只差 0.8R，买掉 30 小时尾巴）
+            # 「让利润奔跑」靠移动止盈（trail_arm/trail_dd）来做，不靠免死金牌。
+            reason = "达到最长持仓时限"
         elif pos["time_exit_at"] and now >= pos["time_exit_at"]:
             reason = "策略时间出场"
         if not reason and pos["trail_atr"]:

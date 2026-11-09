@@ -802,15 +802,38 @@ class S15CeZlsma(Base):
             return None
 
         # 峰顶状态维护（与旧出场分支共用，否则前端峰顶 R 会冻结）
-        self._touch_pos_state(pos, entry, risk, cur_r)
+        # 移动止盈要读 st["peak"]，所以必须接返回值
+        st = self._touch_pos_state(pos, entry, risk, cur_r)
 
         # ── 半仓专属：再赚 half_tp_r 全平（默认 1R = 到 3R）──
+        # ⚠ 浮点精度：2.8 - 1.8 = 0.9999999999999996，直接 >= 会漏掉「恰好到 3R」的单子。
+        #   实测本地构造 peak2.8/现2.8R 时本该触发却返回 None。统一留 1e-9 容差。
+        _EPS = 1e-9
         if int(pos.get("half_closed") or 0):
             base_r = float(self._p("half_at_r", 2.0))
             ht = float(self._p("half_tp_r", 1.0))
-            if ht > 0 and (cur_r - base_r) >= ht:
+            if ht > 0 and (cur_r - base_r) >= ht - _EPS:
                 return (f"半仓再赚{ht:.1f}R止盈(平半@{base_r:.1f}R "
                         f"现{cur_r:.2f}R)")
+
+        # ── 半仓专属：移动止盈（2026-11-09 浩哥定，与 3R 全平并存）──
+        # 语义：峰值 ≥ trail_arm 后，从峰值回撤 trail_dd 个 R → 全平剩余半仓。
+        # 是「相对回撤」不是「绝对落袋」：峰值 3R 平在 1.8R，峰值 5R 平在 3.8R。
+        # trail_arm=1.5 < 平半线 1.8 → 平半那一刻就已在 arm 状态，等效于「平半即武装」。
+        # 放在 3R 全平之后：若同一 tick 两者都满足，先按 3R 全平（回测口径一致）。
+        #   3R 全平的条件是 cur ≥ 1.8+1.0 = 2.8R，所以移动止盈主要在 2.8R 以下兜底。
+        # 实测（20币/60天/cap5%/12h强平）：3R全平+移动 共触发 103 笔，
+        #   trail 52 笔 + half_tp 51 笔，合计 +94.2R（关掉 3R 全平只有 +87.5R）。
+        # 15m K 线会跳空穿过 trail_dd，实际回吐中位 1.20R（设定 1.2R）。
+        # 置 0 = 关闭。
+        if int(pos.get("half_closed") or 0):
+            t_arm = float(self._p("trail_arm", 0.0))
+            t_dd = float(self._p("trail_dd", 0.0))
+            if t_arm > 0 and t_dd > 0:
+                peak_r = float(st.get("peak") or 0.0)
+                if peak_r >= t_arm - _EPS and (peak_r - cur_r) >= t_dd - _EPS:
+                    return (f"移动止盈(峰值{peak_r:.2f}R 回吐{peak_r - cur_r:.2f}R"
+                            f"≥{t_dd:.1f}R 现{cur_r:.2f}R)")
 
         # ── 指标：按 bar 边界取，一根 K 线没收盘指标不会变 ──
         kline_iv = str(self.p.get("kline_interval", "15m"))

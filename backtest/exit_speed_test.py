@@ -30,7 +30,7 @@ BARS_PER_HOUR = 4          # 15m K 线
 
 def sim(ks, ind, half_at_r=2.0, half_tp_r=1.0, maxh=64,
         trail_arm=0.0, trail_dd=0.0, trail_after_half=False,
-        max_risk_pct=None):
+        max_risk_pct=None, swing=None, time_stop_always=False):
     """与线上同源的单币逐笔回测，新增 trail_arm / trail_dd 移动止盈。
 
     trail_arm=0 表示关闭移动止盈 → 行为必须与原 simulate 完全一致。
@@ -44,8 +44,9 @@ def sim(ks, ind, half_at_r=2.0, half_tp_r=1.0, maxh=64,
     zl, dirs, atr, bp = ind["zlsma"], ind["dir"], ind["atr"], ind["bbw_pct"]
     hi_raw, lo_raw = ind["high_raw"], ind["low_raw"]
     n = len(hc)
+    _sw = SWING if swing is None else int(swing)
     out = []
-    i = max(1, 60, SWING)
+    i = max(1, 60, _sw)
     while i < n - 2:
         if zl[i] is None or dirs[i] is None or dirs[i - 1] is None or atr[i] is None:
             i += 1
@@ -68,7 +69,7 @@ def sim(ks, ind, half_at_r=2.0, half_tp_r=1.0, maxh=64,
         if entry <= 0:
             i += 1
             continue
-        lo = max(0, i - SWING + 1)
+        lo = max(0, i - _sw + 1)
         s_lo = min(lo_raw[j] for j in range(lo, i + 1))
         s_hi = max(hi_raw[j] for j in range(lo, i + 1))
         stop = s_lo if want == "long" else s_hi
@@ -97,17 +98,22 @@ def sim(ks, ind, half_at_r=2.0, half_tp_r=1.0, maxh=64,
             # ② 2R 平一半
             if peak >= half_at_r and not half_done:
                 half_done = True
-            # ③ 时间止损（平过半豁免）
-            if not half_done and (j - i) >= maxh:
+            # ③ 时间止损
+            #    默认：平过半就豁免（线上现行，engine.py:137）
+            #    time_stop_always=True：一视同仁，平半后照样到点强平
+            #    —— 长尾的根源就是「平半后不再受时间约束」，
+            #       平半线越低，越多单子脱离管束，能磨到 90h。
+            if (time_stop_always or not half_done) and (j - i) >= maxh:
                 ep, er, ei = c_, "timeout", j
                 break
             # ④ 半仓后再赚 half_tp_r 全平
-            if half_done and half_tp_r > 0 and (cur - half_at_r) >= half_tp_r:
+            #    _EPS：2.8-1.8=0.9999999999999996，不加容差会漏掉「恰好到 3R」的单子
+            if half_done and half_tp_r > 0 and (cur - half_at_r) >= half_tp_r - 1e-9:
                 ep, er, ei = c_, "half_tp", j
                 break
             # ⑤ 移动止盈（arm 后才生效；trail_after_half 时只在平半后启用）
             if trail_arm > 0 and (half_done or not trail_after_half) \
-                    and peak >= trail_arm and (peak - cur) >= trail_dd:
+                    and peak >= trail_arm - 1e-9 and (peak - cur) >= trail_dd - 1e-9:
                 ep, er, ei = c_, "trail", j
                 break
             # ⑥ 镜像出场

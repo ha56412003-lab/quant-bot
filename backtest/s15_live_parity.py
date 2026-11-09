@@ -99,7 +99,9 @@ def simulate(ks, ind, want_mirror=True, use_bbw=True,
                 ep, er, ei = c_, "timeout", j
                 break
             # ④ 半仓后：再赚 half_tp_r 全平
-            if half_done and half_tp_r > 0 and (cur - half_at_r) >= half_tp_r:
+            #    1e-9 容差：2.8-1.8 在 float 下是 0.9999999999999996，
+            #    不加容差会漏掉「恰好到止盈线」的单子（线上 strategies.py 已同步修）
+            if half_done and half_tp_r > 0 and (cur - half_at_r) >= half_tp_r - 1e-9:
                 ep, er, ei = c_, "half_tp", j
                 break
             if want_mirror:

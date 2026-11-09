@@ -65,8 +65,10 @@ strat = S.S15CeZlsma(target)
 
 EXPECT = [
     # (yaml 里写的显示名, 参数名, yaml 值, 期望类型)
-    ("2R 平一半门槛",      "half_at_r",        2.0,  float),
+    ("平半门槛",            "half_at_r",        1.8,  float),
     ("3R 全平（再赚1R）",  "half_tp_r",        1.0,  float),
+    ("移动止盈武装线",     "trail_arm",        1.5,  float),
+    ("移动止盈回吐量",     "trail_dd",         1.2,  float),
     ("CE 周期",            "ce_len",           1,    int),
     ("CE 倍数",            "ce_mult",          2.0,  float),
     ("ZLSMA 周期",         "zlsma_len",        50,   int),
@@ -85,10 +87,10 @@ for label, key, want, typ in EXPECT:
           same and isinstance(got, typ) and yaml_v == want,
           "" if same else f"不一致！")
 
-# 顶层 max_hold_hours（16h 超时）走 cfg 不是 params
+# 顶层 max_hold_hours（12h 超时）走 cfg 不是 params
 mh = strat.max_hold
-check(f"{'16h 超时秒数':<20} max_hold        = {mh} 秒 (= {mh/3600:.0f} 小时)",
-      mh == 16 * 3600)
+check(f"{'12h 超时秒数':<20} max_hold        = {mh} 秒 (= {mh/3600:.0f} 小时)",
+      mh == 12 * 3600)
 
 # 旧参数必须彻底消失
 # 2026-11-08 复盘追加：half_dd_pct / half_dd_r 是「yaml 写了但代码从不读」的空指令，
