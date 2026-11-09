@@ -42,6 +42,7 @@ function GlobalRisk({ data, onSaved }) {
     ['max_concurrent_coins', t('risk.f.conc'), t('risk.f.concTip'), 1, 20, 1],
     ['max_same_side', t('risk.f.sameSide'), t('risk.f.sameSideTip'), 1, 20, 1],
     ['daily_loss_halt_pct', t('risk.f.halt'), t('risk.f.haltTip'), 1, 50, 0.5],
+    ['unrealized_halt_pct', t('risk.f.uhalt'), t('risk.f.uhaltTip'), 0, 50, 0.5],
     ['event_quiet_minutes', t('risk.f.quiet'), t('risk.f.quietTip'), 0, 240, 5],
   ]
   const save = async () => {

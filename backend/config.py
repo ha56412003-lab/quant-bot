@@ -260,7 +260,8 @@ def set_strategy_risk(sid, risk):
 
 _GLOBAL_INT_KEYS = ("max_gross_leverage", "max_concurrent_coins", "max_same_side",
                     "event_quiet_minutes")
-_GLOBAL_FLOAT_KEYS = ("daily_loss_halt_pct", "risk_per_trade_pct", "max_position_pct_per_coin")
+_GLOBAL_FLOAT_KEYS = ("daily_loss_halt_pct", "risk_per_trade_pct", "max_position_pct_per_coin",
+                      "unrealized_halt_pct")
 
 # 风控参数硬边界（2026-11-09）。前端 InputNumber 的 min/max 只影响体验，
 # 接口可以被 curl 直接调用 / 也可被脚本写坏，所以必须在写盘前挡。
@@ -271,8 +272,11 @@ _RISK_BOUNDS = {
     "max_position_pct_per_coin": (1.0, 100.0),  # 单币名义上限
     "max_concurrent_coins": (1, 20),        # 同时持仓币数
     "max_same_side": (1, 20),               # 同方向最多几笔
-    "daily_loss_halt_pct": (1.0, 50.0),     # 日内熔断线
+    "daily_loss_halt_pct": (1.0, 50.0),     # 日内熔断线（已实现）
     "event_quiet_minutes": (0, 240),        # 事件静默窗口（0 = 不静默，允许）
+    # 浮亏闸（第一级）：只停开新仓，不动已有仓位。0 = 关闭这一级。
+    # 必须小于 daily_loss_halt_pct，否则永远轮不到它出手。
+    "unrealized_halt_pct": (0.0, 50.0),
 }
 _DAILY_TARGET_KEYS = ("enabled", "target_usd", "sustain_sec", "auto_close_sec",
                       "pause_new", "notify")
@@ -307,7 +311,18 @@ def set_global_risk(updates):
     if bad:
         raise ValueError("风控参数不合法，已拒绝写入：" + "；".join(bad))
 
-    # ② 校验通过，才开始改
+    # ② 两级熔断的交叉约束：浮亏闸必须小于日熔断线。
+    # 反过来的话（浮亏 12% 才停、已实现 10% 就熔断）第一级永远不会先出手，
+    # 等于白加一个参数，而且会让使用者误以为有提前刹车。
+    _cur_g = (load_strategies().get("global") or {})
+    _uh = float(updates.get("unrealized_halt_pct", _cur_g.get("unrealized_halt_pct") or 0) or 0)
+    _dh = float(updates.get("daily_loss_halt_pct", _cur_g.get("daily_loss_halt_pct") or 0) or 0)
+    if _uh > 0 and _dh > 0 and _uh >= _dh:
+        raise ValueError(
+            f"浮亏闸（{_uh:g}%）必须小于日熔断线（{_dh:g}%），"
+            f"否则第一级永远不会先出手，等于没加这道闸")
+
+    # ③ 校验通过，才开始改
     cfg = load_strategies()
     g = cfg.setdefault("global", {})
     changed = {}

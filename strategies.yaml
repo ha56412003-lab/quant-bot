@@ -33,6 +33,7 @@ global:
   max_position_pct_per_coin: 32.0
   max_gross_leverage: 6
   daily_loss_halt_pct: 10.0
+  unrealized_halt_pct: 8.0
   risk_per_trade_pct: 1.5
   max_concurrent_coins: 8
   max_same_side: 6

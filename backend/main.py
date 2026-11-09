@@ -238,11 +238,19 @@ async def api_status(mode: str = ""):
     eq, bal, upnl = await executor.equity(m)
     cfg = config.load_strategies()
     day_pnl = risk.daily_realized_pnl(m or "auto")
+    # 浮亏闸状态（2026-11-09 决策 2 第一级）。单独算：executor.equity() 在
+    # 某个币缺价时会把该笔按 0 计入，而这里缺价直接返 None（不知道就不猜）。
+    _uh = float(cfg["global"].get("unrealized_halt_pct") or 0)
+    _uloss = risk.unrealized_loss_pct(eq, m or "auto")
     return {
         "mode": m or executor.mode(),
         "equity": eq, "balance": bal, "unrealized": upnl,
         "daily_realized_pnl": day_pnl,
         "halted": risk.halted(),
+        "unrealized_halt_pct": _uh,
+        "unrealized_loss_pct": _uloss,
+        # True = 当前正被浮亏闸挡着，开不了新仓（这是实时状态，价格反弹就恢复）
+        "unrealized_halted": bool(_uh > 0 and _uloss is not None and _uloss >= _uh),
         "event_quiet": risk.event_quiet(cfg["global"]),
         "open_positions": len(db.open_positions(mode=m or "auto")),
         "universe": config.UNIVERSE,

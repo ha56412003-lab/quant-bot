@@ -49,6 +49,35 @@ def halted():
     return time.time() < until
 
 
+def open_unrealized_pnl(mode="auto"):
+    """当前所有持仓的浮动盈亏（U）。任一币取不到价 → 返回 None。
+
+    2026-11-09 新增，配合浮亏闸使用。取不到价必须返回 None 而不是 0：
+    0 会被读成「浮亏为 0、一切正常」，而实际是「根本不知道亏了多少」。
+    """
+    from . import factors as _fac
+    total = 0.0
+    for p in db.open_positions(mode=mode):
+        px = _fac.mark_price_of(p["symbol"])
+        if not px or px <= 0:
+            return None
+        sign = 1 if p["side"] == "long" else -1
+        total += (px - p["entry_price"]) * p["qty"] * sign
+    return total
+
+
+def unrealized_loss_pct(equity, mode="auto"):
+    """浮亏占净值的百分比（只在亏损时为正数，盈利返回 0）。取不到价 → None。
+
+    equity 由调用方传入 —— executor.equity() 是 async，而这里是被 sync 的
+    allow_entry / API 调用的同步函数，不能在里面 await。
+    """
+    upnl = open_unrealized_pnl(mode)
+    if upnl is None or not equity or equity <= 0:
+        return None
+    return max(0.0, -upnl / equity * 100.0)
+
+
 def check_daily_halt(equity, cfg_global):
     pnl = daily_realized_pnl()
     if not (equity > 0 and pnl < 0 and abs(pnl) / equity * 100 >= cfg_global["daily_loss_halt_pct"]):
@@ -128,18 +157,34 @@ def allow_entry(sig, scfg, equity, cfg_global):
     # 在拿不到行情时返回 0.0（不是 None）→ 断线时所有仓位都算出「0 敞口」，
     # 这道闸门连同下面策略资金闸门一起静默消失，可以一路开满仓。
     # 现在：任一在仓币取不到有效价格 → 无法核算总敞口 → 拒绝开新仓（fail-closed）。
-    missing, gross = [], 0.0
+    missing, gross, upnl = [], 0.0, 0.0
     for p in open_pos:
         px = factors.mark_price_of(p["symbol"])
         if not px or px <= 0:
             missing.append(p["symbol"])
             continue
         gross += abs(p["qty"] * px)
+        _sign = 1 if p["side"] == "long" else -1
+        upnl += (px - p["entry_price"]) * p["qty"] * _sign
     if missing:
         return False, (f"有在仓币取不到行情({','.join(missing[:3])})，"
                        f"总敞口无法核算，暂停开仓"), 0
     if equity > 0 and gross / equity >= cfg_global["max_gross_leverage"]:
         return False, "总敞口已达杠杆上限", 0
+    # ── 浮亏闸（2026-11-09 · 决策 2 第一级）─────────────────────────
+    # 为什么要有这一级：日熔断只看**已实现**亏损。8 个仓位各浮亏 1R(=150U)
+    # = 净值 12% 时系统依然认为「今天没亏」，继续开新仓；等这些止损全部落地，
+    # 亏损已经发生，熔断只是马后炮。
+    # 这一级只管「不再加新风险」：已有仓位的硬止损/快速失败/2R平半/3R/镜像/16h
+    # 全部照常运行，不减仓、不强平。
+    # ⚠ 与 halted() 的区别：浮亏会随价格回升，所以**不落库、不过夜**，
+    #    纯实时判断 —— 价格反弹回来就自动恢复开仓，不需要人工干预。
+    _uh = float(cfg_global.get("unrealized_halt_pct") or 0)
+    if _uh > 0 and equity > 0:
+        loss_pct = -upnl / equity * 100
+        if loss_pct >= _uh:
+            return False, (f"浮亏已达净值 {loss_pct:.1f}%（阈值 {_uh:g}%），"
+                           f"暂停开新仓（已有仓位照常管理）"), 0
     capital, leverage, _max_pos, used = _strategy_capacity(sig, scfg, equity, cfg_global)
     if used >= capital * leverage:
         return False, "策略分配资金已用满", 0

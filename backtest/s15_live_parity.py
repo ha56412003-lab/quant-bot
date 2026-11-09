@@ -130,7 +130,7 @@ def simulate(ks, ind, want_mirror=True, use_bbw=True,
         r = (g - (entry + ep) * FEE) / risk
         if half_done:
             r = 0.5 * half_at_r + 0.5 * r
-        out.append(dict(sym=None, r=r, bars=ei - i, reason=er,
+        out.append(dict(sym=None, side=want, r=r, bars=ei - i, reason=er,
                         entry_ts=int(ks[i + 1].get("ts", i)),
                         exit_ts=int(ks[ei].get("ts", ei))))
         i = ei + 1
