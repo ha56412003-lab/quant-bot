@@ -151,11 +151,19 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
         </span>
       ) },
     { title: t('gate.col.dir'), dataIndex: 'dir', width: 40,
-      render: (v) => <Tag color={v === '多' ? 'red' : 'green'} style={{ margin: 0, padding: '0 4px' }}>{v}</Tag> },
+      // 持仓中的币不参与扫描 → dir 为 null，显示「-」而不是画一个空 Tag
+      render: (v) => (v == null ? <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
+        : <Tag color={v === '多' ? 'red' : 'green'} style={{ margin: 0, padding: '0 4px' }}>{v}</Tag>) },
+    // ★ 2026-11-09：null = 这轮没扫过（持仓币被策略跳过），必须显示「-」。
+    //   以前 v ? ✓ : ✗ 会把 null 画成 ✗，误导成「这道闸没过」（STRK/SEI 实例）。
     { title: t('gate.col.ce'), dataIndex: 'ce', width: 52, align: 'center',
-      render: (v) => v ? <span style={{ color: 'var(--green, #52c41a)' }}>✓</span> : <span style={{ color: 'var(--mute, #8c8c8c)' }}>✗</span> },
+      render: (v) => (v == null ? <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
+        : v ? <span style={{ color: 'var(--green, #52c41a)' }}>✓</span>
+            : <span style={{ color: 'var(--mute, #8c8c8c)' }}>✗</span>) },
     { title: t('gate.col.ha'), dataIndex: 'ha', width: 52, align: 'center',
-      render: (v) => v ? <span style={{ color: 'var(--green, #52c41a)' }}>✓</span> : <span style={{ color: 'var(--mute, #8c8c8c)' }}>✗</span> },
+      render: (v) => (v == null ? <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
+        : v ? <span style={{ color: 'var(--green, #52c41a)' }}>✓</span>
+            : <span style={{ color: 'var(--mute, #8c8c8c)' }}>✗</span>) },
     { title: t('gate.col.bbw'), dataIndex: 'bbw', width: 88, align: 'right',
       render: (v, r) => {
         if (v == null) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>

@@ -715,9 +715,26 @@ async def api_gates():
                      "opened": sym in held, "verdict": verdict,
                      "eff": (qdata.get(sym) or {}).get("eff"),
                      **v, "why": verdict})
-    # 有戏的排前面：在池 > 已开仓 > CE 已翻 > HA 成立 > 偏离够 > BBW 高
-    rows.sort(key=lambda r: (not r.get("in_monitor"), not r.get("ok"), not r.get("ce"),
-                             not r.get("ha"), not r.get("dev_ok"),
+    # ★ 2026-11-09 修：已持仓的币从面板上「消失」。
+    #   strategies.evaluate() 对持仓币直接 continue（不用再判断能不能开），
+    #   于是不写 _GATE_STATE → /api/gates 遍历 gs 时就没有它。
+    #   结果：明明还在跑的仓位，面板上看不到，像已经平了（STRK 实例）。
+    #   这里把持仓币补进列表，四闸状态留空（确实没扫），结论固定「已开仓」。
+    _listed = {r["symbol"] for r in rows}
+    for sym in held:
+        if sym in _listed:
+            continue
+        q = qdata.get(sym) or {}
+        rows.append({"symbol": sym, "in_monitor": sym in mon,
+                     "dev_ok": True, "opened": True, "verdict": "已开仓",
+                     "eff": q.get("eff"),
+                     "ts": None, "dir": None, "ce": None, "ha": None,
+                     "bbw": None, "bbw_thr": None, "dev": None,
+                     "dev_thr": 0, "atr_pct": None, "ok": None,
+                     "why": "已开仓（持仓中不参与扫描）"})
+    # 有戏的排前面：已开仓 > 在池 > CE 已翻 > HA 成立 > 偏离够 > BBW 高
+    rows.sort(key=lambda r: (not r.get("opened"), not r.get("in_monitor"), not r.get("ok"),
+                             not r.get("ce"), not r.get("ha"), not r.get("dev_ok"),
                              -(r.get("bbw") or 0)))
     return {
         "ts": bar,

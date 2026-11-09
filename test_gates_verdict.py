@@ -40,7 +40,7 @@ SYM = "RSRUSDT"
 _fails = []
 
 
-def ck(name, cond, extra=""):
+def ck(name, cond, extra=None):
     print(f"    {'PASS' if cond else 'FAIL'}  {name}{('  → ' + str(extra)) if extra else ''}")
     if not cond:
         _fails.append(name)
@@ -183,6 +183,18 @@ def main():
     r = d["rows"][0]
     ck("持仓优先", r.get("verdict") == "已开仓", r.get("verdict"))
     ck("opened=True", r.get("opened") is True, r.get("opened"))
+
+    # ── 12. 持仓币被策略跳过、没有 _GATE_STATE 记录 → 仍必须列出来 ─────
+    print("\n  12. 持仓币没有四闸记录（策略跳过）→ 面板仍要显示「已开仓」，不能消失")
+    _setup(held_syms=[SYM], in_pool=True)
+    S._GATE_STATE.clear()          # 模拟：策略对持仓币 continue，没写状态
+    d = run_gates()
+    ck("行数不为 0", len(d["rows"]) == 1, len(d["rows"]))
+    r = d["rows"][0] if d["rows"] else {}
+    ck("symbol 是持仓币", r.get("symbol") == SYM, r.get("symbol"))
+    ck("verdict=已开仓", r.get("verdict") == "已开仓", r.get("verdict"))
+    ck("opened=True", r.get("opened") is True, r.get("opened"))
+    ck("四闸字段为空（诚实反映没扫）", r.get("ce") is None and r.get("bbw") is None, (r.get("ce"), r.get("bbw")))
 
     print("\n" + "=" * 78)
     print(f"结果：{'全部通过' if not _fails else str(len(_fails)) + ' 项失败：' + ', '.join(_fails)}")
