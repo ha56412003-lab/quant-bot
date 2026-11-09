@@ -1073,9 +1073,12 @@ html[data-theme="paper"] .stage tbody td > .rdot.lv1 { color:#b8303c !important;
   min-height: 125px;
   /* 有持仓时卡片缩小、居中浮在下边（照浩哥的图稿）；
      内部日志区固定高度 + 滚动，多了往下翻，不撑大整块。 */
-  width: 832px;
+  /* 2026-11-09 浩哥：字号 13.5→15.5px 后，832px 装不下八列，
+     说明列只剩 203px、内容要 280px，只能显示 15 个字就省略。
+     父容器(.stats)实际有 1300+px 可用，加宽到 1080px 把说明列还给内容。 */
+  width: min(1080px, 100%);
   margin: auto auto 5px;
-  max-height: 229px;
+  max-height: 252px;
   display: flex;
   flex-direction: column;
 }
@@ -1129,17 +1132,19 @@ html[data-theme="paper"] .stage tbody td > .rdot.lv1 { color:#b8303c !important;
   overflow-y: auto;
   overflow-x: hidden;
   flex: 1 1 auto;
-  max-height: 153px;
+  max-height: 175px;
 }
 .rp-f li {
   display: grid;
-  /* 八列全部 ×1.3：46/58/38/92/40/62/34 → 60/75/49/120/52/81/44 */
-  grid-template-columns: 60px 75px 49px 120px 52px 81px 44px minmax(0, 1fr);
+  /* 八列全部 ×1.148（随字号 13.5 → 15.5px 同步放宽，
+     否则 +2.35R / 分数这种 tabular-nums 数字会跟相邻列糊在一起）
+     69/86/56/138/60/93/50 → 时间/币名/档位/方向+R/分数/强弱条/动作 */
+  grid-template-columns: 62px 88px 50px 126px 58px 84px 48px minmax(0, 1fr);
   gap: 9px;
   align-items: center;
   padding: 0 5px;
-  font-size: 13.5px;
-  line-height: 21px;
+  font-size: 15.5px;
+  line-height: 24px;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -1171,8 +1176,48 @@ html[data-theme="paper"] .stage tbody td > .rdot.lv1 { color:#b8303c !important;
   letter-spacing: .3px;
 }
 .rp-dir { font-weight: 700 }
-.rp-r { color: var(--ink-2, #b8bccb) }
-.rp-sc { font-weight: 700 }
+
+/* ★★ 2026-11-09 浩哥：「+多少R、数值和说明的字太小」
+   真凶不是 .rp-f li 的 13.5px，而是仪表盘把雷达整块放在 <div class="stats"> 里，
+   全局的 .stats span{font-size:8px} / .stats b{font-size:11px} 优先级(0,1,1)
+   高于 .rp-r(0,1,0)，把 R 值 / 分数 / 动作 / 依据全压成 8px、币名压成 11px。
+   下面统一用 > 子选择器把优先级提到 (0,2,1) 盖回去。 */
+.rp .rp-f li > b {
+  font-size: 15.5px;
+  line-height: 24px;
+}
+.rp .rp-f li > span {
+  font-size: 15.5px;
+  line-height: 24px;
+  letter-spacing: 0;
+  /* .stats span 还带 color:var(--mute)（暗灰），深色底上说明文字几乎看不见。
+     一并复位成继承行色，不让它把正文压暗。 */
+  color: inherit;
+}
+/* R 值：雷达的核心读数，整行里第二个该被看到的数 */
+.rp .rp-f li > .rp-r {
+  font-size: 15.5px;
+  font-weight: 700;
+  color: var(--ink-2, #b8bccb);
+  letter-spacing: .3px;
+}
+/* 分数：整行里最该被一眼看到的数字 */
+.rp .rp-f li > .rp-sc {
+  font-size: 16.5px;
+  font-weight: 800;
+}
+.rp .rp-f li > .rp-act { font-size: 15.5px; font-weight: 700; color: var(--ink, #eef0f7) }
+/* 判断依据：比数值小半档，但仍要能正常阅读 */
+.rp .rp-f li > .rp-why {
+  font-size: 14.5px;
+  letter-spacing: .2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+/* 空仓态同样被 .stats span 压过，一起复位 */
+.rp .rp-idle > .rp-idle-t { font-size: 15px }
+.rp .rp-idle > .rp-idle-s { font-size: 13px }
 /* 强弱条：0-100 横向填充，颜色跟档位一致 */
 .rp-bar {
   position: relative;
