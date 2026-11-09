@@ -144,7 +144,7 @@ async def lifespan(app: FastAPI):
                  lambda: config.pools().get("monitor", {}))),
              # 持仓强弱雷达：只提示不干预，独立循环，不参与心跳监督
              asyncio.create_task(radar.loop()),
-             _mk_supervisor(supervised)]
+             asyncio.create_task(_mk_supervisor(supervised))]
     try:
         yield
     finally:

@@ -52,15 +52,52 @@ def _get_client(timeout=15):
     return _client
 
 
+# -- 隔离连接池（雷达专用）--------------------------------------------------
+# 为什么需要：主池 max_connections=24，而 factors.collect_due() 每 0.5 秒
+# 最多发起 64 个因子刷新，会把槽位占满。雷达（60 秒一轮、最多 6 个币）排在
+# 队尾 → 15 秒 PoolTimeout → netwatch 重试 3 次 = 单币 45 秒 → 一轮 10 分钟
+# 以上，界面上就表现为「有持仓却显示空仓·雷达待命」。
+#
+# 铁律：雷达是独立系统（浩哥 2026-10 定），取数通道也必须独立，
+# 否则引擎一忙雷达就瞎。这里给它一个不重试、快速失败的小池子。
+_iso_client = None
+_iso_loop = None
+_ISO_LIMITS = (8, 4)        # max_connections, max_keepalive
+
+
+def _get_iso_client(timeout=8):
+    global _iso_client, _iso_loop
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if _iso_client is None or _iso_client.is_closed or _iso_loop is not loop:
+        try:
+            limits = httpx.Limits(max_connections=_ISO_LIMITS[0],
+                                  max_keepalive_connections=_ISO_LIMITS[1],
+                                  keepalive_expiry=90)
+        except TypeError:
+            limits = httpx.Limits(max_connections=_ISO_LIMITS[0],
+                                  max_keepalive_connections=_ISO_LIMITS[1])
+        _iso_client = httpx.AsyncClient(
+            timeout=timeout, limits=limits,
+            headers={"User-Agent": "quant-bot/1.0"})
+        _iso_loop = loop
+    return _iso_client
+
+
 async def aclose():
     """关闭连接池（lifespan 结束时调用）。"""
-    global _client
-    if _client is not None and not _client.is_closed:
-        try:
-            await _client.aclose()
-        except Exception:  # noqa: BLE001
-            pass
+    global _client, _iso_client
+    for name in ("_client", "_iso_client"):
+        c = globals()[name]
+        if c is not None and not c.is_closed:
+            try:
+                await c.aclose()
+            except Exception:  # noqa: BLE001
+                pass
     _client = None
+    _iso_client = None
 
 
 async def _reconnect():
@@ -85,13 +122,22 @@ async def _reconnect():
             pass
 
 
-async def _get(base, path, params=None, timeout=15):
+async def _get(base, path, params=None, timeout=15, isolated=False):
     """公开行情 GET —— 只读，失败自动重试 3 次（断网/代理挂/封 IP 时）。
 
     重试后仍失败 → netwatch 记一次故障事件；60 秒内累计 3 次 → 判定网络瘫痪，
     页面弹窗 + 飞书推送（2026-11-08 浩哥定）。
     异常仍原样抛出，调用方照旧按「数据拿不到」跳过本轮。
+
+    ``isolated=True`` 走雷达专用的小池子，**不重试、8 秒快速失败**。
+    雷达宁可少一个因子，也不能因为排队等 45 秒而整轮扫不完。
     """
+    if isolated:
+        client = _get_iso_client()
+        resp = await client.get(base + path, params=params or {}, timeout=timeout)
+        resp.raise_for_status()
+        return resp.json()
+
     if netwatch.take_reconnect():
         await _reconnect()
 
@@ -151,7 +197,7 @@ async def _signed(method, base, path, params=None, timeout=15):
 
 # -- public market data (futures) -------------------------------------------
 
-async def klines(symbol, interval="1m", limit=200):
+async def klines(symbol, interval="1m", limit=200, isolated=False):
     """Futures klines -> list of dicts (ts, open, high, low, close, volume).
 
     返回前做健全性校验：任一根出现非有限值 / 价格<=0 / high<low，
@@ -166,7 +212,8 @@ async def klines(symbol, interval="1m", limit=200):
     `equity > 0` 恒 False → 日内熔断整个失效。
     """
     raw = await _get(FUT, "/fapi/v1/klines",
-                     {"symbol": symbol, "interval": interval, "limit": limit})
+                     {"symbol": symbol, "interval": interval, "limit": limit},
+                     timeout=8 if isolated else 15, isolated=isolated)
     out = []
     for k in raw:
         try:
@@ -200,9 +247,10 @@ async def open_interest(symbol):
     return await _get(FUT, "/fapi/v1/openInterest", {"symbol": symbol})
 
 
-async def open_interest_hist(symbol, period="1h", limit=48):
+async def open_interest_hist(symbol, period="1h", limit=48, isolated=False):
     return await _get(FUT, "/futures/data/openInterestHist",
-                      {"symbol": symbol, "period": period, "limit": limit})
+                      {"symbol": symbol, "period": period, "limit": limit},
+                      timeout=8 if isolated else 15, isolated=isolated)
 
 
 async def long_short_global(symbol, period="1h", limit=48):
@@ -215,9 +263,10 @@ async def long_short_top_positions(symbol, period="1h", limit=168):
                       {"symbol": symbol, "period": period, "limit": limit})
 
 
-async def taker_ratio(symbol, period="5m", limit=48):
+async def taker_ratio(symbol, period="5m", limit=48, isolated=False):
     return await _get(FUT, "/futures/data/takerlongshortRatio",
-                      {"symbol": symbol, "period": period, "limit": limit})
+                      {"symbol": symbol, "period": period, "limit": limit},
+                      timeout=8 if isolated else 15, isolated=isolated)
 
 
 async def funding_history(symbol, limit=30):

@@ -683,6 +683,32 @@ _NO_HISTORY = {"mark_all", "liq_map", "ob_wall", "exch_chain_tx", "whale_tx",
 _IN_FLIGHT = set()          # (name, symbol) currently being fetched
 _MAX_BATCH = 64             # per-tick cap so one tick can't flood the loop
 
+# -- 失败退避 -----------------------------------------------------------------
+# 为什么必须要有：collect_due() 的到期判据是 `now - factor_ts >= interval`。
+# 一个因子刷新失败时不写 ts，于是下一 tick（0.5 秒后）又被判定"到期"→ 重新
+# 排队。上游限流（Clawby 429）时这条链会自我放大：失败越多 → 排队越多 →
+# 上游越堵 → 失败越多，实测每 0.5 秒稳定压着 _MAX_BATCH=64 个请求，把
+# binance 主池（24 槽位）占满，雷达排在队尾 15 秒 PoolTimeout、重试 3 次，
+# 一轮 6 个币要 10 分钟以上（2026-11-09 上云后暴露）。
+# 退避后：连错 1 次等 60 秒、2 次等 180 秒、3 次及以上等 600 秒；
+# 一旦成功立即清零，不影响正常刷新节奏。
+_FAIL_COUNT = {}            # (name, symbol) -> 连续失败次数
+_FAIL_UNTIL = {}            # (name, symbol) -> 允许重试的最早时间戳
+_FAIL_BACKOFF = (60, 180, 600)
+
+
+def _penalize(key):
+    """记一次失败并按连续失败次数设退避窗口。"""
+    n = _FAIL_COUNT.get(key, 0) + 1
+    _FAIL_COUNT[key] = n
+    wait = _FAIL_BACKOFF[min(n, len(_FAIL_BACKOFF)) - 1]
+    _FAIL_UNTIL[key] = time.time() + wait
+
+
+def _clear_fail(key):
+    _FAIL_COUNT.pop(key, None)
+    _FAIL_UNTIL.pop(key, None)
+
 
 async def _run_one(name, symbol, fetcher):
     key = (name, symbol or "")
@@ -691,8 +717,13 @@ async def _run_one(name, symbol, fetcher):
         if value is not None:
             db.set_factor(name, symbol or "", value,
                           keep_history=name not in _NO_HISTORY)
+            _clear_fail(key)
+        else:
+            # 上游返回空（限流/无数据）也是失败 —— 否则会每 0.5 秒重打
+            _penalize(key)
     except Exception as exc:  # noqa: BLE001
         log.warning("factor %s/%s failed: %s", name, symbol, exc)
+        _penalize(key)
     finally:
         _IN_FLIGHT.discard(key)
 
@@ -717,6 +748,8 @@ async def collect_due():
             key = (name, sym or "")
             if key in _IN_FLIGHT:
                 continue
+            if _FAIL_UNTIL.get(key, 0.0) > now:
+                continue          # 退避中，别每 0.5 秒重打上游
             if now - db.get_factor_ts(name, sym) >= interval - 1:
                 _IN_FLIGHT.add(key)
                 asyncio.create_task(_run_one(name, sym, fetcher))

@@ -292,14 +292,14 @@ async def sample(symbol, side, r_now=0.0, slow=True):
     # 价格（5m，24 根 = 2 小时）
     px = []
     try:
-        ks = await binance.klines(symbol, "5m", 24)
+        ks = await binance.klines(symbol, "5m", 24, isolated=True)
         px = [float(k["close"]) for k in ks] if ks else []
     except Exception as exc:  # noqa: BLE001
         log.warning("radar klines %s: %s", symbol, exc)
 
     # 主动买卖比（5m）
     try:
-        t = await binance.taker_ratio(symbol, "5m", 12)
+        t = await binance.taker_ratio(symbol, "5m", 12, isolated=True)
         ser = [float(x["buySellRatio"]) for x in t] if t else []
         if ser:
             parts["taker"], detail["taker"] = score_taker(ser, side)
@@ -319,7 +319,7 @@ async def sample(symbol, side, r_now=0.0, slow=True):
 
     # OI（5m）
     try:
-        o = await binance.open_interest_hist(symbol, "5m", 12)
+        o = await binance.open_interest_hist(symbol, "5m", 12, isolated=True)
         ser = [float(x["sumOpenInterest"]) for x in o] if o else []
         if ser:
             parts["oi"], detail["oi"] = score_oi(ser, px, side)
@@ -474,7 +474,7 @@ async def evaluate_alerts():
         (int(time.time()) - 3600,))]
     for a in pending:
         try:
-            ks = await binance.klines(a["symbol"], "5m", 60)
+            ks = await binance.klines(a["symbol"], "5m", 60, isolated=True)
         except Exception:  # noqa: BLE001
             continue
         if not ks:
