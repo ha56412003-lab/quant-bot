@@ -30,7 +30,8 @@ BARS_PER_HOUR = 4          # 15m K 线
 
 def sim(ks, ind, half_at_r=2.0, half_tp_r=1.0, maxh=64,
         trail_arm=0.0, trail_dd=0.0, trail_after_half=False,
-        max_risk_pct=None, swing=None, time_stop_always=False):
+        max_risk_pct=None, swing=None, time_stop_always=False,
+        qf_bars=0, qf_min_r=0.0):
     """与线上同源的单币逐笔回测，新增 trail_arm / trail_dd 移动止盈。
 
     trail_arm=0 表示关闭移动止盈 → 行为必须与原 simulate 完全一致。
@@ -39,6 +40,14 @@ def sim(ks, ind, half_at_r=2.0, half_tp_r=1.0, maxh=64,
     trail_after_half=True 时，移动止盈只在「已平过一半」之后才启用 ——
     用来测「1.8R 平一半，剩下半仓改用移动止损接管」这类方案。
     否则 trail_arm(1.5) < half_at_r(1.8) 会在平半之前就砍掉，1.8R 永远到不了。
+
+    qf_bars / qf_min_r：快速失败（线上 _quick_fail，2026-11-08 上线）。
+        满 qf_bars 根 K 线后，峰顶仍 < qf_min_r R → 平仓。
+        线上参数 quickfail_hours 4.0 / quickfail_min_r 0.5 → qf_bars=16。
+        ⚠ 2026-11-09 审计发现：此前 sim() 与 simulate() 都没有这条，
+          导致回测里「进去 4 小时没起色」的单子继续跑到 12 小时，
+          与线上完全不是同一条路径。默认 0 = 关闭（保持口径自证成立），
+          要贴近实盘必须显式传 qf_bars=16, qf_min_r=0.5。
     """
     ho, hc = ind["open"], ind["close"]
     zl, dirs, atr, bp = ind["zlsma"], ind["dir"], ind["atr"], ind["bbw_pct"]
@@ -95,6 +104,11 @@ def sim(ks, ind, half_at_r=2.0, half_tp_r=1.0, maxh=64,
                 break
             peak = max(peak, ((h_ - entry) if want == "long" else (entry - l_)) / risk)
             cur = ((c_ - entry) if want == "long" else (entry - c_)) / risk
+            # ⓪ 快速失败（线上 _quick_fail：满 4h 峰顶仍 < 0.5R 就走）
+            #    线上在 check_exit 最前面，仅排在 engine 的 12h/硬止损之后
+            if qf_bars and (j - i) >= qf_bars and peak < qf_min_r - 1e-9:
+                ep, er, ei = c_, "quickfail", j
+                break
             # ② 2R 平一半
             if peak >= half_at_r and not half_done:
                 half_done = True
@@ -189,6 +203,15 @@ def main():
     print("  ✓ 一致（%d 笔零差异）" % ref_s["n"])
 
     # ── 参数矩阵 ────────────────────────────────────────────────
+    # ⚠ 2026-11-09 审计教训：线上 check_exit 第一步是「快速失败」(_quick_fail
+    #   4h/0.5R)，而 sim() / simulate() 都没有。不注入这条，回测里
+    #   「进去 4 小时没起色」的单子会继续跑到 16 小时，与线上根本不是一条路径。
+    #   实测对本次方案影响 13R 量级、对原方案影响 25R 量级，足以让结论反转。
+    #   口径自证仍用 qf 关闭（ref_simulate 无此参数），只验「两条实现路径一致」；
+    #   业务方案对比则一律按线上真实口径跑。
+    LIVE_QF = dict(qf_bars=16, qf_min_r=0.5)
+    print()
+    print("口径：cap 5% / 15m / 线上含快速失败(4h,0.5R) / maxh 默认 16h")
     print("\n" + "=" * 112)
     print("%-22s%7s%10s%9s%8s%10s%9s%8s" % (
         "方案", "笔数", "净R", "均笔R", "胜率", "最大回撤", "均持仓h", "最长h"))
@@ -196,8 +219,10 @@ def main():
     results = []
     for name, kw in PLANS:
         trades = []
+        merged = dict(kw)
+        merged.update(LIVE_QF)
         for sym, ks in cache:
-            trades.extend(sim(ks, inds[sym], **kw))
+            trades.extend(sim(ks, inds[sym], **merged))
         s = stats(trades)
         hmax = max(t["bars"] for t in trades) / BARS_PER_HOUR
         results.append((name, kw, s, trades))

@@ -87,10 +87,11 @@ for label, key, want, typ in EXPECT:
           same and isinstance(got, typ) and yaml_v == want,
           "" if same else f"不一致！")
 
-# 顶层 max_hold_hours（12h 超时）走 cfg 不是 params
+# 顶层 max_hold_hours（16h 超时）走 cfg 不是 params
+# 2026-11-09 最终版：16h（12h 版因漏算快速失败被推翻，详见 strategies.yaml 注释）
 mh = strat.max_hold
-check(f"{'12h 超时秒数':<20} max_hold        = {mh} 秒 (= {mh/3600:.0f} 小时)",
-      mh == 12 * 3600)
+check(f"{'16h 超时秒数':<20} max_hold        = {mh} 秒 (= {mh/3600:.0f} 小时)",
+      mh == 16 * 3600)
 
 # 旧参数必须彻底消失
 # 2026-11-08 复盘追加：half_dd_pct / half_dd_r 是「yaml 写了但代码从不读」的空指令，
