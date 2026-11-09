@@ -8,10 +8,12 @@
 用法：python test_mirror_exit.py
 """
 import asyncio
+import os
 import sys
 import time
 
-sys.path.insert(0, ".")
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _ROOT)
 
 import backend.strategies as S
 

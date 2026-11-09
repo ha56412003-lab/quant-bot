@@ -9,10 +9,12 @@
 
 跑法：PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe test_quality_gate.py
 """
+import os
 import sys
 import time
 
-sys.path.insert(0, ".")
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _ROOT)
 from backend import quality as _q  # noqa: E402  占位，确保包能导入
 import importlib  # noqa: E402
 

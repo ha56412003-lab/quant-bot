@@ -12,11 +12,12 @@ import json
 import sys
 import urllib.request
 
-sys.path.insert(0, ".")
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _ROOT)
 import yaml  # noqa: E402
 
 API = "http://127.0.0.1:8899/api/risk"
-YAML = "strategies.yaml"
+YAML = os.path.join(_ROOT, "strategies.yaml")
 
 KEYS = [
     ("max_concurrent_coins", "最大并发币数", "int"),

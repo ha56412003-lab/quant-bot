@@ -20,10 +20,12 @@
 用法：python test_new_gates.py
 """
 import asyncio
+import os
 import sys
 import time
 
-sys.path.insert(0, ".")
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _ROOT)
 
 import backend.strategies as S
 
@@ -267,7 +269,7 @@ def test_config():
     print("C 组：strategies.yaml 配置")
     print("=" * 78)
     import yaml
-    cfg = yaml.safe_load(open("strategies.yaml", encoding="utf-8"))
+    cfg = yaml.safe_load(open(os.path.join(_ROOT, "strategies.yaml"), encoding="utf-8"))
     p = cfg["strategies"]["S15_CE_ZLSMA"]["params"]
     chk(p.get("min_dev_pct") == 0.5, "C1 min_dev_pct = 0.5", f"实际 {p.get('min_dev_pct')}")
     chk(p.get("quickfail_hours") == 4.0, "C2 quickfail_hours = 4.0",

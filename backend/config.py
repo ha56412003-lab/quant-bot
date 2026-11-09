@@ -70,6 +70,25 @@ PAPER_SLIPPAGE = 0.0003
 
 ENGINE_TICK_SEC = 30  # legacy, loops now run at 0.5s (engine.LOOP_SEC)
 
+# ── 测试取样起点（影子模式 / 观察期统计的时间下界）─────────────────
+# 浩哥 2026-11-09 定：之前攒的样本受多轮参数改动污染（池子 ATR、风控、两闸
+# 都在这期间改过），跨版本比较没有意义。从这一刻起重新起算，样本干净。
+# 改这里 → 影子面板、观察期报告同时生效，不用改两处。
+# 格式 "%Y-%m-%d %H:%M"；留空表示不设下界（统计全部历史）。
+SAMPLE_START_STR = os.environ.get("QB_SAMPLE_START", "2026-11-09 12:00")
+
+def _parse_sample_start(s):
+    if not s:
+        return None
+    try:
+        import datetime as _dt
+        return _dt.datetime.strptime(s, "%Y-%m-%d %H:%M")
+    except ValueError:
+        return None
+
+SAMPLE_START = _parse_sample_start(SAMPLE_START_STR)
+SAMPLE_START_TS = SAMPLE_START.timestamp() if SAMPLE_START else None
+
 # common futures symbols offered in the universe picker (extend freely)
 KNOWN_SYMBOLS = [
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT",

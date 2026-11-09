@@ -30,9 +30,12 @@ import datetime as dt
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend import config  # noqa: E402
 
-# ── 观察期参数（改起点也改这里，或命令行传）──────────────────────────
-START = dt.datetime(2026, 11, 6, 18, 20)
-BASE_EQUITY = 10072.91
+# ── 观察期参数 ────────────────────────────────────────────────────
+# ★ 2026-11-09：起点统一从 backend/config.py 的 SAMPLE_START 读，
+#   和影子模式统计同一个下界，不再两处各写一个日期（以前就是这样漂的）。
+#   命令行仍可覆盖：python scripts/observe_report.py 2026-11-09 12:00 10219.67
+START = config.SAMPLE_START or dt.datetime(2026, 11, 9, 12, 0)
+BASE_EQUITY = None          # None = 自动取起点后第一条 equity_curve
 if len(sys.argv) >= 4:
     d, hm = sys.argv[1], sys.argv[2]
     START = dt.datetime.strptime(f"{d} {hm}", "%Y-%m-%d %H:%M")
@@ -106,7 +109,18 @@ def main():
     except Exception as exc:
         api_note = f"（服务未响应，浮盈未计入：{type(exc).__name__}）"
 
-    equity = BASE_EQUITY + sum(r["pnl"] or 0 for r in closed) + upnl
+    # ★ 2026-11-09：BASE_EQUITY 默认 None = 自动取「起点之后第一条净值」。
+    #   手工填数字容易填错、也会忘了改；直接从 equity_curve 取最准。
+    base = BASE_EQUITY
+    base_src = "手工指定"
+    if base is None:
+        row0 = c.execute(
+            "SELECT equity FROM equity_curve WHERE ts >= ? ORDER BY ts LIMIT 1",
+            (lo,)).fetchone()
+        base = float(row0["equity"]) if row0 else 0.0
+        base_src = "起点首条净值" if row0 else "无数据"
+
+    equity = base + sum(r["pnl"] or 0 for r in closed) + upnl
     equity_src = "基线+已实现+浮盈"
     # 净值以 API 为准：paper_balance 与流水有历史误差（已知 +9.87U 量级），
     # 自算会和界面数字打架，复盘时数字不一致最容易吵起来
@@ -124,9 +138,9 @@ def main():
     print(" 观察期成绩单  ——  策略自动 / 人工干预 分开算")
     print("═" * W)
     print(f"  起点     {START:%Y-%m-%d %H:%M}")
-    print(f"  基线     {BASE_EQUITY:,.2f} U")
+    print(f"  基线     {base:,.2f} U   （{base_src}）")
     print(f"  已过     {(dt.datetime.now() - START).total_seconds() / 3600:.1f} 小时")
-    print(f"  净值     {equity:,.2f} U   （基线 {'%+.2f' % (equity - BASE_EQUITY)} U，来源 {equity_src}）")
+    print(f"  净值     {equity:,.2f} U   （基线 {'%+.2f' % (equity - base)} U，来源 {equity_src}）")
     print(f"  浮盈     {upnl:+,.2f} U  ({upnl_ok}/{len(opens)} 笔取到实时价){api_note}")
 
     print()
@@ -159,7 +173,8 @@ def main():
     # ── 验收标准进度 ──
     print()
     print("═" * W)
-    print(" 验收标准（观察期至 2026-11-13）")
+    end = START + dt.timedelta(days=7)
+    print(f" 验收标准（观察期至 {end:%Y-%m-%d %H:%M}，满 7 天）")
     print("═" * W)
     checks = [
         ("交易笔数 ≥ 15", s["n"], s["n"] >= 15, "笔"),

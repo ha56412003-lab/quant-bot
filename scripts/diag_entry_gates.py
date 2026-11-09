@@ -16,7 +16,8 @@ import json
 import sys
 import urllib.request
 
-sys.path.insert(0, ".")
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _ROOT)
 
 from backend import binance  # noqa: E402
 from backend.strategies import _ce_zlsma  # noqa: E402

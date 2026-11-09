@@ -22,8 +22,8 @@ import asyncio
 import sys
 import os
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, ROOT)
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _ROOT)
 
 import backend.main as M          # noqa: E402
 import backend.strategies as S    # noqa: E402
@@ -130,7 +130,7 @@ def main():
 
     # ── 6. 策略层文案不得再写「已开仓」 ────────────────────────
     print("\n  6. strategies.py 源码里不得再出现「已开仓」字样")
-    src = open(os.path.join(ROOT, "backend", "strategies.py"), encoding="utf-8").read()
+    src = open(os.path.join(_ROOT, "backend", "strategies.py"), encoding="utf-8").read()
     ck("无「已开仓」硬编码", "已开仓" not in src)
 
     # ── 7. 这一轮四闸没过 + 有更新的信号 → 必须报诊断原文 ─────────

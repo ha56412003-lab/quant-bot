@@ -13,8 +13,8 @@ import os
 import sys
 import time
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, ROOT)
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _ROOT)
 os.environ.setdefault("HTTP_PROXY", "http://127.0.0.1:7897")
 os.environ.setdefault("HTTPS_PROXY", "http://127.0.0.1:7897")
 os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1,::1")

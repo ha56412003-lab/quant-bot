@@ -530,11 +530,24 @@ def shadow_recent(limit=100):
 
 
 def shadow_stats():
-    """各规则下的胜率与平均 R。"""
-    with _lock:
-        rows = _conn.execute(
-            "SELECT r1,r2,r3,acted,outcome,outcome_r FROM shadow_signals "
-            "WHERE outcome IS NOT NULL").fetchall()
+    """各规则下的胜率与平均 R。
+
+    ★ 2026-11-09 浩哥定：统计只算 config.SAMPLE_START 之后的样本。
+    更早的样本跨了好几版参数（池子 ATR、风控三参数、两闸都改过），
+    混在一起算胜率没有意义 —— 会把「旧规则下的成绩」算到「新规则」头上。
+    """
+    from . import config as _cfg
+    lo = getattr(_cfg, "SAMPLE_START_TS", None)
+    if lo:
+        with _lock:
+            rows = _conn.execute(
+                "SELECT r1,r2,r3,acted,outcome,outcome_r FROM shadow_signals "
+                "WHERE outcome IS NOT NULL AND ts >= ?", (lo,)).fetchall()
+    else:
+        with _lock:
+            rows = _conn.execute(
+                "SELECT r1,r2,r3,acted,outcome,outcome_r FROM shadow_signals "
+                "WHERE outcome IS NOT NULL").fetchall()
     def agg(items):
         n = len(items)
         if not n:

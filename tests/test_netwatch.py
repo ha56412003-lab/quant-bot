@@ -3,10 +3,12 @@
 跑法：PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe test_netwatch.py
 """
 import asyncio
+import os
 import sys
 import time
 
-sys.path.insert(0, '.')
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _ROOT)
 
 from backend import netwatch
 
@@ -16,11 +18,10 @@ from backend import netwatch
 # 后果（2026-11-09 实测踩到）：跑一次测试 = 清空全部历史告警 + 写入伪造的网络中断告警，
 # 前端随即弹出「交易系统网络中断」红色浮窗，浩哥看到时以为真断网了。
 # 修法：把 netwatch.conn 指向一个临时库，测试读写全在沙箱里。
-import os as _os
 import sqlite3 as _sq
 import tempfile as _tf
 
-_TMPDB = _os.path.join(_tf.gettempdir(), f"netwatch_test_{_os.getpid()}.db")
+_TMPDB = os.path.join(_tf.gettempdir(), f"netwatch_test_{os.getpid()}.db")
 _CONN = _sq.connect(_TMPDB)
 _CONN.row_factory = _sq.Row
 _CONN.execute("""CREATE TABLE IF NOT EXISTS system_alerts(

@@ -17,8 +17,8 @@ import os
 import sys
 import time
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, ROOT)
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _ROOT)
 
 import yaml
 
@@ -42,7 +42,7 @@ print("=" * 78)
 print("一、参数全链路（yaml → 实例 → _p() 转换后的真实取值）")
 print("=" * 78)
 
-raw_yaml = yaml.safe_load(open(os.path.join(ROOT, "strategies.yaml"), encoding="utf-8"))
+raw_yaml = yaml.safe_load(open(os.path.join(_ROOT, "strategies.yaml"), encoding="utf-8"))
 node = raw_yaml["strategies"]["S15_CE_ZLSMA"]
 yaml_params = node.get("params", {})
 yaml_top = {k: v for k, v in node.items() if k != "params"}

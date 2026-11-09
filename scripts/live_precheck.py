@@ -15,7 +15,8 @@ from __future__ import annotations
 import asyncio
 import sys
 
-sys.path.insert(0, ".")
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _ROOT)
 
 from backend import binance, config  # noqa: E402
 

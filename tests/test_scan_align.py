@@ -15,8 +15,8 @@ import os
 import sys
 from unittest.mock import patch
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, ROOT)
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _ROOT)
 
 from backend import engine  # noqa: E402
 
