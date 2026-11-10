@@ -139,7 +139,8 @@ async def manage_positions(ctx, strategies):
             # 回测（20币/60天/cap5%/1.8半/移动1.5-1.2）：
             #   去掉豁免 12h → +94.2R 最长 12.0h
             #   保留豁免 12h → +86.7R 最长 42.5h   （只差 0.8R，买掉 30 小时尾巴）
-            # 「让利润奔跑」靠移动止盈（trail_arm/trail_dd）来做，不靠免死金牌。
+            # 「让利润奔跑」靠 ② 2.0R 兜底 + ③ 右侧止盈来做，不靠免死金牌。
+            # （移动止盈已于 2026-11-10 整条删除，这里不再提它。）
             reason = "达到最长持仓时限"
         if not reason and pos["stop_price"]:
             if (side == "long" and price <= pos["stop_price"]) or \
@@ -178,6 +179,20 @@ async def manage_positions(ctx, strategies):
                                f"{_CLOSE_RETRY_SEC}s 后重试")
 
 
+def _heartbeat(key, value):
+    """写心跳。
+
+    ★ 2026-11-10 修的 BUG：原来这里是裸的 db.set_meta()，一旦撞上写锁
+    （sqlite3.OperationalError: database is locked —— 每天 08:16 质量/因子日刷新
+    的长事务必撞），异常会一路冒出 tick 的 try 块 → **整个 0.5s 循环退出** →
+    看门狗再把它拉起来，中间 20~30 秒里止损/止盈完全停摆。
+    心跳只是给看门狗看的存活标记，写不进去最多让看门狗误判一次，
+    绝不能因此拖死真正管钱的循环。所以这里吞掉异常，循环继续跑。
+    """
+    if not db.heartbeat_meta(key, value):
+        log.warning("心跳写入失败(%s)：本轮跳过，循环继续（不影响止损/止盈判断）", key)
+
+
 async def position_loop():
     log.info("position loop started (%.1fs, ws-priced)", LOOP_SEC)
     while True:
@@ -186,7 +201,7 @@ async def position_loop():
             cfg = config.load_strategies()
             ctx = Ctx(config.UNIVERSE, quality.monitor_list())
             await manage_positions(ctx, _strategies(cfg))
-            db.set_meta("last_manage_ts_ms", int(time.time() * 1000))
+            _heartbeat("last_manage_ts_ms", int(time.time() * 1000))
         except Exception as exc:  # noqa: BLE001
             log.exception("position loop tick failed")
             db.set_meta("last_error", f"{int(time.time())}: manage: {exc}")
@@ -317,7 +332,7 @@ async def scan_loop():
                 shadow.settle(factors.mark_price_of)
             except Exception as _exc:  # noqa: BLE001
                 log.debug("shadow settle failed: %s", _exc)
-            db.set_meta("last_tick_ts", int(time.time()))
+            _heartbeat("last_tick_ts", int(time.time()))
             # 只在权益可信时清错误。以前无条件清空，导致本 tick 前面刚写的
             # 「权益读取失败，暂停开仓」在同一轮就被抹掉，界面永远看不到原因。
             if _eq_ok:

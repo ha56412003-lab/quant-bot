@@ -143,90 +143,99 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
       render: (v) => <Typography.Text style={{ fontSize: 12 }}>{v}</Typography.Text> },
   ]
   const gateCols = [
-    { title: t('gate.col.symbol'), dataIndex: 'symbol', width: 72,
+    { title: t('gate.col.symbol'), dataIndex: 'symbol', width: 48, ellipsis: true,
       render: (v, r) => (
         <span>
           {v.replace('USDT', '')}
           {/* 池内池外只决定「能不能开新仓」，跟已持仓的币无关：
               仓位一旦开了就由持仓循环管到底（出场不看池）。
               给持仓币挂「池外」只会让人以为它没人管，所以只在未持仓时显示。 */}
-          {!r.in_monitor && !r.opened && <Tag color="default" style={{ marginLeft: 2, fontSize: 9, padding: '0 3px' }}>{t('gate.outPool')}</Tag>},
+          {!r.in_monitor && !r.opened && <Tag color="default" style={{ marginLeft: 2, fontSize: 10, padding: '0 3px' }}>{t('gate.outPool')}</Tag>},
         </span>
       ) },
-    { title: t('gate.col.dir'), dataIndex: 'dir', width: 34,
+    { title: t('gate.col.dir'), dataIndex: 'dir', width: 30,
       // 持仓中的币不参与扫描 → dir 为 null，显示「-」而不是画一个空 Tag
       render: (v) => (v == null ? <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
         : <Tag color={v === '多' ? 'red' : 'green'} style={{ margin: 0, padding: '0 4px' }}>{v}</Tag>) },
     // ★ 2026-11-09：null = 这轮没扫过（持仓币被策略跳过），必须显示「-」。
     //   以前 v ? ✓ : ✗ 会把 null 画成 ✗，误导成「这道闸没过」（STRK/SEI 实例）。
-    { title: t('gate.col.ce'), dataIndex: 'ce', width: 42, align: 'center',
+    { title: t('gate.col.ce'), dataIndex: 'ce', width: 21, align: 'center',
       render: (v) => (v == null ? <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
-        : v ? <span style={{ color: 'var(--green, #52c41a)' }}>✓</span>
-            : <span style={{ color: 'var(--mute, #8c8c8c)' }}>✗</span>) },
-    { title: t('gate.col.ha'), dataIndex: 'ha', width: 42, align: 'center',
+        : v ? <span style={{ color: '#35e08a', fontWeight: 700, fontSize: 13 }}>✓</span>
+            : <span style={{ color: '#7c8296' }}>✗</span>) },
+    { title: t('gate.col.ha'), dataIndex: 'ha', width: 21, align: 'center',
       render: (v) => (v == null ? <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
-        : v ? <span style={{ color: 'var(--green, #52c41a)' }}>✓</span>
-            : <span style={{ color: 'var(--mute, #8c8c8c)' }}>✗</span>) },
+        : v ? <span style={{ color: '#35e08a', fontWeight: 700, fontSize: 13 }}>✓</span>
+            : <span style={{ color: '#7c8296' }}>✗</span>) },
     // ②b 关键K线（B 档新增）—— 实体 > 0.7×ATR(20) 且收在极值三分之一、实体占比 > 50%。
     //   三道里它砍得最狠（挡掉约 90% 的 CE 信号），所以必须单独一列，否则「没开仓」
     //   只能看到 CE/HA 全绿，看不出真正卡在哪。
-    { title: t('gate.col.key'), dataIndex: 'key', width: 56, align: 'center',
+    { title: t('gate.col.key'), dataIndex: 'key', width: 36, align: 'center',
       render: (v) => (v == null ? <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
-        : v ? <span style={{ color: 'var(--green, #52c41a)' }}>✓</span>
-            : <span style={{ color: 'var(--mute, #8c8c8c)' }}>✗</span>) },
-    { title: t('gate.col.bbw'), dataIndex: 'bbw', width: 72, align: 'right',
+        : v ? <span style={{ color: '#35e08a', fontWeight: 700, fontSize: 13 }}>✓</span>
+            : <span style={{ color: '#7c8296' }}>✗</span>) },
+    { title: t('gate.col.bbw'), dataIndex: 'bbw', width: 48, align: 'right',
       render: (v, r) => {
         if (v == null) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
-        const pass = v >= (r.bbw_thr || 70)
-        return <span style={{ color: pass ? 'var(--green, #52c41a)' : 'var(--mute, #8c8c8c)', fontSize: 12 }}>
-          {v.toFixed(0)}%<span style={{ fontSize: 9 }}>/{r.bbw_thr || 70}</span>
+        const thr = r.bbw_thr || 70
+        const pass = v >= thr
+        // 2026-11-10：格子里那个 9px 的「/70」看不清，删掉；阈值挪到鼠标悬停。
+        return <span title={`阈值 ${thr}`} style={{ color: pass ? 'var(--green, #52c41a)' : 'var(--mute, #8c8c8c)', fontSize: 12 }}>
+          {v.toFixed(0)}%
         </span>
       } },
-    { title: t('gate.col.dev'), dataIndex: 'dev', width: 72, align: 'right',
+    { title: t('gate.col.dev'), dataIndex: 'dev', width: 52, align: 'right',
       render: (v, r) => {
         const thr = r.dev_thr || 0
         if (thr <= 0) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>关</span>
         if (v == null) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
         const pass = v >= thr
-        return <span style={{ color: pass ? 'var(--green, #52c41a)' : 'var(--mute, #8c8c8c)', fontSize: 12 }}>
-          {v.toFixed(2)}%<span style={{ fontSize: 9 }}>/{thr}</span>
+        return <span title={`阈值 ${thr}`} style={{ color: pass ? 'var(--green, #52c41a)' : 'var(--mute, #8c8c8c)', fontSize: 12 }}>
+          {v.toFixed(2)}%
         </span>
       } },
     // ⑤ 止损距离上限（2026-11-09 新增）—— 与④偏离方向相反：这道是「越近越好」。
     //   以前被它拦掉的币在面板上显示「四闸全过·待成交」，等一晚上也不开仓，误导。
-    { title: t('gate.col.risk'), dataIndex: 'risk', width: 72, align: 'right',
+    { title: t('gate.col.risk'), dataIndex: 'risk', width: 52, align: 'right',
       render: (v, r) => {
         const thr = r.risk_thr || 0
         if (thr <= 0) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>关</span>
         if (v == null) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
         const pass = v <= thr
-        return <span style={{ color: pass ? 'var(--green, #52c41a)' : 'var(--red, #c4182c)', fontSize: 12 }}>
-          {v.toFixed(2)}%<span style={{ fontSize: 9 }}>/{thr}</span>
+        return <span title={`上限 ${thr}%`} style={{ color: pass ? 'var(--green, #52c41a)' : 'var(--red, #c4182c)', fontSize: 12 }}>
+          {v.toFixed(2)}%
         </span>
       } },
     // ⑥ 进场趋势效率（B 档新增）—— 前 48 根单边度，≥0.30 才算趋势日。
     //   门槛为 0 表示这道闸关闭（历史上有过池子层面用 EFF 的做法，已废弃）。
-    { title: t('gate.col.eff'), dataIndex: 'eff', width: 64, align: 'right',
+    { title: t('gate.col.eff'), dataIndex: 'eff', width: 34, align: 'right',
       render: (v, r) => {
         const thr = r.eff_thr || 0
         if (thr <= 0) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>关</span>
         if (v == null) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
         const pass = v >= thr
-        return <span style={{ color: pass ? 'var(--green, #52c41a)' : 'var(--mute, #8c8c8c)', fontSize: 12 }}>
-          {Number(v).toFixed(2)}<span style={{ fontSize: 9 }}>/{thr}</span>
+        return <span title={`阈值 ${thr}`} style={{ color: pass ? 'var(--green, #52c41a)' : 'var(--mute, #8c8c8c)', fontSize: 12 }}>
+          {Number(v).toFixed(2)}
         </span>
       } },
-    { title: t('gate.col.why'), dataIndex: 'why', width: 96,
+    { title: t('gate.col.why'), dataIndex: 'why', width: 52,
       // 绿标签只给「真在持仓」的；四闸全过但被风控拦下的用橙色文字，
       // 直接写明被哪道闸挡了（例：已达日目标，今日停止开新仓）。
       render: (v, r) => r.opened
         ? <Tag color="green" style={{ margin: 0 }}>{t('gate.opened')}</Tag>
-        : <span style={{
-            fontSize: 12,
-            color: r.ok ? 'var(--amber, #d4a017)' : 'var(--mute, #8c8c8c)',
-            whiteSpace: 'normal',
+        : <span title={v} style={{
+            fontSize: 11.5,
+            color: r.ok ? 'var(--amber, #d4a017)' : '#8b90a3',
+            // 单行 + 省略号：结论列只有 52px，允许折行会让「CE没翻转」也变成两三行、
+            // 整张表行高参差。全文放 title，鼠标一停就看得到。
+            display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>{v}</span> },
   ]
+  // 七道闸表 10 列挤 394px：antd small 表格单元格左右各 8px 内边距，10 列共吃掉 160px，
+  // 「3.55%」这种 35px 宽的数值只差 1px 就被省略号吃掉。onCell 直接下内边距最可靠
+  // （试过全局 CSS :hover 覆盖，被 antd CSS-in-JS 压住不生效）。
+  gateCols.forEach((c) => { c.onCell = () => ({ style: { padding: '2px 3px' } }) })
+
   const evCols = [
     { title: t('ev.col.time'), dataIndex: 'ts', width: 96, render: ts },
     { title: t('ev.col.cd'), dataIndex: 'minutes', width: 70, align: 'right',
@@ -304,14 +313,29 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
       label: `${t('act.gates')} ${gateRows.length ? `(${g.passed || 0}/${gateRows.length})` : ''}`,
       children: (
         <div>
-          <div data-act-status style={{ fontSize: 12, color: 'var(--mute, #8c8c8c)', marginBottom: 6 }}>
-            {t('gate.bar')} {gateBar} ·            {t('gate.summary')({
-              ce: g.ce_n || 0, ha: g.ha_n || 0, key: g.key_n || 0, bbw: g.bbw_n || 0,
-              dev: g.dev_n || 0, risk: g.risk_n || 0, eff: g.eff_n || 0,
-              n: gateRows.length,
-            })}
+          {/* 页头：2026-11-10 浩哥反馈「发灰看不清」→ 改成蓝底白字。
+              原来 12px + var(--mute) 在深卡上对比度只有 2.8:1，远低于可读线 4.5:1。 */}
+          <div data-act-status style={{
+            fontSize: 12.5, fontWeight: 600, letterSpacing: '.2px',
+            color: '#ffffff',
+            background: 'linear-gradient(90deg, #1e4fd8 0%, #2f6bff 100%)',
+            padding: '6px 9px', borderRadius: 5, marginBottom: 8, lineHeight: 1.45,
+            textShadow: '0 1px 2px rgba(0,0,0,.35)',
+            // 每一项单独成段 + flex 换行：以前整条当一个长字符串，
+            // 换行会从「趋势效率」中间劈开、把「21/40」甩到第三行成孤行。
+            display: 'flex', flexWrap: 'wrap', gap: '1px 10px', alignItems: 'baseline',
+          }}>
+            <span style={{ opacity: .92 }}>{t('gate.bar')} {gateBar}</span>
+            {[['gate.col.ce', 'ce_n'], ['gate.col.ha', 'ha_n'], ['gate.col.key', 'key_n'],
+              ['gate.col.bbw', 'bbw_n'], ['gate.col.dev', 'dev_n'],
+              ['gate.col.risk', 'risk_n'], ['gate.col.eff', 'eff_n']].map(([k, f]) => (
+              <span key={k} style={{ whiteSpace: 'nowrap' }}>
+                {t(k)} {g[f] || 0}/{gateRows.length}
+              </span>
+            ))}
           </div>
           <Table rowKey="symbol" dataSource={gateRows} columns={gateCols} size="small"
+                 className="gate-table"
                  pagination={false} scroll={{ y: scrollY }} />
         </div>
       ) },

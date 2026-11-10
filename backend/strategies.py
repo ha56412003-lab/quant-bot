@@ -25,6 +25,7 @@ class Signal:
     size_mult: float = 1.0
     fresh: int = 999          # 距信号触发（如 CE 翻转）已过几根 K 线，越小越新鲜
     strength: float = 0.0     # 信号强度（如 |close-ZLSMA| / ATR），越大趋势越强
+    stop_src: str = ""        # 止损来源诊断：swing / ce / key / dual_ce / dual_swing
     # 成本口径覆盖：None = 用全局 PAPER_FEE_RATE / PAPER_SLIPPAGE。
     # 为什么需要：S15 是挂单（maker）策略，回测按 0.02% 手续费 + 零滑点算出来
     # 的结论；如果线上按 taker 0.05% + 0.03% 滑点记账，每笔成本从 0.017R 涨到
@@ -430,6 +431,55 @@ class S15CeZlsma(Base):
         except (TypeError, ValueError):
             return default
 
+    def _stop_ref(self, ks, i, ind, side, atr_n, swing_lb, stop_key, dual_stop_min_pct):
+        """止损价 = 三条并列取近 + 两档修正 —— **唯一实现**。
+
+        开仓判定和光闸面板第⑤道闸都调这一个方法，保证「面板显示的距离 = 真实开仓用的距离」。
+        返回 (止损价, 来源, 距离%)；来源取值 swing / ce / key / dual_ce / dual_swing。
+
+        三条取近（多头取最高、空头取最低 = 离入场价最近的那条）：
+          ① 左侧 swing_lb 根摆动低/高点（原始 K 线，含进场那根）
+          ② CE 通道（ce_mult × ATR(1)，棘轮只进不退）
+          ③ 关键K线的低点（多）/ 高点（空）
+        两档（dual_stop_min_pct > 0 时）：三条取近后距离 < 阈值 → 这一档只用 ②CE 通道。
+          ★不看来源：摆动/CE/关键K线哪条最近都算 —— 与回测母本同口径。
+        """
+        px = float(ks[i]["close"])
+        want_long = (side == "long")
+        lo_win = ind["low_raw"][i - swing_lb + 1:i + 1]
+        hi_win = ind["high_raw"][i - swing_lb + 1:i + 1]
+        stop = min(lo_win) if want_long else max(hi_win)
+        stop_src = "swing"
+        _ce_arr = ind.get("long_stop" if want_long else "short_stop")
+        _ce_stop = _ce_arr[i] if _ce_arr is not None and i < len(_ce_arr) else None
+        if _ce_stop is not None:
+            try:
+                _ce_stop = float(_ce_stop)
+            except (TypeError, ValueError):
+                _ce_stop = None
+        if _ce_stop is not None and math.isfinite(_ce_stop):
+            if (want_long and _ce_stop > stop) or ((not want_long) and _ce_stop < stop):
+                stop = _ce_stop
+                stop_src = "ce"
+        if stop_key:
+            _kb = float(ks[i]["low"] if want_long else ks[i]["high"])
+            if (want_long and _kb > stop) or ((not want_long) and _kb < stop):
+                stop = _kb
+                stop_src = "key"
+        # ⑤c 两档止损
+        if dual_stop_min_pct > 0:
+            _d3 = ((px - stop) if want_long else (stop - px)) / px * 100.0
+            if _d3 < dual_stop_min_pct - 1e-9:
+                if _ce_stop is not None and math.isfinite(_ce_stop):
+                    stop = _ce_stop
+                    stop_src = "dual_ce"
+                else:
+                    stop = min(lo_win) if want_long else max(hi_win)
+                    stop_src = "dual_swing"
+        risk = (px - stop) if want_long else (stop - px)
+        dist = (risk / px * 100.0) if px > 0 else 0.0
+        return stop, stop_src, dist
+
     async def evaluate(self, ctx) -> list:
         """入场：CE 方向翻转（事件）+ 均线同侧关键K线 + 布林带宽度分位 + 偏离闸 + 止损距离。
 
@@ -547,6 +597,12 @@ class S15CeZlsma(Base):
                             else f"BBW差{_thr - _bp:.0f}点")
                 else:
                     _why = "应开仓"
+                # ⑤ 止损距离（面板参考值）—— 不管前面几道闸过没过，每个池内币都算一遍。
+                #   以前只在「前五道全过」之后才回填，导致光闸面板第⑤道永远是 0/N
+                #   （没币走到就没人算），看着像"40 个币全被止损拦了"，实际是一个都没到。
+                _ref_stop, _ref_src, _ref_dist = self._stop_ref(
+                    ks, i, ind, "long" if d_now == 1 else "short",
+                    atr_n, swing_lb, stop_key, dual_stop_min_pct)
                 from .quality import _eff as _eff_fn   # 延迟导入，避免模块循环
                 _eff_diag = (round(float(_eff_fn(ks[:i + 1], eff_win_sig)), 3)
                              if eff_win_sig > 0 else None)
@@ -575,7 +631,10 @@ class S15CeZlsma(Base):
                     # 2026-11-09：第五道闸（止损距离上限）在面板上原本不可见，
                     # 被拦的币显示「四闸全过·待成交」，等一晚上也不开仓，误导。
                     # 这里先占位，算完止损后回填真实值。
-                    "risk": None, "risk_thr": max_risk_pct,
+                    "risk": (round(_ref_dist, 3)
+                             if (_ref_dist > 0 and math.isfinite(_ref_dist)) else None),
+                    "stop_src": _ref_src,
+                    "risk_thr": max_risk_pct,
                     "atr_pct": round(atr / c * 100.0, 3) if c > 0 else None,
                     "ok": False, "why": _why,
                 }
@@ -668,60 +727,19 @@ class S15CeZlsma(Base):
                         _g["why"] = f"离均线仅{dev_pct:.2f}%（需{_dthr:.2f}%）"
                     continue
 
-                # ⑤ 止损 = 三条并列取近（2026-11-10 B 档 · 浩哥定义）
-                #   ① 左侧 swing_lb 根摆动低/高点（原始 K 线，含进场那根）
-                #   ② CE 通道（ce_mult × ATR(1)，棘轮只进不退）
-                #   ③ 关键K线的低点（多）/ 高点（空）
-                #   多头取「三者中最高」、空头取「最低」= 离入场价最近的那条。
-                #   为什么取近：价格会先打到近的那条，留一条更远的等于不设；
-                #   取近也顺带压小单笔风险，同样的风险比例能开出更大仓位。
-                if d_now == 1:
-                    stop = min(ind["low_raw"][i - swing_lb + 1:i + 1])
-                    side = "long"
-                else:
-                    stop = max(ind["high_raw"][i - swing_lb + 1:i + 1])
-                    side = "short"
-                stop_src = "swing"
-                _ce_arr = ind.get("long_stop" if side == "long" else "short_stop")
-                _ce_stop = _ce_arr[i] if _ce_arr is not None and i < len(_ce_arr) else None
-                if _ce_stop is not None:
-                    try:
-                        _ce_stop = float(_ce_stop)
-                    except (TypeError, ValueError):
-                        _ce_stop = None
-                if _ce_stop is not None and math.isfinite(_ce_stop):
-                    if (side == "long" and _ce_stop > stop) or \
-                       (side == "short" and _ce_stop < stop):
-                        stop = _ce_stop
-                        stop_src = "ce"
-                if stop_key:
-                    _kb = float(ks[i]["low"] if side == "long" else ks[i]["high"])
-                    if (side == "long" and _kb > stop) or \
-                       (side == "short" and _kb < stop):
-                        stop = _kb
-                        stop_src = "key"
-                # ⑤c 两档止损：三条取近后距离 <0.50% → 这一档只用 ②CE 通道
-                #    （关键K线那条贴脸时，1R 太小，噪音一打就碎；回测胜率 51.6%→54.8%）
-                if dual_stop_min_pct > 0 and stop_src == "key":
-                    _d3 = ((px - stop) if side == "long" else (stop - px)) / px * 100.0
-                    if _d3 < dual_stop_min_pct - 1e-9:
-                        if _ce_stop is not None and math.isfinite(_ce_stop):
-                            stop = _ce_stop
-                            stop_src = "dual_ce"
-                        else:
-                            # CE 拿不到 → 退回 ①摆动，绝不能留在贴脸的 key 上
-                            stop = (min(ind["low_raw"][i - swing_lb + 1:i + 1]) if side == "long"
-                                    else max(ind["high_raw"][i - swing_lb + 1:i + 1]))
-                            stop_src = "dual_swing"
+                # ⑤ 止损 = 三条并列取近 + 两档修正
+                #    逻辑只在 _stop_ref() 里写一份，面板第⑤道闸也调它 ——
+                #    避免「面板显示的距离」和「真实开仓用的距离」两套代码各算各的。
+                side = "long" if d_now == 1 else "short"
+                stop, stop_src, _rpct = _ref_stop, _ref_src, _ref_dist
                 risk = (px - stop) if side == "long" else (stop - px)
-
                 if risk <= 0 or not math.isfinite(risk):
                     continue
                 # ⑤ 止损距离上限（第五道闸）—— 2026-11-09 浩哥定：30% → 5%
                 #    止损距离 = 1R 的大小。太宽的单子价格根本跑不到 1.8R/2R：
                 #    实盘 80 笔中止损 ≥5% 的 23 笔（占 29%）合计 -118.78U，均峰值仅 0.32R。
                 #    这里回填面板可见值，让「被拦」有痕迹，不再假装「待成交」。
-                _rpct = risk / px * 100.0
+                #    （_rpct 由 _stop_ref 一起算好，不重复计算）
                 if _g is not None:
                     _g["risk"] = round(_rpct, 3)
                 if _rpct > max_risk_pct:
@@ -762,6 +780,7 @@ class S15CeZlsma(Base):
                             f"ATR={atr_pct:.2f}%"
                             + (f" BBW分位={bp:.0f}%" if bp is not None else "")),
                     stop_price=round(stop, 8),
+                    stop_src=stop_src,
                     max_hold_sec=self.max_hold,
                     fresh=0, strength=abs(c - z) / atr,
                     fee_rate=fee_rate, slip_pct=slip_pct,

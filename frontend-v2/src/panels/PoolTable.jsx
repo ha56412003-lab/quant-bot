@@ -59,9 +59,12 @@ export default function PoolTable({ pool }) {
 
   const columns = [
     {
-      // 列宽按 1920 窗口下容器 602px 反推：8 列合计 572px，留 30px 余量。
+      // 列宽按卡片实际内容宽 472px 反推：7 列合计 430px。
+      //   antd 在 scroll.y 时会插入一个 38px 的滚动条占位列（.ant-table-cell-scrollbar），
+      //   所以真正可用宽度 = 472 - 38 = 434px，留 4px 余量。（不出现横向滚动条）。
+      // 2026-11-10：删「止损%」「EFF」两列 —— 对应的池子闸（③止损距离 / 池子EFF）都已下线。
       // 不再 fixed:'left' —— 横向滚动没了，fixed 列没有意义。
-      title: t('pool.col.symbol'), dataIndex: 'symbol', width: 80,
+      title: t('pool.col.symbol'), dataIndex: 'symbol', width: 70,
       render: (v, r) => {
         const sym = v.replace('USDT', '')
         const col = coinColor(sym)
@@ -76,45 +79,18 @@ export default function PoolTable({ pool }) {
       },
     },
     {
-      title: t('pool.col.price'), dataIndex: 'price', align: 'right', width: 78,
+      title: t('pool.col.price'), dataIndex: 'price', align: 'right', width: 68,
       render: (v) => (v ? (v >= 100 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toPrecision(4)) : '-'),
     },
     {
-      title: t('pool.col.vol'), dataIndex: 'qv', align: 'right', width: 72,
+      title: t('pool.col.vol'), dataIndex: 'qv', align: 'right', width: 66,
       sorter: (a, b) => (a.qv || 0) - (b.qv || 0),
       render: (v) => (
         <span style={{ color: v != null && v < (pool?.min_quote_vol ?? 5e6) ? 'var(--red, #d4595e)' : undefined }}>{fmtVol(v)}</span>
       ),
     },
     {
-      // 止损距离：2026-11-10 定档起不再是进池闸（那道闸已删），只作参考显示。
-      //   窄止损（<0.50%）由策略「两档止损」处理 → 这一列不再标红，避免误读成"不合格"。
-      title: '止损%', dataIndex: 'stop_pct', align: 'right', width: 56,
-      sorter: (a, b) => (a.stop_pct || 0) - (b.stop_pct || 0),
-      render: (v) => <span>{v != null ? `${v.toFixed(2)}%` : '-'}</span>,
-    },
-    {
-      // 监控池 EFF 闸：B 档已关闭（eff_min=0 → 不参与筛选），
-      // 趋势效率改成进场第⑥道闸；这里只作参考列，门槛为 0 时不上色。
-      title: 'EFF', dataIndex: 'eff', align: 'right', width: 50,
-      sorter: (a, b) => (a.eff || 0) - (b.eff || 0),
-      render: (v) => {
-        const lo = pool?.eff_min ?? 0
-        const gateOff = !(lo > 0)                 // 门槛 0 = 这道闸关闭
-        const ok = v != null && v >= lo
-        return (
-          <span style={{
-            color: (v == null || gateOff) ? undefined
-              : (ok ? 'var(--green, #0f7a3d)' : 'var(--red, #d4595e)'),
-            fontWeight: (!gateOff && ok) ? 600 : 400,
-          }}>
-            {v != null ? v.toFixed(2) : '-'}
-          </span>
-        )
-      },
-    },
-    {
-      title: t('pool.col.spike'), dataIndex: 'spike', align: 'right', width: 56,
+      title: t('pool.col.spike'), dataIndex: 'spike', align: 'right', width: 46,
       sorter: (a, b) => (a.spike || 0) - (b.spike || 0),
       render: (v) => {
         const cap = pool?.max_spike ?? 8.0
@@ -127,7 +103,7 @@ export default function PoolTable({ pool }) {
       },
     },
     {
-      title: '池', dataIndex: 'in_monitor', align: 'center', width: 50,
+      title: '池', dataIndex: 'in_monitor', align: 'center', width: 40,
       filters: [
         { text: '监控池内', value: true },
         { text: '监控池外', value: false },
@@ -147,7 +123,7 @@ export default function PoolTable({ pool }) {
     {
       // 原因文字以前直接塞进 Tag 里，把 92px 的列撑到 122px —— 这是横向滚动的主犯。
       // 改成 Tag 只写结论，原因进 tooltip。
-      title: t('pool.col.filter'), dataIndex: 'ok', align: 'center', width: 62,
+      title: t('pool.col.filter'), dataIndex: 'ok', align: 'center', width: 50,
       filters: [
         { text: t('pool.pass'), value: true },
         { text: t('pool.blocked'), value: false },
@@ -163,7 +139,7 @@ export default function PoolTable({ pool }) {
     {
       // 原来 Tag + 状态 + 时间挤在 150px 里换 3 行。改成两行：
       // 第一行 Tag + 状态（超长截断，全文进 tooltip），第二行时间。
-      title: t('pool.col.signal'), key: 'sig', width: 116,
+      title: t('pool.col.signal'), key: 'sig', width: 90,
       render: (_, r) => {
         if (!r.last_sig_side) return <Text type="secondary">-</Text>
         const sideTag = (
@@ -177,15 +153,20 @@ export default function PoolTable({ pool }) {
           // 方向已经由前面的 Tag 表达，这里把「空头/多头/做空/做多」前缀剥掉，
           // 否则读出来是「空 · 空头方向已达上限」——白占 2 个字的宽度还别扭
           let full = (r.last_sig_skip || t('pool.skipped')).replace(/^(空头|多头|做空|做多)/, '')
-          const short = full.length > 6 ? `${full.slice(0, 6)}…` : full
+          const short = full.length > 5 ? `${full.slice(0, 5)}…` : full
           body = <Tooltip title={r.last_sig_skip || t('pool.skipped')}><span style={{ color: 'var(--mute, #8c8c8c)' }}>{short}</span></Tooltip>
         } else if (r.last_sig_pos === 'closed') {
+          // 「已平 +185.60」+ Tag 在 90px 列里放不下（实测被硬裁 1px 级）。
+          // 方向由 Tag 表达、时间在第二行，第一行只留盈亏数字，「已平」进 tooltip。
           const p = r.last_sig_pnl
           body = (
-            <span style={{ color: 'var(--mute, #8c8c8c)' }}>
-              {t('act.closed')}{' '}
-              {p != null && <span style={{ color: p >= 0 ? 'var(--red, #c4182c)' : 'var(--green, #0f7a3d)' }}>{fmtPnl(p)}</span>}
-            </span>
+            <Tooltip title={`${t('act.closed')}${p != null ? ' ' + fmtPnl(p) : ''}`}>
+              <span style={{ color: 'var(--mute, #8c8c8c)' }}>
+                {p != null
+                  ? <span style={{ color: p >= 0 ? 'var(--red, #c4182c)' : 'var(--green, #0f7a3d)' }}>{fmtPnl(p)}</span>
+                  : t('act.closed')}
+              </span>
+            </Tooltip>
           )
         } else if (r.last_sig_pos === 'open') {
           body = <span style={{ color: 'var(--green, #52c41a)' }}>{t('pool.held')}</span>
@@ -219,6 +200,7 @@ export default function PoolTable({ pool }) {
     >
       <Table
         rowKey="symbol"
+        className="pool-table"
         dataSource={rows}
         columns={columns}
         size="small"

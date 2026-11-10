@@ -236,7 +236,6 @@ FACTS = [
     ("quality.MIN_QUOTE_VOL", "backend/quality.py", "MIN_QUOTE_VOL"),
     ("quality.MAX_SPIKE", "backend/quality.py", "MAX_SPIKE"),
     ("quality.MONITOR_SIZE", "backend/quality.py", "MONITOR_SIZE"),
-    ("quality.STOP_EXIT_PCT", "backend/quality.py", "STOP_EXIT_PCT"),
     ("quality.EFF_MIN", "backend/quality.py", "EFF_MIN"),
     ("quality.EFF_EXIT", "backend/quality.py", "EFF_EXIT"),
     ("quality.EFF_WIN", "backend/quality.py", "EFF_WIN"),
@@ -245,8 +244,6 @@ FACTS = [
     ("risk.allow_entry", "backend/risk.py", "def allow_entry"),
     ("risk.position_qty", "backend/risk.py", "def position_qty"),
     ("strategies.check_exit", "backend/strategies.py", "def check_exit"),
-    ("strategies._mirror_exit", "backend/strategies.py", "def _mirror_exit"),
-    ("strategies._quick_fail", "backend/strategies.py", "def _quick_fail"),
     ("strategies._half_take_profit", "backend/strategies.py", "def _half_take_profit"),
     ("engine.manage_positions", "backend/engine.py", "def manage_positions"),
     ("engine.scan_loop", "backend/engine.py", "def scan_loop"),
@@ -254,6 +251,23 @@ FACTS = [
 for label, path, needle in FACTS:
     ok = needle in open(path, encoding="utf-8").read()
     print("   %s %-32s %s" % ("✓" if ok else "✗ 缺失", label, path))
+
+# 反向检查：已定档删除的规则，代码里必须一点影子都不剩
+# （这三条以前挂在 FACTS 里当「应存在」，删规则后审计自己变成假警报，2026-11-10 修正）
+GONE = [
+    ("quality.STOP_EXIT_PCT", "backend/quality.py", "STOP_EXIT_PCT"),
+    ("quality.STOP_MIN_PCT", "backend/quality.py", "STOP_MIN_PCT"),
+    ("strategies._mirror_exit", "backend/strategies.py", "def _mirror_exit"),
+    ("strategies._quick_fail", "backend/strategies.py", "def _quick_fail"),
+    ("strategies._S15_MIRROR_STATE", "backend/strategies.py", "_S15_MIRROR_STATE"),
+]
+print("\n   ── 已删除规则的反向检查（应全部 ✓）──")
+for label, path, needle in GONE:
+    body = open(path, encoding="utf-8").read()
+    # 只认代码，不认注释：去掉 # 注释行再判断
+    code = "\n".join(l for l in body.splitlines() if not l.strip().startswith("#"))
+    gone = needle not in code
+    print("   %s %-32s %s" % ("✓ 已删除" if gone else "✗ 仍存在", label, path))
 
 print("\n" + "=" * 78)
 print("说明：? = 需人工判断；✗ = 高置信度问题")

@@ -485,8 +485,40 @@ def equity_series(limit=2880, mode="auto"):
 
 
 def set_meta(key, value):
-    with _lock, _conn:
-        _conn.execute("REPLACE INTO meta(key,value) VALUES(?,?)", (key, str(value)))
+    """写 meta。撞写锁时短重试 3 次 —— 日刷新的大事务通常几秒就放锁，
+    以前一次 database is locked 就直接抛给调用方（心跳），拖死 0.5s 循环。"""
+    last = None
+    for attempt in range(3):
+        try:
+            with _lock, _conn:
+                _conn.execute("REPLACE INTO meta(key,value) VALUES(?,?)", (key, str(value)))
+            return
+        except sqlite3.OperationalError as exc:
+            last = exc
+            if "locked" not in str(exc).lower():
+                raise
+            time.sleep(0.3 * (attempt + 1))
+    raise last
+
+
+def heartbeat_meta(key, value):
+    """心跳专用写入：独立连接 + 0.25 秒超时，写不进去就立刻放弃。
+
+    为什么不复用 set_meta：set_meta 的重试 + busy_timeout(8s) 是为了保证
+    「钱相关的写」不丢，但心跳只是给看门狗看的存活标记 —— 用同一套耐心去写它，
+    一次日刷新长事务就能把 0.5 秒循环拖慢十几秒（实测 16 秒），
+    那段时间止损/止盈是停摆的。宁可心跳丢几次，也不能让管钱的循环排队。
+    """
+    try:
+        c = sqlite3.connect(config.DB_PATH, timeout=0.25)
+        try:
+            c.execute("REPLACE INTO meta(key,value) VALUES(?,?)", (key, str(value)))
+            c.commit()
+            return True
+        finally:
+            c.close()
+    except Exception:
+        return False
 
 
 def get_meta(key, default=""):

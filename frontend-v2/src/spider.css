@@ -298,15 +298,19 @@ html:not([data-theme]) .spider-root .cards .card.work .k{font:800 14px/26px var(
   margin-inline-end: 4px;
 }
 
-/* ⑥ 表格：表头 10px/700/.04em/--mute，表体 10.5px/--ink-2，行线只留上边
-      对应 .rtab */
+/* ⑥ 表格：表头 11.5px/700/--ink-2，表体 10.5px/--ink-2，行线只留上边
+      对应 .rtab
+   2026-11-10 浩哥反馈「表头 ①CE ②HA 这些看不清」：序号已从文案里删掉，
+   字号 10 → 11.5px、颜色 --mute → --ink-2（亮一档）、禁止折行。 */
 :is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-table-thead > tr > th {
-  font-size: 10px !important;
+  font-size: 11.5px !important;
   font-weight: 700 !important;
-  letter-spacing: .04em !important;
-  color: var(--mute) !important;
+  letter-spacing: 0 !important;
+  color: var(--ink-2, #cfd6e6) !important;
   background: var(--panel-2) !important;
   border-bottom: 1px solid var(--line) !important;
+  white-space: nowrap !important;
+  padding: 6px 5px !important;
 }
 :is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-table-tbody > tr > td {
   font-size: 10.5px !important;
@@ -493,9 +497,10 @@ html:not([data-theme]) .spider-root .cards .card .bar.prog .dd-zone::after {
   background: rgba(11, 12, 18, .92) !important;
   border-color: rgba(236, 79, 174, .15) !important;
 }
-/* 表格头/体里散落的 #8a96a8 #7f8598 之类的旧灰，一并归到 --ink-2 / --mute */
+/* 表格头/体里散落的 #8a96a8 #7f8598 之类的旧灰，一并归到 --ink-2 / --mute
+   2026-11-10：表头颜色统一到 --ink-2（比 --mute 亮一档），否则 11.5px 下还是发灰。 */
 :is(html:not([data-theme]), html[data-theme="paper"]) .spider-root .ant-table-thead > tr > th {
-  color: var(--mute) !important;
+  color: var(--ink-2, #cfd6e6) !important;
 }
 
 
@@ -1558,3 +1563,26 @@ html:not([data-theme]) .ant-btn-dangerous:not(.ant-btn-primary):hover {
   border-color: rgba(255, 107, 107, .85) !important;
   background: rgba(255, 107, 107, .09) !important;
 }
+
+/* ── 七道闸表内边距 ──────────────────────────────────────────────────────
+   td 上的行内 style 会被 `.spider-root .bot > .pnl ... td { padding: 2px 8px !important }`
+   压掉（行内样式也跪在 !important 面前）。这条把特异性提到 (0,5,3) 才盖得住。
+   10 列 × 16px 内边距 = 160px 白扔，收到 6px 后「3.55%」这类数值才不被省略号吃掉。 */
+.spider-root .bot > .pnl .gate-table .ant-table-thead > tr > th,
+.spider-root .bot > .pnl .gate-table .ant-table-tbody > tr > td {
+  padding: 2px 3px !important;
+}
+/* 表头再亮一档 + 12px：11.5px / --ink-2 在大屏上看还是发灰 */
+.spider-root .bot > .pnl .gate-table .ant-table-thead > tr > th {
+  color: #e8ebf5 !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  background: #171a24 !important;
+  border-bottom: 1px solid rgba(236, 79, 174, .28) !important;
+}
+.spider-root .bot > .pnl .gate-table .ant-table-tbody > tr > td {
+  font-size: 11.5px !important;
+  white-space: nowrap !important;
+  font-variant-numeric: tabular-nums;
+}
+

@@ -568,3 +568,9 @@ html[data-theme="paper"] .ant-switch.ant-switch-checked {
 html[data-theme="paper"] .ant-switch:not(.ant-switch-checked) {
   background: rgba(21, 21, 21, .25) !important;
 }
+
+/* ── 监控池表：消掉 antd「滚动条占位列」造成的 15px 横向溢出 ──────────────────
+   antd 在 scroll.y 时会插一列 width:15px 的占位 th，让 body 内容比可视区宽 15px，
+   底部就多出一条横向滚动条。本表列宽已按容器反推、不需要横滚，直接裁掉。 */
+.pool-table .ant-table-body { overflow-x: hidden !important; }
+.pool-table .ant-table-thead th.ant-table-cell-scrollbar { visibility: hidden; }
