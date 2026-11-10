@@ -84,16 +84,17 @@ try:
         key_closepos=float(P["key_closepos"]), key_bodyfrac=float(P["key_bodyfrac"]),
         stop_key=bool(P["stop_key"]), stop_mode="both",
         min_stop_pct=float(MON["stop_min_pct"]), swing=int(P["swing_lookback"]),
-        half_at_r=float(P["half_at_r"]), half_tp_r=float(P["half_tp_r"]),
+        half_at_r=float(P["half_at_r"]), half_tp_r=float(P.get("half_tp_r") or 0.0),
         full_at_r=float(P["full_at_r"]), right_exit=bool(P["right_exit"]),
         right_exit_strict=bool(P["right_exit_strict"]),
         maxh=(int(mh * 4) if mh > 0 else 999999),
-        qf_bars=int(round(float(P["quickfail_hours"]) * 4)),
-        qf_min_r=float(P["quickfail_min_r"]),
-        trail_arm=float(P["trail_arm"]), trail_dd=float(P["trail_dd"]),
         max_risk_pct=float(P["max_risk_pct"]), min_dev_pct=float(P["min_dev_pct"]),
-        dev_atr_mult=float(P["dev_atr_mult"]), mirror_exit=bool(P["mirror_exit"]),
-        mirror_bbw_min=float(P["mirror_bbw_min"]),
+        dev_atr_mult=float(P["dev_atr_mult"]),
+        # 2026-11-10 二轮清理：快速失败 / 移动止盈 / 镜像出场 已从策略和 yaml 里整条删除。
+        # 回测 sim() 仍保留这三个开关（用于复现历史口径），这里显式关掉，
+        # 免得回测和线上算的不是同一套出场。
+        qf_bars=0, qf_min_r=0.0, trail_arm=0.0, trail_dd=0.0,
+        mirror_exit=False, mirror_bbw_min=0.0,
     )
     thr = float(P["eff_min_signal"])
     SC = r"E:\Hermes\cache\scratch"

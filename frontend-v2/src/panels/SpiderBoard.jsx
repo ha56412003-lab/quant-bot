@@ -54,31 +54,20 @@ function PosCard({ p, avatar }) {
   const win = upnl >= 0
   const sym = (p.symbol || '').replace('USDT', '')
 
-  /* ── 出场进度（2026-11-06 重做）────────────────────────────────
-     旧版拿 take_profit 当终点算进度：wMax = tp - entry。
-     出场规则改成「2R 平一半、剩一半放开跑」后 take_profit = 0，
-     wMax 变成负数，`wMax > 0` 不成立 → prog 恒为 0，条永远是空的。
-
-     现在按新规则分三态，条的「终点」跟着状态走：
-       loss  亏损中     → 终点是止损，看「还有多远爆仓」
-       run   +0~2R      → 终点是 2R，看「离平半还差多少」
-       free  ≥2R/已平半  → 跑道，看「半仓还能跑多远」+ 剩半仓的盈亏
-  */
-  /* ── 出场进度（2026-11-08 第四版：跟随镜像出场）──────────────────
+  /* ── 出场进度（2026-11-10 B 档版）────────────────────────────────
      一条刻度尺 + 三层叠加标记，三种状态共用同一套坐标：
 
        轴下限 axisLo = 亏损时 -1R（止损），盈利时 0（开仓）
-       轴上限 axisHi = 亏损时 峰顶（往右延伸），盈利时 max(2R, 峰顶)
+       轴上限 axisHi = 亏损时 峰顶（往右延伸），盈利时 max(兜底线, 峰顶)
 
      标记层（从下往上）：
-       ① 主填充   已走完的路（亏损=已亏 / 冲刺=距2R / 平半后=红满+橙黄）
+       ① 主填充   已走完的路（亏损=已亏 / 冲刺=距兜底线 / 平半后=红满+橙黄）
        ② 回撤区   当前价 → 峰顶，虚点像素填充（真实数据：曾赚多少、现回吐多少）
        ③ 游标     当前价（青）+ 峰顶（白）
 
-     2026-11-08 删除：原「③ 出局线」= 峰顶 - 0.8R 那条红色倒三角 + 两个提示圆点。
-     镜像出场根本没有「回撤多少 R 就出场」这个概念 —— 它只看 CE 翻转 + HA 反向
-     + 破 ZLSMA，那条线永远画着却永不触发，纯粹误导。三闸的真实状态改到第 4 行
-     文字里显示（出场 N/3）。
+     轴上只画「价位触发」的三条：硬止损 -1R / 平半 half_at_r / 兜底全平 full_at_r，
+     数值一律从后端读。右侧止盈是 K 线形态触发，没有「多少 R 就出场」这回事，
+     所以轴上不画线，只在第 4 行图例里说明（½ / 2.0 / 侧 三盏灯，只有前两盏有真数据）。
   */
   const risk = (entry && sl) ? Math.abs(entry - sl) : 0     // 1R 的价格距离
   const gain = (entry && px) ? (long ? px - entry : entry - px) : 0
@@ -92,21 +81,19 @@ function PosCard({ p, avatar }) {
   const peakFromMem = Number(p.peak_r_mem) || 0
   const peakR = Math.max(peakFromMfe, peakFromMem, curR)
 
+  // ── B 档出场刻度（2026-11-10 重构）──
+  // 现役出场只有四条：① 硬止损 ② 1.2R 平半 ③ 2.0R 兜底全平 ④ 右侧止盈。
+  // 前三条是价位触发 → 直接画在 R 轴上（刻度值从后端读，前端不写死）；
+  // ④ 是 K 线形态触发（反向关键K线 + HA 收盘穿回 ZLSMA50），策略在 0.5s 循环里
+  //   现算现用、不落库，所以不画灯，只给规则图例。
+  // ⚠ 老的「镜像出场三闸 + 快速失败第四盏灯」整块删除：这两套规则已下线，
+  //   留着灯会让人以为仓位还受它们管（比不画更糟）。
+  const halfR = Number(p.half_at_r) || 0
+  const fullR = Number(p.full_at_r) || 2
   const halfDone = !!p.half_closed
-  const phase = curR < 0 ? 'loss' : (halfDone || curR >= 2) ? 'free' : 'run'
+  const phase = curR < 0 ? 'loss' : (halfDone || curR >= fullR) ? 'free' : 'run'
   const stopPct = (px && sl) ? Math.abs(px - sl) / px * 100 : 0
   const drawdownR = Math.max(0, peakR - curR)               // 距峰顶回撤了多少 R
-
-  // ── 镜像出场三闸（后端 /api/positions 的 exit_* 字段）──
-  // ① CE 方向翻转  ② HA 反向关键K线  ③ 破 ZLSMA，三条同时成立才出场。
-  // 后端刚开仓或跨 K 线窗口那一瞬可能没算出来 → exit_n 为 null，这里当「未知」处理。
-  const exitN = (p.exit_n === null || p.exit_n === undefined)
-    ? null : (Number.isFinite(Number(p.exit_n)) ? Number(p.exit_n) : null)
-  // 三个灯各自对应一条闸，亮 = 这条已经满足
-  const ceFlip = !!p.exit_ce_flip                          // ① CE 转向了
-  const haRev = !!p.exit_ha_rev                            // ② HA 变色了（多头转阴 / 空头转阳）
-  const zBrk = !!p.exit_z_break                            // ③ 价格穿到 ZLSMA 另一侧
-  const ddNear = exitN != null && exitN >= 2               // 已满足 2 条，等最后一条就出场
   const stopNear = phase === 'loss' && Math.abs(curR) >= 0.7
 
   // ── 统一刻度 ──
@@ -116,29 +103,18 @@ function PosCard({ p, avatar }) {
   const axisLo = phase === 'loss' ? Math.min(-1, curR) : 0
   const axisHi = phase === 'loss'
     ? Math.max(0.05, peakR)          // 亏损：右端延伸到峰顶（先赚后亏也要画得出来）
-    : Math.max(2, peakR)             // 盈利：右端到 2R 或峰顶（防止冲到 2.3R 后回落时越界）
+    : Math.max(fullR, peakR)         // 盈利：右端到兜底线或峰顶（防止冲高回落时越界）
   const axisSpan = Math.max(0.01, axisHi - axisLo)
   const pctOf = (r) => Math.max(0, Math.min(100, ((r - axisLo) / axisSpan) * 100))
 
   const curPct = pctOf(curR)
   const peakPct = pctOf(peakR)
   const zeroPct = pctOf(0)                                 // 开仓位置
-  const twoPct = pctOf(2)                                  // 2R 位置
+  const twoPct = pctOf(fullR)                              // 兜底全平位置
   const showPeak = peakPct - curPct > 0.4                  // 回撤区太窄就不画了
 
   const ageH = (p.age_sec || 0) / 3600
-  const maxH = (p.max_hold_sec || 1) / 3600
 
-  // ── 快速失败闸（2026-11-08 新增，与上面三盏灯并列的第四道出场路）──
-  // 规则：进场后 qf_hours 小时内，峰顶一直没到 qf_min_r R → 平仓。
-  // 它不是「三闸同时成立」型，而是「时间 + 峰顶」型，所以单独一盏灯：
-  //   灯亮 = 峰顶已经够过 → 这笔永久脱离快速失败风险
-  //   灯暗 = 还在观察窗口里，撑到 qf_hours 还没起色就会被平
-  const qfH = Number(p.qf_hours) || 0
-  const qfR = Number(p.qf_min_r) || 0.5
-  const qfOk = p.qf_ok === true
-  const qfOn = qfH > 0 && qfOk
-  const qfLeft = Math.max(0, qfH - ageH)
   const retPct = entry ? ((long ? px - entry : entry - px) / entry) * 100 : 0
 
   return (
@@ -170,7 +146,7 @@ function PosCard({ p, avatar }) {
       </div>
 
       {/* 行3：出场进度 —— 统一 R 轴 + 四层标记 */}
-      <div className={`bar prog ${phase}${stopNear || ddNear ? ' near' : ''}`}>
+      <div className={`bar prog ${phase}${stopNear ? ' near' : ''}`}>
         {/* ① 主填充 */}
         {phase === 'loss' && (
           <i style={{ left: `${curPct}%`, width: `${Math.max(0, zeroPct - curPct)}%` }} />
@@ -209,9 +185,9 @@ function PosCard({ p, avatar }) {
 
       {/* 行4：状态数字（主位）+ 出场条件 + 持仓时间 */}
       <div className="c4">
-        <span className={`prog-txt ${phase}${stopNear || ddNear ? ' danger' : ''}`}>
+        <span className={`prog-txt ${phase}${stopNear ? ' danger' : ''}`}>
           {phase === 'loss' && <>距止损 <b>{stopPct.toFixed(1)}%</b></>}
-          {phase === 'run' && <><b>+{curR.toFixed(2)}R</b> / 2.0R</>}
+          {phase === 'run' && <><b>+{curR.toFixed(2)}R</b> / {fullR.toFixed(1)}R</>}
           {phase === 'free' && (
             <>
               <em className="half-tag">½</em>
@@ -219,30 +195,31 @@ function PosCard({ p, avatar }) {
             </>
           )}
         </span>
-        <span className={`c4-exit${exitN != null && exitN >= 3 ? ' full' : ddNear ? ' near' : ''}`}
-              title={exitN == null
-                ? '镜像出场三闸：CE转向 / HA变色 / ZL上下 —— 灯全亮就出场（当前状态未算出）'
-                : `镜像出场三闸 ${exitN}/3 —— 灯全亮就出场（第四盏「快」是独立的快速失败闸，不参与这三条）`
-                  + `｜CE ${p.exit_ce_dir === 'long' ? '偏多' : p.exit_ce_dir === 'short' ? '偏空' : '--'}`
-                  + ` / HA ${p.exit_ha_bar === 'up' ? '阳' : p.exit_ha_bar === 'down' ? '阴' : '--'}`
-                  + ` / ZLSMA ${p.exit_z_side === 'above' ? '价在上' : p.exit_z_side === 'below' ? '价在下' : '--'}`
-                  + `｜峰顶 +${peakR.toFixed(2)}R，现回撤 ${drawdownR.toFixed(2)}R`}>
+        {/* B 档出场图例：三个灯只画「有真数据」的部分 ——
+            ½ = 已平半（DB 里 half_closed，真值）
+            2.0 = 已到兜底线（用当前 R 现算，真值）
+            侧 = 右侧止盈（形态触发、不落库，只作图例，永远不亮） */}
+        <span className="c4-exit"
+              title={`现役出场四条：硬止损 / ${halfR.toFixed(1)}R 平半 / ${fullR.toFixed(1)}R 兜底全平 / 右侧止盈`
+                + `（平半之后，出现反向关键K线且 HA 收盘穿回 ZLSMA50 → 平掉剩余）`
+                + `｜峰顶 +${peakR.toFixed(2)}R，现回撤 ${drawdownR.toFixed(2)}R`}>
           <b>出场</b>
-          <span className={`ck${ceFlip ? ' on' : ''}`}><i className="led" />CE</span>
-          <span className={`ck${haRev ? ' on' : ''}`}><i className="led" />HA</span>
-          <span className={`ck${zBrk ? ' on' : ''}`}><i className="led" />ZL</span>
-          <span className={`ck ck-qf${qfOn ? ' on' : ''}`}
-                title={qfH <= 0
-                  ? '快速失败闸：已关闭'
-                  : qfOk
-                    ? `快速失败闸：已脱险 —— 峰顶 ${peakR.toFixed(2)}R ≥ ${qfR}R，不会再被这道闸平`
-                    : `快速失败闸：${qfH}h 内峰顶必须到 ${qfR}R，否则平仓`
-                      + `｜已过 ${ageH.toFixed(1)}h，还剩 ${qfLeft.toFixed(1)}h`
-                      + `｜当前峰顶 ${peakR.toFixed(2)}R`}>
-            <i className="led" />快
+          <span className={`ck${halfDone ? ' on' : ''}`}
+                title={halfDone
+                  ? `已在 ${halfR.toFixed(1)}R 平掉一半，剩余半仓交给右侧止盈`
+                  : `到 ${halfR.toFixed(1)}R 平掉一半（锁定不亏）`}>
+            <i className="led" />½
+          </span>
+          <span className={`ck${curR >= fullR - 1e-9 ? ' on' : ''}`}
+                title={`到 ${fullR.toFixed(1)}R 兜底全平（防止一直不穿均线）`}>
+            <i className="led" />{fullR.toFixed(1)}
+          </span>
+          <span className="ck"
+                title="右侧止盈：平半之后，出现反向关键K线且 HA 收盘穿回 ZLSMA50 → 平掉剩余（形态触发，不落库）">
+            <i className="led" />侧
           </span>
         </span>
-        <span className="c4-time">{ageH.toFixed(1)}h/{maxH.toFixed(0)}h</span>
+        <span className="c4-time" title="时间止损已删除（B 档），这里只看已持有多少小时">已持 {ageH.toFixed(1)}h</span>
       </div>
     </article>
   )

@@ -90,17 +90,18 @@ print("=" * 78)
 
 body = method_block(S_SRC, "check_exit")
 chk(bool(body), "定位到 S15 的 check_exit（不是基类）", "没找到方法体")
-chk("_half_take_profit" in body and "_full_target" in body
-    and "_right_exit" in body and "_mirror_exit" in body,
-    "四条出场都在 check_exit 里被调用",
-    "缺: %s" % [n for n in ("_half_take_profit", "_full_target", "_right_exit",
-                            "_mirror_exit") if n not in body])
+chk("_half_take_profit" in body and "_full_target" in body and "_right_exit" in body,
+    "三条价位出场都在 check_exit 里被调用（平半 / 兜底 / 右侧）",
+    "缺: %s" % [n for n in ("_half_take_profit", "_full_target", "_right_exit")
+                if n not in body])
+chk("_mirror_exit" not in body and "_quick_fail" not in body,
+    "镜像 / 快速失败 已不在 check_exit 里（整条删除，不是开关关闭）")
 positions = [(k, body.find(p)) for k, p in
              (("half", "_half_take_profit"), ("full", "_full_target"),
-              ("right", "_right_exit"), ("mirror", "_mirror_exit"))]
+              ("right", "_right_exit"))]
 seq = [k for k, v in sorted(positions, key=lambda kv: kv[1]) if v >= 0]
-chk(seq == ["half", "full", "right", "mirror"],
-    "顺序 = 平半 → 2R兜底 → 右侧止盈 → 镜像", "实际 %s" % seq)
+chk(seq == ["half", "full", "right"],
+    "顺序 = 平半 1.2R → 兜底 2.0R → 右侧止盈", "实际 %s" % seq)
 chk("_refresh_peak" in body, "峰顶维护在 check_exit 最前面（无条件）",
     "峰顶藏在镜像里 → 镜像一关峰顶冻结")
 chk(body.find("_refresh_peak") < body.find("_half_take_profit"),
@@ -134,23 +135,14 @@ chk('pos["max_hold_sec"] and' in strip_comments(E_SRC), "engine 时间止损有 
 chk(int(NODE.get("max_hold_hours") or 0) == 0, "max_hold_hours = 0（16h 时间止损已删）",
     "实际 %s" % NODE.get("max_hold_hours"))
 
-chk(float(P.get("quickfail_hours") or 0) == 0.0, "quickfail_hours = 0（快速失败已删）",
-    "实际 %s" % P.get("quickfail_hours"))
-qfbody = method_block(S_SRC, "_quick_fail")
-chk(bool(qfbody), "快速失败函数体还在（只关不删，保留回滚能力）")
-chk("return None" in qfbody[:400], "快速失败入口有早退（0 值保护）",
-    "开头 400 字里没有 return None")
-
-chk(float(P.get("trail_arm") or 0) == 0.0, "trail_arm = 0（移动止盈已删）",
-    "实际 %s" % P.get("trail_arm"))
-chk(float(P.get("trail_dd") or 0) == 0.0, "trail_dd = 0", "实际 %s" % P.get("trail_dd"))
-
-chk(P.get("mirror_exit") is False, "mirror_exit = false（镜像整条删除）",
-    "实际 %s" % P.get("mirror_exit"))
-mmbody = method_block(S_SRC, "_mirror_exit")
-chk('if not bool(self._p("mirror_exit", True)):' in mmbody[:600],
-    "镜像函数首行早退（省一次拉数据）", "没找到早退")
-chk("_bar_pack" in mmbody, "镜像走 _bar_pack（同一份缓存）")
+# 2026-11-10 二轮清理：这三条从「开关调到 0」升级为「代码 + 配置一起删」，
+# 所以判据从「值等于 0」改成「方法不能存在、yaml 不能留键」——
+# 留着空方法+空键只是把死代码藏起来，下次谁改 yaml 就能复活一条被否掉的规则。
+_dead_methods = [n for n in ("_quick_fail", "_mirror_exit") if method_block(S_SRC, n)]
+chk(not _dead_methods, "快速失败 / 镜像出场 方法体已删除", "还在: %s" % _dead_methods)
+_dead_keys = [k for k in ("quickfail_hours", "quickfail_min_r", "trail_arm", "trail_dd",
+                          "half_tp_r", "mirror_exit", "mirror_bbw_min") if k in P]
+chk(not _dead_keys, "yaml 里已删除 7 个死键", "还在: %s" % _dead_keys)
 
 print()
 print("=" * 78)
@@ -160,8 +152,8 @@ pack = method_block(S_SRC, "_bar_pack")
 chk(bool(pack), "定位到 _bar_pack")
 chk("_atr_n(ks, 20)" in pack, "_bar_pack 里算 ATR(20)（不是 CE 的 ATR(1)）")
 chk("ks" in pack and "atr_n" in pack, "_bar_pack 把 ks / atr_n 一起返回")
-chk("_S15_RIGHT_STATE" in S_SRC and "_S15_MIRROR_STATE" in S_SRC,
-    "右侧止盈与镜像各存一份去重表（共用会被前一条规则吃掉）")
+chk("_S15_RIGHT_STATE" in S_SRC, "右侧止盈有独立去重表（同一根K线只判一次）")
+chk("_S15_MIRROR_STATE" not in S_SRC, "镜像去重表已删除（方法删了，表也删）")
 
 print()
 print("=" * 78)

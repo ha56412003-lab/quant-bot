@@ -6,6 +6,8 @@ import logging
 import signal
 import time
 
+import yaml
+
 if hasattr(signal, "SIGUSR1"):           # SIGUSR1 is Unix-only — Windows has no such signal
     faulthandler.register(signal.SIGUSR1)   # kill -USR1 <pid> dumps all stacks
 from contextlib import asynccontextmanager
@@ -476,42 +478,17 @@ async def api_positions():
         drawdown_r = (float(peak_r_mem) - ((price - p["entry_price"]) *
                       sign / risk_abs)) if (peak_r_mem is not None and risk_abs > 0) else None
 
-        # ── 镜像出场三闸实时状态（2026-11-08）──────────────────────────
-        # 语义与 strategies._mirror_exit 完全一致，只是把代码里合并写的
-        # 第②③道拆开单独展示（代码里是 ha_ok = ha_rev and z_break 一个条件）：
-        #   ① CE 方向翻转      （dir_prev → dir_now 转向持仓的不利方向）
-        #   ② HA 反向关键K线   （多头转阴 / 空头转阳）
-        #   ③ 破 ZLSMA         （多头跌破 / 空头站上）
-        # 三条同时成立才会出场（strictly_and）。空头全部取反，多空对称。
-        # 数据来自 _mirror_exit 的窗口缓存；刚开仓或跨窗口瞬间可能没值 → 返回 None。
-        _kiv = ((scfg.get("params") or {}).get("kline_interval") or "15m")
-        _zh = strategies._S15_ZL_CACHE.get((p["symbol"], _kiv))
-        _cefl = _hrev = _zbrk = None
-        _cev = _hbar = _zsd = None
-        _exit_n = None
-        if _zh and len(_zh) >= 7:
-            _znow, _hac, _hao = _zh[1], _zh[2], _zh[6]
-            _dnow, _dprev = _zh[4], _zh[5]
-            if None not in (_znow, _hac, _hao, _dnow, _dprev):
-                _is_long = p["side"] == "long"
-                _cev = "long" if _dnow == 1 else "short"
-                _hbar = "up" if _hac >= _hao else "down"
-                _zsd = "above" if _hac >= _znow else "below"
-                _cefl = bool((_dprev == 1 and _dnow == -1) if _is_long
-                             else (_dprev == -1 and _dnow == 1))
-                _hrev = bool((_hac < _hao) if _is_long else (_hac > _hao))
-                _zbrk = bool((_hac < _znow) if _is_long else (_hac > _znow))
-                _exit_n = int(_cefl) + int(_hrev) + int(_zbrk)
-
-        # ── 快速失败出场闸的展示字段（2026-11-08 新增）──────────────────
-        # 这条闸不是「三闸全亮」型，而是「时间 + 峰顶」型：
-        #   持仓 >= quickfail_hours 且 峰顶一直没到 quickfail_min_r R → 平仓。
-        # 前端要知道 ① 门槛多少 ② 这笔是否已经脱险（峰顶够过了），
-        # 才能画出「还要撑多久」的倒计时。值从配置读，不在前端写死。
-        _qp = scfg.get("params") or {}
-        _qf_h = float(_qp.get("quickfail_hours") or 0.0)
-        _qf_r = float(_qp.get("quickfail_min_r") or 0.5)
-        _qf_ok = (float(peak_r_mem) >= _qf_r) if peak_r_mem is not None else None
+        # ── B 档出场可视化参数（2026-11-10）────────────────────────────
+        # 现役出场只有四条：硬止损 / 1.2R 平半 / 2.0R 兜底全平 / 右侧止盈。
+        # 前三条是「价位触发」，前端用 R 轴刻度画；第四条是「K线形态触发」，
+        # 策略在 0.5s 循环里现算现用、不落库，所以图上不画灯、只留规则图例。
+        # ⚠ 原来这里给「镜像出场三闸 + 快速失败」喂 exit_*/qf_* 实时字段，
+        #   那两套规则 B 档已整条删除 → 字段一起删掉，否则前端会画一条
+        #   已经不存在的规则（比不画更糟）。
+        _bp = scfg.get("params") or {}
+        _half_r = float(_bp.get("half_at_r") or 0.0)
+        _full_r = float(_bp.get("full_at_r") or 0.0)
+        _half_done = bool(p.get("half_closed"))
 
         out.append({**p, "mark_price": price, "unrealized_pnl": upnl,
                     # stale=True 表示这笔仓位当前**没有真实盘口价**，
@@ -523,12 +500,9 @@ async def api_positions():
                     "stop_dist_pct": stop_dist,
                     "peak_r_mem": float(peak_r_mem) if peak_r_mem is not None else None,
                     "drawdown_r": drawdown_r,
-                    # 镜像出场三闸：0-3，等于 3 就是本次出场信号
-                    "exit_n": _exit_n,
-                    "exit_ce_flip": _cefl, "exit_ha_rev": _hrev, "exit_z_break": _zbrk,
-                    "exit_ce_dir": _cev, "exit_ha_bar": _hbar, "exit_z_side": _zsd,
-                    # 快速失败闸：qf_hours 门槛、qf_min_r 峰顶要求、qf_ok 是否已脱险
-                    "qf_hours": _qf_h, "qf_min_r": _qf_r, "qf_ok": _qf_ok,
+                    # B 档出场刻度：1.2R 平半 / 2.0R 兜底全平（值从配置读，前端不写死）
+                    "half_at_r": _half_r, "full_at_r": _full_r,
+                    "half_done": _half_done,
                     # 占用保证金按【当前价】计算，与币安口径一致（仓位价值随价格浮动）
                     "margin": abs(p["qty"] * price) / lev + extra,
                     "margin_at_entry": abs(p["qty"] * entry) / lev + extra,
@@ -685,6 +659,28 @@ async def api_signals(limit: int = 50):
     return {"signals": db.recent_signals(limit)}
 
 
+# ── 进场 EFF 门槛（带 mtime 缓存的小读取）─────────────────────────────
+# ⚠ 绝对不要在这里调 config.load_strategies()：那个函数顺手会把
+#   config.UNIVERSE 重置成「候选池」，而 /api/gates 每 2 秒被前端轮询一次 ——
+#   等于每 2 秒把内存里的大盘清单搅一遍（2026-11-10 踩到：
+#   tests/test_gates_verdict.py 打桩的 UNIVERSE 被清成真实候选池，断言拿到 0 行）。
+_EFF_SIG_CACHE = {"mtime": 0.0, "val": 0.0}
+
+
+def _eff_signal_min() -> float:
+    """进场 EFF 门槛（strategies.yaml → S15 params → eff_min_signal）。"""
+    try:
+        mt = config.STRATEGIES_PATH.stat().st_mtime
+        if mt != _EFF_SIG_CACHE["mtime"]:
+            cfg = yaml.safe_load(config.STRATEGIES_PATH.read_text(encoding="utf-8")) or {}
+            p = ((cfg.get("strategies") or {}).get("S15_CE_ZLSMA") or {}).get("params") or {}
+            _EFF_SIG_CACHE["val"] = float(p.get("eff_min_signal") or 0.0)
+            _EFF_SIG_CACHE["mtime"] = mt
+    except Exception as exc:  # noqa: BLE001
+        log.debug("read eff_min_signal failed: %s", exc)
+    return _EFF_SIG_CACHE["val"]
+
+
 @app.get("/api/gates")
 async def api_gates():
     """四道光闸诊断：监控池每个币最新一根 15m 的四道闸状态。
@@ -695,6 +691,7 @@ async def api_gates():
     """
     gs = strategies._GATE_STATE
     mon = set(quality.monitor_list() or [])
+    eff_sig = _eff_signal_min()
     # 监控池快照：拿每个币的「趋势效率 EFF」和池子判定原因，用来解释「为什么在池外」
     try:
         qdata = (quality.snapshot() or {}).get("data") or {}
@@ -774,8 +771,10 @@ async def api_gates():
                      # 第五道闸：止损距离 ≤ 上限（risk_thr=0 表示这道闸关闭）
                      "risk_ok": (risk is not None and risk <= risk_thr) if risk_thr > 0 else True,
                      "opened": sym in held, "verdict": verdict,
-                     "eff": (qdata.get(sym) or {}).get("eff"),
-                     **v, "why": verdict})
+                     **v,                                  # 含 key（关键K线）/ eff（进场 EFF）
+                     "eff_thr": eff_sig,                   # 逐行给门槛，前端才能画 0.73/0.30
+                     "pool_eff": (qdata.get(sym) or {}).get("eff"),
+                     "why": verdict})
     # 有戏的排前面：在池 > CE 已翻 > HA 成立 > 偏离够 > 止损够近 > BBW 高
     rows.sort(key=lambda r: (not r.get("in_monitor"), not r.get("ok"), not r.get("ce"),
                              not r.get("ha"), not r.get("dev_ok"), not r.get("risk_ok"),
@@ -792,6 +791,11 @@ async def api_gates():
                      and r["bbw"] >= (r.get("bbw_thr") or 70)),
         "dev_n": sum(1 for r in rows if r.get("dev_ok")),
         "risk_n": sum(1 for r in rows if r.get("risk_ok")),
+        # B 档新增两道：②b 关键K线、⑥ 进场 EFF（门槛从配置读，不在前端写死）
+        "key_n": sum(1 for r in rows if r.get("key")),
+        "eff_n": sum(1 for r in rows
+                     if r.get("eff") is not None and r["eff"] >= eff_sig),
+        "eff_thr": eff_sig,
         "bbw_thr": next((r.get("bbw_thr") for r in rows if r.get("bbw_thr")), 70),
         "dev_thr": next((r.get("dev_thr") for r in rows if r.get("dev_thr")), 0),
     }

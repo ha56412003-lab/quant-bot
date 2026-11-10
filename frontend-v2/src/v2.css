@@ -1127,14 +1127,8 @@ html, body, #root {
   border-color: #ff9aa4;
   box-shadow: 0 0 7px rgba(255, 77, 94, .95), inset 0 0 2px rgba(255, 255, 255, .55);
 }
-/* 三个全亮 = 该出场 */
-.spider-root .cards .card .c4 .c4-exit.full > b { color: #ff4d5e; }
-@keyframes ledFull {
-  0%, 100% { box-shadow: 0 0 6px rgba(255, 77, 94, .7),  inset 0 0 2px rgba(255, 255, 255, .5); }
-  50%      { box-shadow: 0 0 13px rgba(255, 77, 94, 1), inset 0 0 3px rgba(255, 255, 255, .85); }
-}
-.spider-root .cards .card .c4 .c4-exit.full .led { animation: ledFull 1s ease-in-out infinite; }
-/* 破均线次数已够数（≥ 要求根数）→ 这条出场条件的前半段已经满足 */
+/* 2026-11-10 B 档：三盏灯改成 ½ / 2.0 / 侧 之后不再有「全亮=出场」这种状态
+   （右侧止盈是形态触发，灯不参与判断），.full 与 ledFull 动画一并删除。 */
 .spider-root .cards .card .c4 .c4-time {
   color: #45e6f5;
   font-size: 9.5px;

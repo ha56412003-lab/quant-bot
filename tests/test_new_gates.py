@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """新增两道闸的单元测试（2026-11-08 浩哥批准落地）
 
-  闸一：进场偏离 —— 进场价离 ZLSMA 至少 min_dev_pct%（strategies.py evaluate ⑥）
-  闸二：快速失败 —— 进场 quickfail_hours 内峰顶没到 quickfail_min_r R 就平（_quick_fail）
+  闸一：进场偏离 —— 进场价离 ZLSMA 至少 dev_atr_mult×ATR(20)（strategies.py evaluate ④）
+  闸二：快速失败 —— **2026-11-10 B 档整条删除**（方法已删，不再测）
 
 要验的六件事：
   A1 偏离不够 → 不开仓
@@ -10,12 +10,7 @@
   A3 min_dev_pct=0（关闭）→ 偏离再小也开仓（回滚路径必须通）
   A4 边界 = 门槛整值 → 放过（判据是 < 才挡）
   A5 空头方向同样生效（多空对称）
-  B1 未满 4 小时 → 不平
-  B2 满 4 小时 + 峰顶低 → 平
-  B3 满 4 小时 + 峰顶够 → 不平
-  B4 quickfail_hours=0（关闭）→ 不平
-  B5 已平过半仓（峰顶必然 >=2R）→ 不被误伤
-  B6 优先级：4h+峰顶低+镜像条件也满足 → 必须报「快速失败」而不是镜像出场
+    （B 组已随快速失败一起删除；原 B1~B8 见 git 历史 b654707）
 
 用法：python test_new_gates.py
 """
@@ -118,8 +113,8 @@ def make_strategy(**over):
         "use_close": True, "use_ha": True,
         "swing_lookback": 20, "min_atr_pct": 0, "bbw_pct_min": 70.0,
         "max_risk_pct": 30.0, "fee_rate": 0.0005, "slip_pct": 0.0,
-        "half_at_r": 2.0, "half_tp_r": 1.0,
-        "min_dev_pct": 0.5, "quickfail_hours": 4.0, "quickfail_min_r": 0.5,
+        "half_at_r": 1.2,
+        "min_dev_pct": 0.0, "dev_atr_mult": 1.0,
     }
     st.p.update(over)
     st.sid = "S15_CE_ZLSMA"
@@ -141,7 +136,9 @@ def test_entry_dev():
         S._GATE_STATE.clear()
         ks = make_ks(price=entry_px)
         ctx = FakeCtx(entry_px, ks)
-        st = make_strategy(min_dev_pct=min_dev)
+        # A 组只验「固定下限」这条腿：把 ATR 那条腿关掉（dev_atr_mult=0），
+        # 门槛就退化成 min_dev_pct 本身。ATR 那条腿由 D 组 / 实盘面板覆盖。
+        st = make_strategy(min_dev_pct=min_dev, dev_atr_mult=0.0)
         if side == "long":
             # 多头：HA 阳线、站在均线上方、CE 由空翻多
             orig = patch_ind(zl=zl, ha_open=entry_px * 0.995,
@@ -193,85 +190,6 @@ def test_entry_dev():
 
 
 # ══════════════════════════════════════════════════════
-#  B 组：快速失败闸
-# ══════════════════════════════════════════════════════
-def test_quick_fail():
-    print("\n" + "=" * 78)
-    print("B 组：快速失败闸（进场 4h 内峰顶没到 0.5R 就平）")
-    print("=" * 78)
-
-    def mkpos(opened_h_ago, entry=100.0, stop=99.0, side="long", half=0):
-        return {
-            "id": 1, "symbol": "TESTUSDT", "side": side,
-            "entry_price": entry, "stop_price": stop,
-            "opened_at": time.time() - opened_h_ago * 3600,
-            "peak_r": 0.0, "mfe_pct": 0.0, "half_closed": half,
-        }
-
-    async def run(pos, px, hours=4.0, min_r=0.5):
-        S._S15_POS_STATE.clear()
-        S._S15_ZL_CACHE.clear()
-        S._S15_MIRROR_STATE.clear()
-        st = make_strategy(quickfail_hours=hours, quickfail_min_r=min_r)
-        return await st.check_exit(FakeCtx(px, make_ks(price=px)), pos)
-
-    # B1 只过了 1 小时 → 不平
-    r = asyncio.run(run(mkpos(1.0), px=100.2))
-    chk(r is None, "B1 持仓 1h（<4h）→ 不平仓", f"实际 {r}")
-
-    # B2 过了 5 小时 + 峰顶只有 0.2R → 平
-    r = asyncio.run(run(mkpos(5.0), px=100.2))
-    chk(r is not None and "快速失败" in str(r), "B2 持仓 5h + 峰顶 0.2R → 平仓",
-        f"实际 {r}")
-
-    # B3 峰顶够（0.8R）→ 不平
-    pos = mkpos(5.0)
-    pos["peak_r"] = 0.8
-    r = asyncio.run(run(pos, px=100.2))
-    chk(r is None or "快速失败" not in str(r), "B3 持仓 5h + 峰顶 0.8R → 不快速失败",
-        f"实际 {r}")
-
-    # B4 关闭（hours=0）→ 不平
-    r = asyncio.run(run(mkpos(5.0), px=100.2, hours=0.0))
-    chk(r is None, "B4 quickfail_hours=0 关闭 → 不平仓", f"实际 {r}")
-
-    # B5 已平半（half_closed=1，峰顶必然>=2R）→ 不误伤
-    pos = mkpos(5.0)
-    pos["half_closed"] = 1
-    pos["peak_r"] = 2.2
-    r = asyncio.run(run(pos, px=100.2))
-    chk(r is None or "快速失败" not in str(r), "B5 已平半仓 → 不被快速失败误伤",
-        f"实际 {r}")
-
-    # B6 空头方向同样生效
-    pos = mkpos(5.0, entry=100.0, stop=101.0, side="short")
-    r = asyncio.run(run(pos, px=99.8))
-    chk(r is not None and "快速失败" in str(r), "B6 空头 5h + 峰顶 0.2R → 平仓",
-        f"实际 {r}")
-
-    # B7 优先级：镜像条件也满足时，必须报「快速失败」
-    S._S15_POS_STATE.clear()
-    S._S15_ZL_CACHE.clear()
-    S._S15_MIRROR_STATE.clear()
-    orig = patch_ind(zl=101.0, ha_open=100.5, ha_close=99.0,
-                     dir_now=-1, dir_prev=1)   # CE 由多翻空 + HA 阴线跌破均线
-    try:
-        st = make_strategy()
-        pos = mkpos(5.0)
-        r = asyncio.run(st.check_exit(FakeCtx(99.0, make_ks(price=99.0)), pos))
-    finally:
-        S._ce_zlsma = orig
-    chk(r is not None and "快速失败" in str(r),
-        "B7 两闸同时满足 → 优先报「快速失败」（顺序正确）", f"实际 {r}")
-
-    # B8 峰顶刚够门槛（0.5R 整）→ 不平（判据是 peak < min_r 才平）
-    pos = mkpos(5.0)
-    pos["peak_r"] = 0.5
-    r = asyncio.run(run(pos, px=100.2))
-    chk(r is None or "快速失败" not in str(r), "B8 峰顶正好 0.5R → 不平", f"实际 {r}")
-
-
-# ══════════════════════════════════════════════════════
 #  C 组：配置真的读到了吗
 # ══════════════════════════════════════════════════════
 def test_config():
@@ -304,21 +222,21 @@ def test_config():
     # 出场四条
     chk(p.get("half_at_r") == 1.2, "C11 half_at_r = 1.2（平半线，转折点）",
         f"实际 {p.get('half_at_r')}")
-    chk(p.get("half_tp_r") == 0.0, "C12 half_tp_r = 0（旧「平半后再赚X全平」已删）",
-        f"实际 {p.get('half_tp_r')}")
+    chk("half_tp_r" not in p, "C12 half_tp_r 键已从 yaml 删除（旧「平半后再赚X全平」）",
+        f"实际还在: {p.get('half_tp_r')}")
     chk(p.get("full_at_r") == 2.0, "C13 full_at_r = 2.0（兜底全平）", f"实际 {p.get('full_at_r')}")
     chk(p.get("right_exit") is True, "C14 right_exit = true（右侧止盈开）",
         f"实际 {p.get('right_exit')}")
     chk(p.get("right_exit_strict") is True, "C15 right_exit_strict = true（必须严格）",
         f"实际 {p.get('right_exit_strict')}")
-    chk(p.get("mirror_exit") is False, "C16 mirror_exit = false（镜像出场整条删除）",
-        f"实际 {p.get('mirror_exit')}")
-    chk(p.get("trail_arm") == 0.0, "C17 trail_arm = 0（移动止盈已删）",
-        f"实际 {p.get('trail_arm')}")
-    chk(p.get("trail_dd") == 0.0, "C18 trail_dd = 0（移动止盈已删）",
-        f"实际 {p.get('trail_dd')}")
-    chk(p.get("quickfail_hours") == 0.0, "C19 quickfail_hours = 0（快速失败已删）",
-        f"实际 {p.get('quickfail_hours')}")
+    chk("mirror_exit" not in p, "C16 mirror_exit 键已删除（镜像出场整条删）",
+        f"实际还在: {p.get('mirror_exit')}")
+    chk("trail_arm" not in p, "C17 trail_arm 键已删除（移动止盈已删）",
+        f"实际还在: {p.get('trail_arm')}")
+    chk("trail_dd" not in p, "C18 trail_dd 键已删除（移动止盈已删）",
+        f"实际还在: {p.get('trail_dd')}")
+    chk("quickfail_hours" not in p, "C19 quickfail_hours 键已删除（快速失败已删）",
+        f"实际还在: {p.get('quickfail_hours')}")
     chk(node.get("max_hold_hours") == 0,
         "C20 max_hold_hours = 0（时间止损已删，靠 engine 的 0 值保护）",
         f"实际 {node.get('max_hold_hours')}")
@@ -476,17 +394,15 @@ def test_key_bar():
 
 
 # ══════════════════════════════════════════════════════
-#  E 组：出场链（平半 → 2R兜底 → 右侧止盈 → 镜像可关）
+#  E 组：出场链（平半 → 2.0R兜底 → 右侧止盈；镜像/快速失败/移动止盈已整条删除）
 # ══════════════════════════════════════════════════════
 def test_exit_chain():
     print("\n" + "=" * 78)
-    print("E 组：出场链（B 档重排：平半 → 2R兜底 → 右侧止盈 → 镜像可关）")
+    print("E 组：出场链（B 档四条：平半 1.2R → 兜底 2.0R → 右侧止盈 → 硬止损）")
     print("=" * 78)
 
-    EXIT_BASE = dict(half_at_r=1.2, half_tp_r=0.0, full_at_r=2.0,
+    EXIT_BASE = dict(half_at_r=1.2, full_at_r=2.0,
                      right_exit=True, right_exit_strict=True,
-                     mirror_exit=False, trail_arm=0.0, trail_dd=0.0,
-                     quickfail_hours=0.0, mirror_bbw_min=70.0,
                      key_mult=0.7, key_closepos=0.66, key_bodyfrac=0.5)
 
     def mkpos(half=0, entry=100.0, stop=99.0, side="long"):
@@ -498,7 +414,6 @@ def test_exit_chain():
     def clear():
         S._S15_POS_STATE.clear()
         S._S15_ZL_CACHE.clear()
-        S._S15_MIRROR_STATE.clear()
         S._S15_RIGHT_STATE.clear()
 
     async def run(px, pos, side="long", zl=101.0, ha_open=100.5, ha_close=99.0,
@@ -551,32 +466,17 @@ def test_exit_chain():
                         ha_close=100.5, right_exit_strict=False, ks=ks_bear))
     chk(r is None, "E7 未平半 → 右侧止盈不抢跑", f"实际 {r}")
 
-    # E8 镜像全条件满足但 mirror_exit=false → 不得报镜像
-    r = asyncio.run(run(99.0, mkpos(half=1), zl=101.0, ha_open=100.5,
-                        ha_close=99.0, dir_now=-1, dir_prev=1, bbw=80.0,
-                        mirror_exit=False, right_exit=False, full_at_r=0.0))
-    chk(r is None, "E8 mirror_exit=false → 镜像条件全满足也不出场",
-        f"实际 {r}")
-
-    # E9 回滚路径：mirror_exit=true → 镜像照样能出
-    r = asyncio.run(run(99.0, mkpos(half=1), zl=101.0, ha_open=100.5,
-                        ha_close=99.0, dir_now=-1, dir_prev=1, bbw=80.0,
-                        mirror_exit=True, right_exit=False, full_at_r=0.0))
-    chk(r is not None and "镜像" in str(r), "E9 mirror_exit=true → 镜像仍能出场（回滚通）",
-        f"实际 {r}")
-
     # E10 max_hold_hours=0 不得「开仓即平」—— engine 的 0 值保护
     import backend.engine as E
     import inspect
     src = inspect.getsource(E)
     chk('pos["max_hold_sec"] and' in src,
         "E10 engine 时间止损有 0 值保护（否则 max_hold_hours=0 会开仓即平）")
-    chk(True, "E11 时间止损/快速失败/移动止盈 已在 C 组锁定为 0（无残留出口）")
+    chk(True, "E11 时间止损/快速失败/移动止盈/镜像：代码已删、yaml 键已删（C 组锁定）")
 
 
 def main():
     test_entry_dev()
-    test_quick_fail()
     test_config()
     test_key_bar()
     test_exit_chain()

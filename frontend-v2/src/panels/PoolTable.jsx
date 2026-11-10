@@ -87,11 +87,11 @@ export default function PoolTable({ pool }) {
       ),
     },
     {
-      // 2026-11-08：监控池第 1 道闸门（替代 ATR）—— 进池 ≥1.00% / 出池 <0.85%
+      // 监控池第 1 道闸：止损距离下限。B 档 = 进池 ≥0.50% / 出池 <0.30%（阈值从后端读）
       title: '止损%', dataIndex: 'stop_pct', align: 'right', width: 56,
       sorter: (a, b) => (a.stop_pct || 0) - (b.stop_pct || 0),
       render: (v) => {
-        const lo = pool?.stop_min_pct ?? 1.0
+        const lo = pool?.stop_min_pct ?? 0.5
         const ok = v != null && v >= lo
         return (
           <span style={{
@@ -104,16 +104,19 @@ export default function PoolTable({ pool }) {
       },
     },
     {
-      // 2026-11-08：监控池第 2 道闸门 —— 进池 ≥0.30 / 出池 <0.25（排横盘）
+      // 监控池 EFF 闸：B 档已关闭（eff_min=0 → 不参与筛选），
+      // 趋势效率改成进场第⑥道闸；这里只作参考列，门槛为 0 时不上色。
       title: 'EFF', dataIndex: 'eff', align: 'right', width: 50,
       sorter: (a, b) => (a.eff || 0) - (b.eff || 0),
       render: (v) => {
-        const lo = pool?.eff_min ?? 0.30
+        const lo = pool?.eff_min ?? 0
+        const gateOff = !(lo > 0)                 // 门槛 0 = 这道闸关闭
         const ok = v != null && v >= lo
         return (
           <span style={{
-            color: v == null ? undefined : (ok ? 'var(--green, #0f7a3d)' : 'var(--red, #d4595e)'),
-            fontWeight: ok ? 600 : 400,
+            color: (v == null || gateOff) ? undefined
+              : (ok ? 'var(--green, #0f7a3d)' : 'var(--red, #d4595e)'),
+            fontWeight: (!gateOff && ok) ? 600 : 400,
           }}>
             {v != null ? v.toFixed(2) : '-'}
           </span>

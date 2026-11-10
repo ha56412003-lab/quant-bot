@@ -167,6 +167,13 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
       render: (v) => (v == null ? <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
         : v ? <span style={{ color: 'var(--green, #52c41a)' }}>✓</span>
             : <span style={{ color: 'var(--mute, #8c8c8c)' }}>✗</span>) },
+    // ②b 关键K线（B 档新增）—— 实体 > 0.7×ATR(20) 且收在极值三分之一、实体占比 > 50%。
+    //   三道里它砍得最狠（挡掉约 90% 的 CE 信号），所以必须单独一列，否则「没开仓」
+    //   只能看到 CE/HA 全绿，看不出真正卡在哪。
+    { title: t('gate.col.key'), dataIndex: 'key', width: 56, align: 'center',
+      render: (v) => (v == null ? <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
+        : v ? <span style={{ color: 'var(--green, #52c41a)' }}>✓</span>
+            : <span style={{ color: 'var(--mute, #8c8c8c)' }}>✗</span>) },
     { title: t('gate.col.bbw'), dataIndex: 'bbw', width: 72, align: 'right',
       render: (v, r) => {
         if (v == null) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
@@ -195,6 +202,18 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
         const pass = v <= thr
         return <span style={{ color: pass ? 'var(--green, #52c41a)' : 'var(--red, #c4182c)', fontSize: 12 }}>
           {v.toFixed(2)}%<span style={{ fontSize: 9 }}>/{thr}</span>
+        </span>
+      } },
+    // ⑥ 进场趋势效率（B 档新增）—— 前 48 根单边度，≥0.30 才算趋势日。
+    //   门槛为 0 表示这道闸关闭（历史上有过池子层面用 EFF 的做法，已废弃）。
+    { title: t('gate.col.eff'), dataIndex: 'eff', width: 64, align: 'right',
+      render: (v, r) => {
+        const thr = r.eff_thr || 0
+        if (thr <= 0) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>关</span>
+        if (v == null) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
+        const pass = v >= thr
+        return <span style={{ color: pass ? 'var(--green, #52c41a)' : 'var(--mute, #8c8c8c)', fontSize: 12 }}>
+          {Number(v).toFixed(2)}<span style={{ fontSize: 9 }}>/{thr}</span>
         </span>
       } },
     { title: t('gate.col.why'), dataIndex: 'why', width: 96,
@@ -286,9 +305,10 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
       children: (
         <div>
           <div data-act-status style={{ fontSize: 12, color: 'var(--mute, #8c8c8c)', marginBottom: 6 }}>
-            {t('gate.bar')} {gateBar} · {t('gate.summary')({
-              ce: g.ce_n || 0, ha: g.ha_n || 0, bbw: g.bbw_n || 0,
-              dev: g.dev_n || 0, risk: g.risk_n || 0, n: gateRows.length,
+            {t('gate.bar')} {gateBar} ·            {t('gate.summary')({
+              ce: g.ce_n || 0, ha: g.ha_n || 0, key: g.key_n || 0, bbw: g.bbw_n || 0,
+              dev: g.dev_n || 0, risk: g.risk_n || 0, eff: g.eff_n || 0,
+              n: gateRows.length,
             })}
           </div>
           <Table rowKey="symbol" dataSource={gateRows} columns={gateCols} size="small"

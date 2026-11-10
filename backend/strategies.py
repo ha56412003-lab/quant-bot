@@ -304,21 +304,17 @@ _GATE_STATE = {}   # symbol -> {ts, dir, ce, ha, bbw, bbw_thr, atr_pct, ok, why}
 # 键: (symbol, interval)  值: (cur_bar, zlsma, ha_close, bar_ts, dir_now, dir_prev, ha_open)
 _S15_ZL_CACHE = {}
 
+# ── S15 右侧止盈的逐仓位去重状态 ──────────────────────────────────────
+# 键: pos_id（或 symbol）-> {"bar_ts": 已判定过的 K 线时间戳}
+# 目的：同一根 15m K 线只判一次右侧止盈，避免 0.5 秒一轮反复触发。
+# （2026-11-10 B 档：原镜像出场那一份状态表随方法一起删除，只剩这一份。）
+_S15_RIGHT_STATE = {}
+
 # ── S15 逐仓位状态（峰顶浮盈 / 连续破均线计数）──────────────────────────
 # 键: (symbol, side, opened_at) -> {"peak": float, "bar_ts": any, "cnt": int}
 # 为什么不放数据库：这两个值只影响出场时机，丢了最多晚一根 K 线出场，
 # 不值得为它加一次写库（positions 每次写都要加锁，已有 database is locked 隐患）。
 _S15_POS_STATE = {}
-
-# ── S15 镜像出场的逐仓位去重状态 ──────────────────────────────────────
-# 键: pos_id（或 symbol）-> {"bar_ts": 已判定过的 K 线时间戳}
-# 目的：同一根 15m K 线只判一次镜像出场，避免 0.5 秒一轮反复触发。
-_S15_MIRROR_STATE = {}
-# 键: pos_id（或 symbol）-> {"bar_ts": 已判定过的 K 线时间戳}
-# 目的：右侧止盈同一根 K 线只判一次（2026-11-10 B 档新增，与镜像各存一份，
-#       互不干扰 —— 两条规则判的是不同条件，共用一份会导致"被一条吃掉"）。
-_S15_RIGHT_STATE = {}
-
 
 def _atr_n(ks, n=20):
     """ATR(n) 序列（真实波幅均值）。与 backtest/exit_speed_test._atr20 同款。
@@ -545,6 +541,9 @@ class S15CeZlsma(Base):
                             else f"BBW差{_thr - _bp:.0f}点")
                 else:
                     _why = "应开仓"
+                from .quality import _eff as _eff_fn   # 延迟导入，避免模块循环
+                _eff_diag = (round(float(_eff_fn(ks[:i + 1], eff_win_sig)), 3)
+                             if eff_win_sig > 0 else None)
                 _GATE_STATE[sym] = {
                     "ts": bar_ts, "dir": "多" if d_now == 1 else "空",
                     "ce": _ce_ok, "ha": _ha_ok, "bbw": _bp, "bbw_thr": _thr,
@@ -560,6 +559,13 @@ class S15CeZlsma(Base):
                              and i < len(atr_n) and atr_n[i]
                              and float(ks[i]["close"]) > 0) else 0.0)
                     ), 3),
+                    # ②b 关键K线 / ⑥ 进场 EFF（B 档新增的两道闸，面板必须能看到，
+                    # 否则「没开仓」永远只能看到前三道，看不出是卡在关键K线还是趋势效率）
+                    "key": (bool(_is_key_bar(ks, i, atr_n,
+                                             "long" if d_now == 1 else "short",
+                                             key_mult, key_closepos, key_bodyfrac))
+                            if (key_bar and atr_n is not None and i < len(atr_n)) else None),
+                    "eff": _eff_diag,
                     # 2026-11-09：第五道闸（止损距离上限）在面板上原本不可见，
                     # 被拦的币显示「四闸全过·待成交」，等一晚上也不开仓，误导。
                     # 这里先占位，算完止损后回填真实值。
@@ -757,16 +763,15 @@ class S15CeZlsma(Base):
                          （_full_target）—— 防止一直不穿均线时没有出口
             ③ 右侧止盈：已平半 且 HA 反向 + HA收穿 ZLSMA50
                          + 那根原始K线本身是反向关键K线（_right_exit）
-            ④ 镜像出场：CE 翻转 + HA 反向 + BBW 分位≥70
-                         （_mirror_exit）—— **B 档已关闭**（mirror_exit: false）
 
             —— engine.py 负责（优先级更高，先判）——
-            ⑤ 硬止损（三条并列取近的那条：关键K线低点 / 8 根摆动 / CE 通道）
+            ④ 硬止损（三条并列取近的那条：关键K线低点 / 8 根摆动 / CE 通道）
 
-        ★ 2026-11-10 B 档删掉的三条：
+        ★ 2026-11-10 B 档删掉的四条（方法已整段删除，不是靠开关关掉）：
            · 16h 时间止损（max_hold_hours: 0）—— 把「慢性子但最终赚钱」那批砍在 4 小时线上
-           · 快速失败（quickfail_hours: 0）—— 实跑 12 笔 −440U
-           · 镜像出场（mirror_exit: false）—— 与 ③ 后两条完全重叠，且会抢在 ③ 之前掐单
+           · 快速失败（_quick_fail）—— 实跑 12 笔 −440U
+           · 镜像出场（_mirror_exit）—— 与 ③ 后两条完全重叠，且会抢在 ③ 之前掐单
+           · 移动止盈 / 平半后再赚 N 个 R 全平（trail_arm/trail_dd/half_tp_r）—— 与 ② 抢同一个出口
 
         ★ 平半后的逻辑变了（与旧版最大的区别）：
            旧：3R 全平 + 移动止盈 1.5/1.2（两条都在盯着"已经赚到的钱不要吐回去"）
@@ -778,13 +783,8 @@ class S15CeZlsma(Base):
         """
         try:
             # 峰顶维护（无条件，必须）—— 前端「峰顶R / 峰顶→当前价回撤区」靠它。
-            # 原先这段藏在 _mirror_exit 里，镜像一关峰顶就冻结，所以提到最前面。
+            # 原先这段藏在已删除的镜像出场里，镜像一删峰顶就冻结，所以提到最前面。
             self._refresh_peak(ctx, pos)
-
-            # ⓪ 快速失败 —— B 档已删除（quickfail_hours: 0，方法内部直接返回 None）
-            quick = self._quick_fail(ctx, pos)
-            if quick:
-                return quick
 
             # ① 平一半（half_at_r = 1.2R）
             half = await self._half_take_profit(ctx, pos)
@@ -796,12 +796,7 @@ class S15CeZlsma(Base):
             full = self._full_target(ctx, pos)
             if full:
                 return full
-            right = await self._right_exit(ctx, pos)
-            if right:
-                return right
-
-            # ④ 镜像出场（B 档 mirror_exit: false → 方法内部立即返回 None）
-            return await self._mirror_exit(ctx, pos)
+            return await self._right_exit(ctx, pos)
         except Exception as exc:  # noqa: BLE001
             log.warning("S15 check_exit %s 失败: %s", pos.get("symbol"), exc)
             return None
@@ -809,7 +804,7 @@ class S15CeZlsma(Base):
     def _refresh_peak(self, ctx, pos):
         """只做一件事：把当前浮盈 R 送进峰顶状态机（_touch_pos_state）。
 
-        为什么单独拆出来：镜像出场关闭后，原先唯一的调用点就没了；
+        为什么单独拆出来：镜像出场删除后，原先唯一的调用点就没了；
         峰会冻结在平半前的值，前端那个「峰顶 → 当前价」回撤区会一直显示 0。
         """
         entry = float(pos.get("entry_price") or 0)
@@ -943,7 +938,7 @@ class S15CeZlsma(Base):
           必须拿到原始 K 线序列和它的 ATR(20)。回测（exit_speed_test.sim）里也是
           用 ks[j] 判的，两边口径必须一致。
 
-        ⚠ 缓存是共享的：_right_exit 和 _mirror_exit 必须看到同一组数。
+        ⚠ 缓存是共享的：_right_exit 和 _refresh_peak 必须看到同一组数。
         """
         kline_iv = str(self.p.get("kline_interval", "15m"))
         ce_len = int(self._p("ce_len", 1))
@@ -991,56 +986,6 @@ class S15CeZlsma(Base):
             ind["bbw_pct"][i], ks, i, atr_n)
         h = _S15_ZL_CACHE[ck]
         return (h[1], h[2], h[6], h[4], h[5], h[7], h[3], h[8], h[9], h[10])
-
-    def _quick_fail(self, ctx, pos):
-        """快速失败出场：进场后 quickfail_hours 小时内峰顶一直没到 quickfail_min_r R → 平仓。
-
-        为什么加（2026-11-08 浩哥批准，60 天 / 20 币回测）：
-            基准（无此闸）        744 笔  +78.1R  均笔+0.105  回撤−24.4
-            加本闸 4h/0.50        782 笔 +109.0R  均笔+0.139  回撤−21.4  ← 四条判据全过
-            与「进场偏离闸」叠加   681 笔 +120.7R  均笔+0.177  回撤−16.4  ← 净R +59%
-
-        动机是真实案例：2026-11-08 当天 4 笔止损，持仓只有 0.2 / 0.3 / 1.2 / 1.5 小时
-        就反向、每笔亏满 −1R（合计 −627U）。进场后几根 K 线内就能看出「这股不对」，
-        没必要非等它走到硬止损。
-
-        与镜像出场的关系：实测两者只重叠 15% —— 本闸看「时间」（进去 4h 还在磨），
-        镜像看「空间」（CE 翻 + 破均线）。只重叠 15%，所以两条都留。
-
-        峰顶来源：走 _touch_pos_state（与镜像出场共用同一份内存态 + 库里的 peak_r），
-        保证进程重启后不会从 0 重新算。已平过一半的仓位 peak 必然 ≥2R，本闸不会误伤。
-
-        quickfail_hours = 0 即关闭本闸（回滚只需把配置设 0）。
-        """
-        hours = float(self._p("quickfail_hours", 0.0))
-        if hours <= 0:
-            return None
-        min_r = float(self._p("quickfail_min_r", 0.5))
-        opened = float(pos.get("opened_at") or 0)
-        entry = float(pos.get("entry_price") or 0)
-        stop = float(pos.get("stop_price") or 0)
-        side = pos.get("side")
-        if opened <= 0 or entry <= 0 or stop <= 0 or side not in ("long", "short"):
-            return None
-        elapsed_h = (time.time() - opened) / 3600.0
-        if elapsed_h < hours:
-            return None
-        risk = abs(entry - stop)
-        if risk <= 0 or not math.isfinite(risk):
-            return None
-        px = ctx.price(pos.get("symbol"))
-        if not px or not math.isfinite(px):
-            return None
-        sign = 1.0 if side == "long" else -1.0
-        cur_r = (px - entry) * sign / risk
-        if not math.isfinite(cur_r):
-            return None
-        st = self._touch_pos_state(pos, entry, risk, cur_r)
-        peak = float(st.get("peak") or 0.0)
-        if peak >= min_r:
-            return None
-        return (f"快速失败({hours:.0f}h内峰顶{peak:.2f}R<{min_r:.1f}R "
-                f"现{cur_r:.2f}R)")
 
     async def _half_take_profit(self, ctx, pos):
         """浮盈达 half_at_r（B 档 1.2R，从 yaml 读）且没平过一半 → 平掉 50%，剩一半放开跑。
@@ -1132,155 +1077,9 @@ class S15CeZlsma(Base):
                     log.debug("peak_r 落库失败 %s: %s", pos.get("symbol"), exc)
         return st
 
-    async def _mirror_exit(self, ctx, pos):
-        """镜像出场（2026-11-08 浩哥定案，替代原来的「破均线 + 回撤」）。
 
-        逻辑 = 开仓条件的完全镜像（两条，都必须落在同一根已收盘的 K 线上）：
-            做多：① CE 方向由多翻空
-                  ② HA 阴线（HA收 < HA开）且 HA收 < ZLSMA50
-            做空：① CE 方向由空翻多
-                  ② HA 阳线（HA收 > HA开）且 HA收 > ZLSMA50
-
-        为什么出场不设布林带条件（2026-11-08 浩哥定）：
-            入场的第③道用布林带宽度分位（挤压结束才进场），但出场不加。
-            带 BBW 的镜像出场在无仓位上限制时看着更好（+78.1R vs +61.7R），
-            但它把持仓从 26.5 根拖到 43.4 根 —— 在 max_concurrent_coins=6 的
-            真实约束下，长期占仓直接挤掉后续信号，6 仓口径反而少赚 14R。
-            出场要「快进快出把仓位腾出来」，布林带在这里是拖延器不是过滤器。
-
-        半仓之后另有一条（在镜像之前先判）：
-            平半价 2R 之上的新增浮盈 ≥ half_tp_r（默认 1R）→ 全平剩余半仓。
-            也就是 2R 平一半 → 3R 全平。
-
-        回测（20 币 / 60 天 / taker 0.05% / 线上口径 use_close=true / 6 仓约束）：
-            本方案 镜像 + 2R平半 + 再赚1R全平：597 笔 +61.8R 均笔+0.104 回撤−16.4 持仓26.5根
-            被替换的 破均线回撤 + 2R平半 + 再赚2R：608 笔 +57.3R 均笔+0.094 回撤−21.2 持仓24.9根
-
-        为什么半仓看 cur_r 而不是 peak：这条规则只关心「从平半价又走了多远」，
-        回撤多少由镜像条件管，不需要另外记峰顶。
-        """
-        # 2026-11-10 B 档：整条规则关闭（mirror_exit: false，放最前面省一次拉数据）
-        if not bool(self._p("mirror_exit", True)):
-            return None
-        sym = pos.get("symbol")
-        side = pos.get("side")
-        entry = float(pos.get("entry_price") or 0)
-        stop_px = float(pos.get("stop_price") or 0)
-        if not sym or side not in ("long", "short") or entry <= 0 or stop_px <= 0:
-            return None
-        risk = abs(entry - stop_px)
-        if risk <= 0 or not math.isfinite(risk):
-            return None
-        px = ctx.price(sym)
-        if not px or not math.isfinite(px):
-            return None
-        sign = 1.0 if side == "long" else -1.0
-        cur_r = (px - entry) * sign / risk
-        if not math.isfinite(cur_r):
-            return None
-
-        # 峰顶状态维护（与旧出场分支共用，否则前端峰顶 R 会冻结）
-        # 移动止盈要读 st["peak"]，所以必须接返回值
-        st = self._touch_pos_state(pos, entry, risk, cur_r)
-
-        # ── 半仓专属：再赚 half_tp_r 全平（默认 1R = 到 3R）──
-        # ⚠ 浮点精度：2.8 - 1.8 = 0.9999999999999996，直接 >= 会漏掉「恰好到 3R」的单子。
-        #   实测本地构造 peak2.8/现2.8R 时本该触发却返回 None。统一留 1e-9 容差。
-        _EPS = 1e-9
-        if int(pos.get("half_closed") or 0):
-            base_r = float(self._p("half_at_r", 2.0))
-            ht = float(self._p("half_tp_r", 1.0))
-            if ht > 0 and (cur_r - base_r) >= ht - _EPS:
-                return (f"半仓再赚{ht:.1f}R止盈(平半@{base_r:.1f}R "
-                        f"现{cur_r:.2f}R)")
-
-        # ── 半仓专属：移动止盈（2026-11-09 浩哥定，与 3R 全平并存）──
-        # 语义：峰值 ≥ trail_arm 后，从峰值回撤 trail_dd 个 R → 全平剩余半仓。
-        # 是「相对回撤」不是「绝对落袋」：峰值 3R 平在 1.8R，峰值 5R 平在 3.8R。
-        # trail_arm=1.5 < 平半线 1.8 → 平半那一刻就已在 arm 状态，等效于「平半即武装」。
-        # 放在 3R 全平之后：若同一 tick 两者都满足，先按 3R 全平（回测口径一致）。
-        #   3R 全平的条件是 cur ≥ 1.8+1.0 = 2.8R，所以移动止盈主要在 2.8R 以下兜底。
-        # 实测（20币/60天/cap5%/12h强平）：3R全平+移动 共触发 103 笔，
-        #   trail 52 笔 + half_tp 51 笔，合计 +94.2R（关掉 3R 全平只有 +87.5R）。
-        # 15m K 线会跳空穿过 trail_dd，实际回吐中位 1.20R（设定 1.2R）。
-        # 置 0 = 关闭。
-        if int(pos.get("half_closed") or 0):
-            t_arm = float(self._p("trail_arm", 0.0))
-            t_dd = float(self._p("trail_dd", 0.0))
-            if t_arm > 0 and t_dd > 0:
-                peak_r = float(st.get("peak") or 0.0)
-                if peak_r >= t_arm - _EPS and (peak_r - cur_r) >= t_dd - _EPS:
-                    return (f"移动止盈(峰值{peak_r:.2f}R 回吐{peak_r - cur_r:.2f}R"
-                            f"≥{t_dd:.1f}R 现{cur_r:.2f}R)")
-
-        # ── 指标：按 bar 边界取，一根 K 线没收盘指标不会变 ──
-        # 2026-11-10：抽成 _bar_pack，与右侧止盈共用同一份缓存（口径必须一致）
-        pk = await self._bar_pack(ctx, sym)
-        if pk is None:
-            return None
-        (z_now, ha_close, ha_open, dir_now, dir_prev, bp_now,
-         bar_ts, _ks, _i, _atr) = pk
-        if z_now is None or ha_close is None or ha_open is None:
-            return None
-
-        # ── 同一根 K 线只判一次，避免 0.5 秒一轮反复触发 ──
-        sk = pos.get("id") or sym
-        st = _S15_MIRROR_STATE.get(sk)
-        if st is None:
-            # 顺手清理已平仓留下的孤儿状态（超过 7 天没被访问），
-            # 与 _S15_POS_STATE 同一套策略：这个 dict 只增不减会一直占内存。
-            now_ts = time.time()
-            for k in [k for k, v in _S15_MIRROR_STATE.items()
-                      if now_ts - v.get("seen", now_ts) > 7 * 86400]:
-                _S15_MIRROR_STATE.pop(k, None)
-            st = {"bar_ts": None, "seen": now_ts}
-            _S15_MIRROR_STATE[sk] = st
-        st["seen"] = time.time()
-        if st["bar_ts"] == bar_ts:
-            return None
-        st["bar_ts"] = bar_ts
-
-        # ① CE 方向翻转
-        flipped = (dir_prev == 1 and dir_now == -1) if side == "long" \
-            else (dir_prev == -1 and dir_now == 1)
-        if not flipped:
-            return None
-        # ② HA 反向关键K线 + 站在 ZLSMA 错误一侧
-        if side == "long":
-            ha_ok = ha_close < ha_open and ha_close < z_now
-        else:
-            ha_ok = ha_close > ha_open and ha_close > z_now
-        if not ha_ok:
-            return None
-        # ③ 布林带宽度分位门槛（2026-11-09 浩哥选 B：只加这一条，其余不动）
-        #
-        # 为什么只在镜像加：CE 是 ATR 通道，低波动时价格来回穿，方向翻转会非常
-        # 频繁 —— 那是噪音不是翻转。BBW 分位只衡量「价格分散程度」，正是
-        # 「这次翻转够不够格」的过滤器。入场早就在用它（bbw_pct_min: 70）。
-        #
-        # 实测（20 币 / 60 天 / cap5% / 偏离闸 0.5% / 8 仓并发 / 当前出场）：
-        #   不带 BBW      620 笔  +50.6R  回撤 −22.5   镜像出场 327 笔（占 43%）
-        #   ≥50           603 笔  +61.8R  −23.4        172 笔
-        #   ≥60           602 笔  +61.3R  −22.2        140 笔
-        #   ≥70           598 笔  +65.5R  −20.5        105 笔  ← 峰
-        #   ≥80           594 笔  +56.5R  −21.9         73 笔
-        #   ≥90           586 笔  +55.3R  −23.8         38 笔
-        # 六档里带 BBW 的五档全好于不带，不是靠一个点撑起来的；70 是峰且回撤最小。
-        #
-        # 不带 BBW 时镜像均笔只 −0.08R —— 等于在震荡里来回被扫。
-        # 过滤后那些单子改走时间止损和移动止盈，反而赚钱。
-        # 置 0 = 关闭本闸（回滚只需把 yaml 的 mirror_bbw_min 改 0）。
-        m_bbw = float(self._p("mirror_bbw_min", 0.0))
-        if m_bbw > 0:
-            if bp_now is None or bp_now < m_bbw:
-                return None
-        return (f"镜像出场(CE翻转+HA{'阴' if side == 'long' else '阳'}线"
-                f"{'跌破' if side == 'long' else '站上'}ZLSMA 现{cur_r:.2f}R)")
 
 # 只注册线上真正跑的策略。
-# 2026-11-06 自检清理：S02/S06/S11/S14/S16 五个策略早已停用
-# （yaml 里 S11/S14 是 enabled:false，S02/S06/S16 根本不在 yaml 里，
-#  11-04 日志有「策略实例 xxx 已删除」），却依旧占着本文件六成篇幅。
-# 代码已移到 backend/strategies_legacy.py 存档；要恢复的话在那边接线并在
-# strategies.yaml 里配 enabled: true。
+# 2026-11-06 自检清理：S02/S06/S11/S14/S16 五个策略早已停用，代码在
+# backend/strategies_legacy.py 存档。这里只留当前在跑的 S15。
 REGISTRY = {cls.sid: cls for cls in [S15CeZlsma]}
