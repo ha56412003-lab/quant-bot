@@ -1,408 +1,148 @@
-"""台账式自检 —— 新出场方案「逻辑 + 参数」逐条验真
+# -*- coding: utf-8 -*-
+"""出厂总检（B 档）—— 一条命令跑完所有门，最后给一张总表。
 
-不靠单测打桩，全部走真通路：
-  1. 参数：strategies.yaml → config 加载 → 实例 → self.p → _p() 转换后取值，
-     逐项比对「yaml 写的值」和「代码实际拿到的值 + 类型」。
-  2. 逻辑：用真实 K 线 + 线上 _ce_zlsma，统计四条出场各自真实触发次数，
-     并抽查触发时刻的指标是否真的满足定义（不是靠肉眼）。
-  3. 端到端：真调 S15CeZlsma._mirror_exit()，传真 K 线，看它真的会返回出场原因。
-  4. 死代码：确认旧出场的方法名 / 参数名在 backend 里零引用。
+跑法：cd E:\\quant-bot && .venv/Scripts/python.exe scripts/verify_exit_final.py
 
-用法：python verify_exit_final.py
+五道门：
+  ① py_compile      三个核心文件能编译
+  ② tests/run_all   13 个测试文件
+  ③ tests/test_new_gates   A–E 组（69 项：配置锁 / 关键K线 / 自适应偏离 / 三取近止损 / 出场链）
+  ④ scripts/audit_exit_v2  静态审计（51 项：顺序 / 已删除项 / 回测口径）
+  ⑤ 回测六项        strategies.yaml 的真实参数跑 40 币 60 天，给单量·胜率·盈亏比·净值·回撤·持单时间
+
+任何一道红了，最后一行就是 FAIL。
 """
-import asyncio
-import glob
-import json
+import io
 import os
-import sys
-import time
-
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, _ROOT)
-
-import yaml
-
-from backend import strategies as S
-from backend.config import load_strategies
-
-FAILS = []
-OKS = []
-
-
-def check(name, cond, detail=""):
-    (OKS if cond else FAILS).append(name)
-    print(f"  {'PASS' if cond else 'FAIL'}  {name}" + (f"   {detail}" if detail else ""))
-    return cond
-
-
-# ══════════════════════════════════════════════════════════
-# 一、参数全链路
-# ══════════════════════════════════════════════════════════
-print("=" * 78)
-print("一、参数全链路（yaml → 实例 → _p() 转换后的真实取值）")
-print("=" * 78)
-
-raw_yaml = yaml.safe_load(open(os.path.join(_ROOT, "strategies.yaml"), encoding="utf-8"))
-node = raw_yaml["strategies"]["S15_CE_ZLSMA"]
-yaml_params = node.get("params", {})
-yaml_top = {k: v for k, v in node.items() if k != "params"}
-
-# 用线上同一个加载函数造实例，和启动时一模一样
-import backend.config as _cfg
-cfgs = load_strategies() if callable(load_strategies) else None
-target = None
-if isinstance(cfgs, dict):
-    target = cfgs.get("S15_CE_ZLSMA")
-elif isinstance(cfgs, list):
-    target = next((c for c in cfgs if c.get("sid") == "S15_CE_ZLSMA"
-                   or c.get("id") == "S15_CE_ZLSMA"), None)
-if target is None:
-    target = dict(yaml_top)
-    target["params"] = yaml_params
-
-# 实例化线上策略类
-strat = S.S15CeZlsma(target)
-
-EXPECT = [
-    # (yaml 里写的显示名, 参数名, yaml 值, 期望类型)
-    ("平半门槛",            "half_at_r",        1.8,  float),
-    ("3R 全平（再赚1R）",  "half_tp_r",        1.0,  float),
-    ("移动止盈武装线",     "trail_arm",        1.5,  float),
-    ("移动止盈回吐量",     "trail_dd",         1.2,  float),
-    ("CE 周期",            "ce_len",           1,    int),
-    ("CE 倍数",            "ce_mult",          2.0,  float),
-    ("ZLSMA 周期",         "zlsma_len",        50,   int),
-    ("CE 极值用收盘",      "use_close",        True, bool),
-    ("用 Heikin Ashi",     "use_ha",           True, bool),
-    ("止损摆动根数",       "swing_lookback",   20,   int),
-    ("入场布林带门槛",     "bbw_pct_min",      70.0, float),
-    ("镜像出场布林带门槛", "mirror_bbw_min",   70.0, float),
-    ("止损距离上限",       "max_risk_pct",     5.0,  float),
-    ("K 线周期",           "kline_interval",   "15m", str),
-]
-for label, key, want, typ in EXPECT:
-    got = strat._p(key, want)          # ← 代码真正用的入口
-    yaml_v = yaml_params.get(key)
-    same = (got == want)
-    check(f"{label:<20} {key:<16} yaml={yaml_v!r:<8} 代码取到={got!r:<8} 类型={type(got).__name__}",
-          same and isinstance(got, typ) and yaml_v == want,
-          "" if same else f"不一致！")
-
-# 顶层 max_hold_hours（16h 超时）走 cfg 不是 params
-# 2026-11-09 最终版：16h（12h 版因漏算快速失败被推翻，详见 strategies.yaml 注释）
-mh = strat.max_hold
-check(f"{'16h 超时秒数':<20} max_hold        = {mh} 秒 (= {mh/3600:.0f} 小时)",
-      mh == 16 * 3600)
-
-# 旧参数必须彻底消失
-# 2026-11-08 复盘追加：half_dd_pct / half_dd_r 是「yaml 写了但代码从不读」的空指令，
-# 已删除。这里一并锁死，防止有人手贱加回去。
-for dead in ("mirror_exit", "trail_pct", "trail_r", "trail_pct_max_r",
-             "trail_pct_cap", "ma_bars_lt", "ma_confirm_bars",
-             "half_dd_pct", "half_dd_r"):
-    check(f"旧参数已删除        {dead:<16} yaml={yaml_params.get(dead)!r}",
-          dead not in yaml_params)
-
-
-# ══════════════════════════════════════════════════════════
-# 二、逻辑：真实 K 线上四类出场各自触发多少次
-# ══════════════════════════════════════════════════════════
-print()
-print("=" * 78)
-print("二、逻辑：真实 K 线扫描，四条出场各自触发统计 + 逐条验算")
-print("=" * 78)
-
-FEE = 0.0005
-SWING = 20
-MAXH = 64          # 16 小时 / 15 分钟 = 64 根
-# 出场参数（与 strategies.yaml 对齐；改 yaml 记得同步这里，否则本自检就是在验旧口径）
-HALF_AT = 1.8      # 平半线
-HALF_TP = 1.0      # 平半后再赚 1R → 3R 全平
-TRAIL_ARM = 1.5    # 移动止盈武装线
-TRAIL_DD = 1.2     # 移动止盈回吐量
-MIRROR_BBW = 70.0  # 镜像出场的布林带分位门槛（2026-11-09 起）
-files = sorted(glob.glob(os.path.join(_ROOT, "backtest", "data", "*_15m_60d.json")))
-
-stat = {"mirror": 0, "trail": 0, "half_tp": 0, "timeout": 0, "hard_stop": 0}
-mirror_samples = []
-violation = []       # 触发时刻不满足定义的样本（应为 0）
-
-
-def scan(ks, ind):
-    ho, hc = ind["open"], ind["close"]
-    zl, dirs = ind["zlsma"], ind["dir"]
-    hi, lo = ind["high_raw"], ind["low_raw"]
-    n = len(hc)
-    i = max(1, 60, SWING)
-    while i < n - 2:
-        if zl[i] is None or dirs[i] is None or dirs[i - 1] is None or ind["bbw_pct"][i] is None:
-            i += 1
-            continue
-        # 入场条件（与线上同口径，用于造出持仓）
-        long_sig = dirs[i] == 1 and dirs[i - 1] == -1 and hc[i] > zl[i]
-        short_sig = dirs[i] == -1 and dirs[i - 1] == 1 and hc[i] < zl[i]
-        if not (long_sig or short_sig):
-            i += 1
-            continue
-        want = "long" if long_sig else "short"
-        if want == "long":
-            if not (hc[i] > ho[i] and hc[i] > zl[i]):
-                i += 1
-                continue
-        else:
-            if not (hc[i] < ho[i] and hc[i] < zl[i]):
-                i += 1
-                continue
-        if ind["bbw_pct"][i] < 70.0:
-            i += 1
-            continue
-        entry = float(ks[i + 1]["open"])
-        lo_i = max(0, i - SWING + 1)
-        stop = (min(lo[j] for j in range(lo_i, i + 1)) if want == "long"
-                else max(hi[j] for j in range(lo_i, i + 1)))
-        risk = (entry - stop) if want == "long" else (stop - entry)
-        if risk <= 0:
-            i += 1
-            continue
-        sign = 1 if want == "long" else -1
-        peak = 0.0
-        half = False
-        ei = None
-        for j in range(i + 1, n):
-            o_, h_, l_, c_ = (float(ks[j]["open"]), float(ks[j]["high"]),
-                              float(ks[j]["low"]), float(ks[j]["close"]))
-            if want == "long" and l_ <= stop:
-                stat["hard_stop"] += 1
-                ei = j
-                break
-            if want == "short" and h_ >= stop:
-                stat["hard_stop"] += 1
-                ei = j
-                break
-            peak = max(peak, ((h_ - entry) if want == "long" else (entry - l_)) / risk)
-            cur = ((c_ - entry) if want == "long" else (entry - c_)) / risk
-            if peak >= HALF_AT - 1e-9:
-                half = True
-            if not half and (j - i) >= MAXH:
-                stat["timeout"] += 1
-                ei = j
-                break
-            if half and (cur - HALF_AT) >= HALF_TP - 1e-9:
-                stat["half_tp"] += 1
-                ei = j
-                break
-            # 移动止盈（线上 trail_arm 1.5 / trail_dd 1.2，仅平半后启用）
-            if half and peak >= TRAIL_ARM - 1e-9 and (peak - cur) >= TRAIL_DD - 1e-9:
-                stat["trail"] += 1
-                ei = j
-                break
-            # 镜像：CE 翻转 + HA 反向 + 站错边 + BBW 分位 ≥ 70
-            #   ⚠ 2026-11-09 起线上 _mirror_exit 带 mirror_bbw_min: 70.0
-            flip = (dirs[j] == -1 and dirs[j - 1] == 1) if want == "long" \
-                else (dirs[j] == 1 and dirs[j - 1] == -1)
-            if flip:
-                ha_ok = (hc[j] < ho[j] and hc[j] < zl[j]) if want == "long" \
-                    else (hc[j] > ho[j] and hc[j] > zl[j])
-                _mbbw = ind["bbw_pct"][j]
-                bbw_ok = (MIRROR_BBW <= 0) or (_mbbw is not None and _mbbw >= MIRROR_BBW)
-                if ha_ok and bbw_ok:
-                    stat["mirror"] += 1
-                    # ★ 逐条验算：这个触发真的满足定义吗？
-                    if want == "long":
-                        good = (dirs[j] == -1 and dirs[j - 1] == 1
-                                and hc[j] < ho[j] and hc[j] < zl[j])
-                    else:
-                        good = (dirs[j] == 1 and dirs[j - 1] == -1
-                                and hc[j] > ho[j] and hc[j] > zl[j])
-                    if not good:
-                        violation.append((want, j))
-                    if len(mirror_samples) < 5:
-                        mirror_samples.append(
-                            dict(side=want, bar=j,
-                                 dir_prev=dirs[j - 1], dir_now=dirs[j],
-                                 ha_open=round(ho[j], 6), ha_close=round(hc[j], 6),
-                                 zlsma=round(zl[j], 6),
-                                 ha_bear_ok=hc[j] < ho[j], side_of_ma=hc[j] < zl[j]))
-                    ei = j
-                    break
-        i = (ei + 1) if ei else (i + 1)
-
-
-total_bars = 0
-for fp in files[:8]:      # 取 8 个币，够统计意义
-    sym = os.path.basename(fp).replace("_15m_60d.json", "")
-    ks = json.load(open(fp, encoding="utf-8"))
-    if len(ks) < 800:
-        continue
-    ind = S._ce_zlsma(ks, 1, 2.0, 50, True, True)
-    total_bars += len(ks)
-    scan(ks, ind)
-
-total = sum(stat.values())
-print(f"  扫描 {min(8, len(files))} 币 / {total_bars} 根 K 线 / 共 {total} 笔出场")
-for k, v in sorted(stat.items(), key=lambda x: -x[1]):
-    print(f"    {k:<10} {v:>5} 笔  {v/total*100 if total else 0:>5.1f}%")
-check("镜像出场真的会触发（不是死条件）", stat["mirror"] > 0, f"{stat['mirror']} 笔")
-check("2R 平半后 3R 全平真的会触发", stat["half_tp"] > 0, f"{stat['half_tp']} 笔")
-check("硬止损真的会触发", stat["hard_stop"] > 0, f"{stat['hard_stop']} 笔")
-check("每一笔镜像出场都满足三条件定义（逐条验算）",
-      len(violation) == 0, f"违规 {len(violation)} 笔")
-
-
-# ══════════════════════════════════════════════════════════
-# 三、端到端：真调 _mirror_exit，传真 K 线
-# ══════════════════════════════════════════════════════════
-print()
-print("=" * 78)
-print("三、端到端：真调线上 _mirror_exit()，不打桩，喂真实 K 线")
-print("=" * 78)
-
-
-class RealCtx:
-    """用真实 K 线喂策略，只截到指定 bar，模拟「那一刻的盘面」。
-
-    ⚠ 时间戳必须平移到当前时钟：_mirror_exit 在算指标前会检查「拉回来的最后
-    一根是否已到当前 K 线窗口」，用 60 天前的真实历史数据会被判成过期数据而
-    整轮跳过（2026-11-08 修 TAUSDT 漏出场 BUG 时加的守卫）。OHLC 一个不改，
-    只把 ts 整体平移，让 ks[cut] 正好落在当前窗口 —— 形态保持真实，
-    时序也符合线上。
-    """
-    BAR = 900
-
-    def __init__(self, ks, cut, price):
-        self._ks = ks
-        self._cut = cut
-        self._px = price
-        cur_bar = int(time.time() // self.BAR) * self.BAR
-        idx = min(cut, len(ks) - 1)
-        self._shift = cur_bar - int(ks[idx].get("ts", 0))
-
-    async def klines(self, sym, iv, n):
-        end = self._cut + 1
-        start = max(0, end - n)
-        seg = self._ks[start:end]
-        return [{**k, "ts": int(k.get("ts", 0)) + self._shift} for k in seg]
-
-    def price(self, sym):
-        return self._px
-
-
-async def e2e():
-    fp = files[0]
-    ks = json.load(open(fp, encoding="utf-8"))
-    ind = S._ce_zlsma(ks, 1, 2.0, 50, True, True)
-    n = len(ks)
-    ho, hc, zl, dirs = ind["open"], ind["close"], ind["zlsma"], ind["dir"]
-
-    # 找一个真实的「CE 翻空 + HA 阴线跌破 ZLSMA + BBW 分位 ≥ 70」时刻
-    # ⚠ 2026-11-09 起镜像出场多了 BBW 门槛（yaml mirror_bbw_min: 70.0），
-    #   只按三条件找会撞上 BBW 不够的 bar → 门槛正确拦掉 → 测试误报失败。
-    bpx = ind["bbw_pct"]
-    hit = None
-    for j in range(200, n - 1):
-        if (dirs[j] == -1 and dirs[j - 1] == 1
-                and hc[j] < ho[j] and hc[j] < zl[j]
-                and bpx[j] is not None and bpx[j] >= 70.0):
-            hit = j
-            break
-    if not hit:
-        check("能找到真实的镜像出场时刻", False, "数据里没有")
-        return
-
-    entry = float(ks[hit - 10]["open"])
-    stop = entry * 0.97         # 3% 止损，R = 3% 价格
-    pos = dict(id="e2e-1", symbol="E2E", side="long", entry_price=entry,
-               stop_price=stop, opened_at="2026-11-08T00:00:00", half_closed=0,
-               peak_r=0.0, mfe_pct=0.0)
-    S._S15_MIRROR_STATE.clear()
-    S._S15_POS_STATE.clear()
-    S._S15_ZL_CACHE.clear()
-
-    # 用 hit 那根的收盘价当「当前价」，cut 也停在 hit（i = len-2 = hit-1？）
-    # _mirror_exit 取 i = len(ks)-2，所以要让 len(ks)-2 == hit → cut = hit+1
-    ctx = RealCtx(ks, hit + 1, float(ks[hit]["close"]))
-    reason = await strat._mirror_exit(ctx, pos)
-    check("真 K 线上 _mirror_exit 返回出场原因", reason is not None, str(reason))
-    if reason:
-        check("出场原因文案里没有 BBW（布林带已移除）", "BBW" not in str(reason), str(reason))
-        check("出场原因含「镜像出场」", "镜像出场" in str(reason), str(reason))
-
-    # 负向：CE 翻转 + HA 反向 三条件全满足，但 BBW 分位 < 70 → 新门槛必须拦掉
-    S._S15_MIRROR_STATE.clear()
-    S._S15_ZL_CACHE.clear()
-    low = None
-    for j in range(200, n - 1):
-        if (dirs[j] == -1 and dirs[j - 1] == 1
-                and hc[j] < ho[j] and hc[j] < zl[j]
-                and bpx[j] is not None and bpx[j] < 70.0):
-            low = j
-            break
-    if low:
-        pos2 = dict(pos)
-        pos2["id"] = "e2e-2"
-        ctx3 = RealCtx(ks, low + 1, float(ks[low]["close"]))
-        r3 = await strat._mirror_exit(ctx3, pos2)
-        check("三条件全满足但 BBW<70 时不触发出场（新门槛生效）",
-              r3 is None, f"bar={low} BBW={bpx[low]:.0f} → {r3}")
-    else:
-        check("能找到 BBW<70 的镜像时刻（用于负向测试）", False, "数据里没有")
-
-    # 反向：把 cut 挪到「CE 没翻转」的 bar，应该不出场
-    S._S15_MIRROR_STATE.clear()
-    S._S15_ZL_CACHE.clear()
-    quiet = None
-    for j in range(200, n - 1):
-        if dirs[j] == dirs[j - 1] and abs((hc[j] / zl[j] - 1) * 100) > 0.5:
-            quiet = j
-            break
-    if quiet:
-        ctx2 = RealCtx(ks, quiet + 1, float(ks[quiet]["close"]))
-        r2 = await strat._mirror_exit(ctx2, pos)
-        check("CE 没翻转时不误出场", r2 is None, f"bar={quiet} → {r2}")
-
-
-asyncio.run(e2e())
-
-
-# ══════════════════════════════════════════════════════════
-# 四、死代码 / 引用面
-# ══════════════════════════════════════════════════════════
-print()
-print("=" * 78)
-print("四、死代码：旧出场是否真的没人再引用")
-print("=" * 78)
-
 import subprocess
-for dead_name in ("_trend_reversal_exit",):
-    r = subprocess.run(["grep", "-rn", dead_name, "backend/", "--include=*.py"],
-                       cwd=_ROOT, capture_output=True, text=True)
-    hits = [l for l in r.stdout.strip().split("\n") if l and "__pycache__" not in l]
-    check(f"{dead_name} 在 backend/*.py 中零引用", len(hits) == 0,
-          f"命中 {len(hits)} 处: {hits[:2]}")
+import sys
 
-# 旧开关 mirror_exit：查的是「被当成参数读取」这个形态 —— _p("mirror_exit"
-# （方法名 _mirror_exit 必须存在，不能一起算进去）
-r2 = subprocess.run(["grep", "-rn", '_p("mirror_exit"', "backend/", "--include=*.py"],
-                    cwd=_ROOT, capture_output=True, text=True)
-h2 = [l for l in r2.stdout.strip().split("\n") if l and "__pycache__" not in l]
-check('旧开关 _p("mirror_exit") 零引用', len(h2) == 0, f"命中 {len(h2)} 处")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+os.chdir(ROOT)
+sys.path.insert(0, ROOT)
+PY = os.path.join(ROOT, ".venv", "Scripts", "python.exe")
+if not os.path.exists(PY):
+    PY = sys.executable
 
-# 镜像出场方法本身必须存在且真的被调用
-r3 = subprocess.run(["grep", "-rn", "await self._mirror_exit", "backend/", "--include=*.py"],
-                    cwd=_ROOT, capture_output=True, text=True)
-h3 = [l for l in r3.stdout.strip().split("\n") if l and "__pycache__" not in l]
-check("镜像出场真的被 check_exit 调用", len(h3) >= 1, f"调用点 {len(h3)} 处")
+ENV = dict(os.environ, PYTHONIOENCODING="utf-8")
+ROWS = []
 
 
-# ══════════════════════════════════════════════════════════
+def run(tag, args, timeout=1200):
+    print()
+    print("=" * 78)
+    print("▶ " + tag)
+    print("=" * 78)
+    p = subprocess.run(args, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace",
+                       env=ENV, timeout=timeout)
+    out = (p.stdout or "") + (p.stderr or "")
+    tail = "\n".join(out.strip().split("\n")[-12:])
+    print(tail)
+    ok = p.returncode == 0
+    ROWS.append((tag, "PASS" if ok else "FAIL", p.returncode))
+    return ok, out
+
+
+# ① 编译
+print("▶ py_compile 三个核心文件")
+r = subprocess.run([PY, "-m", "py_compile", "backend/strategies.py",
+                    "backend/quality.py", "backend/engine.py"],
+                   capture_output=True, text=True, env=ENV)
+print("  " + ("compile OK" if r.returncode == 0 else (r.stderr or "")[-400:]))
+ROWS.append(("① py_compile", "PASS" if r.returncode == 0 else "FAIL", r.returncode))
+
+# ② 单元测试
+run("② tests/run_all.py（13 个测试文件）", [PY, "tests/run_all.py"])
+
+# ③ 新闸门测试
+ok3, _ = run("③ tests/test_new_gates.py（A–E 组）", [PY, "tests/test_new_gates.py"])
+
+# ④ 静态审计
+run("④ scripts/audit_exit_v2.py（出场链静态审计）", [PY, "scripts/audit_exit_v2.py"])
+
+# ⑤ 回测六项
 print()
 print("=" * 78)
-print(f"结果：通过 {len(OKS)} 项，失败 {len(FAILS)} 项")
-if FAILS:
-    print("失败项：")
-    for f in FAILS:
-        print(f"  ✗ {f}")
-else:
-    print("全部通过")
+print("▶ ⑤ 回测六项：strategies.yaml 真实参数 × 40 币 × 60 天")
 print("=" * 78)
-sys.exit(1 if FAILS else 0)
+six = {}
+try:
+    import pickle
+    import statistics as st
+    import yaml
+    from backtest.exit_speed_test import sim
+    from backtest.s15_live_parity import stats as canon
+
+    cfg = yaml.safe_load(open("strategies.yaml", encoding="utf-8"))
+    node = cfg["strategies"]["S15_CE_ZLSMA"]
+    P = node["params"]
+    MON = cfg["pools"]["monitor"]
+    mh = float(node.get("max_hold_hours") or 0)
+    B = dict(
+        key_bar=bool(P["key_bar"]), key_mult=float(P["key_mult"]),
+        key_closepos=float(P["key_closepos"]), key_bodyfrac=float(P["key_bodyfrac"]),
+        stop_key=bool(P["stop_key"]), stop_mode="both",
+        min_stop_pct=float(MON["stop_min_pct"]), swing=int(P["swing_lookback"]),
+        half_at_r=float(P["half_at_r"]), half_tp_r=float(P["half_tp_r"]),
+        full_at_r=float(P["full_at_r"]), right_exit=bool(P["right_exit"]),
+        right_exit_strict=bool(P["right_exit_strict"]),
+        maxh=(int(mh * 4) if mh > 0 else 999999),
+        qf_bars=int(round(float(P["quickfail_hours"]) * 4)),
+        qf_min_r=float(P["quickfail_min_r"]),
+        trail_arm=float(P["trail_arm"]), trail_dd=float(P["trail_dd"]),
+        max_risk_pct=float(P["max_risk_pct"]), min_dev_pct=float(P["min_dev_pct"]),
+        dev_atr_mult=float(P["dev_atr_mult"]), mirror_exit=bool(P["mirror_exit"]),
+        mirror_bbw_min=float(P["mirror_bbw_min"]),
+    )
+    thr = float(P["eff_min_signal"])
+    SC = r"E:\Hermes\cache\scratch"
+    with open(os.path.join(SC, "pool_cache.pkl"), "rb") as f:
+        D = pickle.load(f)
+    with open(os.path.join(SC, "effcache.pkl"), "rb") as f:
+        EFFV = pickle.load(f)
+    with open(os.path.join(SC, "rank_cache.pkl"), "rb") as f:
+        rank = pickle.load(f)
+    ALL = sorted([s for s in D if s in rank], key=lambda v: rank[v])
+
+    o = []
+    for s in ALL[:40]:
+        ks, ind, _ = D[s]
+        o.extend(sim(ks, ind, eff_mask=[x >= thr for x in EFFV[s]], **B))
+    n = len(o)
+    s_ = canon(o)
+    win = [t for t in o if t["r"] > 0]
+    gp = sum(t["r"] for t in win)
+    gl = -sum(t["r"] for t in o if t["r"] <= 0)
+    hs = [(t["exit_ts"] - t["entry_ts"]) / 3600 for t in o]
+    six = dict(n=n, per_day=n / 60.0, win=s_["win"], pl=(gp / gl if gl else 0),
+               net=s_["r"], mdd=s_["mdd"], hold=st.mean(hs),
+               med=st.median(hs))
+    print("  每天单量  %.2f 单/天（%d 笔 / 60 天）" % (n / 60.0, n))
+    print("  胜率      %.1f%%" % s_["win"])
+    print("  盈亏比    %.2f" % (gp / gl if gl else 0))
+    print("  净值      %+.2fR（每笔 %+.4fR）" % (s_["r"], s_["avg"]))
+    print("  最大回撤  %.2fR" % s_["mdd"])
+    print("  持单时间  均 %.2fh / 中位 %.2fh" % (st.mean(hs), st.median(hs)))
+    ROWS.append(("⑤ 回测六项", "PASS", 0))
+except Exception as exc:  # noqa: BLE001
+    print("  回测跑不起来：%s" % exc)
+    ROWS.append(("⑤ 回测六项", "FAIL", 1))
+
+print()
+print("=" * 78)
+print("总检")
+print("=" * 78)
+bad = 0
+for tag, st_, _ in ROWS:
+    print("  %-6s %s" % (st_, tag))
+    if st_ != "PASS":
+        bad += 1
+if six:
+    print()
+    print("  六项：%.2f 单/天 | 胜率 %.1f%% | 盈亏比 %.2f | 净值 %+.1fR | 回撤 %.2fR | 均持 %.2fh"
+          % (six["per_day"], six["win"], six["pl"], six["net"], six["mdd"], six["hold"]))
+print()
+print("最终：" + ("全部通过 ✓" if bad == 0 else "有 %d 道门没过 ✗" % bad))
+print("=" * 78)
+sys.exit(0 if bad == 0 else 1)

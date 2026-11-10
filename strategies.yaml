@@ -75,15 +75,20 @@ strategies:
     #   12h 太短，正好把「慢性子但最终赚钱」那批（时间止损均笔 +0.60R）砍在
     #   4 小时线上；16h 只砍掉真正到尾的烂尾单，两者才能并存。
     #   三个方案差 3~9R 量级，选 16h 是为了回撤最好（-21.4）且留着早清保护。
-    max_hold_hours: 16
+    # 2026-11-10 B 档：16h 时间止损整条删除（0 = 关闭；engine.py 已加 0 值保护，
+    # 否则 `now - opened >= 0` 会把每个仓位开出来就平掉）
+    max_hold_hours: 0
     params:
       kline_interval: 15m
       ce_len: 1
-      ce_mult: 2.0
+      # 2026-11-10 浩哥定（B 档）：2.0 → 1.5。作者原设计 2.0。
+      # 六档实测胜率：1.0 54.4% / 1.25 56.6% / 1.5 57.7%★ / 1.75 56.8% / 2.0 56.4% / 2.5 50.7%
+      ce_mult: 1.5
       zlsma_len: 50
       use_close: true
       use_ha: true
-      swing_lookback: 20
+      # 2026-11-10 B 档：20 → 8（双止损「8 根摆动 + CE 通道」实测最优，止损距离中位 2.39%→1.96%）
+      swing_lookback: 8
       min_atr_pct: 0
       bbw_pct_min: 70.0
       # 2026-11-09 浩哥定：30.0 → 5.0
@@ -91,22 +96,50 @@ strategies:
       # 永远够不到 1.8R/2R；止损 3~5% 的 32 笔才是唯一盈利档（+257.81U）。
       # 收紧后剩余 57 笔合计 +225.80U。注意：新单生效，已有持仓不受影响。
       max_risk_pct: 5.0
-      min_dev_pct: 0.5
-      quickfail_hours: 4.0
+      # 2026-11-10 B 档：固定 0.5% 偏离闸 → 置 0，改由下面的 dev_atr_mult 自适应
+      min_dev_pct: 0.0
+      # 偏离闸（自适应）：进场价离 ZLSMA ≥ mult × ATR(20)
+      #   实测 1.2× 90笔/60.0%/+23.48R ；1.0× 96笔/58.3%（B 档定 1.0）
+      #   ⚠ 乘的必须是 ATR(20)，不能是 CE 的 ATR(1)（进场那根 TR 是平时 3~5 倍）
+      dev_atr_mult: 1.0
+      # 关键K线三条（2026-11-10 浩哥定义，全部用原始 K 线，不用 HA）：
+      #   ① 力度：实体 > key_mult × ATR(20)   ② 掌控力：收盘位置 > 0.66
+      #   ③ 决断力：实体占全幅 > 0.5
+      # key_mult 各档通过率/业绩：1.0 9.34%/3.78单 | 0.8 15.00%/3.78 | 0.7 18.83%/4.65★ | 0.6 23.30%/4.78(质量崩)
+      key_bar: true
+      key_mult: 0.7
+      key_closepos: 0.66
+      key_bodyfrac: 0.5
+      # 关键K线的低点/高点作为止损线之一（与摆动 8 根、CE 通道三者并列取近）
+      stop_key: true
+      # 2026-11-10 B 档：快速失败删除（0 = 关闭）
+      quickfail_hours: 0.0
       quickfail_min_r: 0.5
       # 2026-11-09 浩哥定：平半线 2.0R → 1.8R，并新增移动止盈 trail_arm / trail_dd。
       # 回测扫描（cap 5% / 12h 强平）：1.8半 + 移动1.5/1.2 = +94.2R 最优；
       # 1.0半+1.2/0.8 只有 +45.9R（1.0 半太早，把 3R+ 的大肉砍光，最好一笔仅 3.02R）。
       # half_tp_r 保持不变（3R 全平）：+94.2R vs 关掉它 +87.5R，两条并存更好。
-      half_at_r: 1.8
-      half_tp_r: 1.0
+      # 2026-11-10 B 档：1.8 → 1.2（扫描峰：1.2R 328笔/53.4%/+58.96R）
+      half_at_r: 1.2
+      # 旧「平半后再赚 half_tp_r 全平」机制删除（置 0），改由 full_at_r 兜底
+      half_tp_r: 0.0
+      # 最终盈利目标：平半后到 2R 全平（兜底，防止一直不穿均线时无出口）
+      full_at_r: 2.0
+      # 右侧止盈（2026-11-10 新方案）：平半后 HA 反向 + HA收穿 ZLSMA50
+      #   + 那根反向原始K线本身是反向关键K线（strict）
+      right_exit: true
+      right_exit_strict: true
+      # 进场 EFF 闸（2026-11-10 从池子挪到进场闸）
+      eff_min_signal: 0.30
+      eff_win_signal: 48
       # 移动止盈：峰值 ≥ trail_arm 后，从现在回撤 trail_dd 个 R → 全平剩余半仓。
       # 只在平半之后启用（trail_after_half 语义：arm 1.5 < 平半线 1.8，实际就是平半即武装）。
       # 注意这是「相对回撤」不是「绝对落袋」：峰值 3R 时平在 1.8R，峰值 5R 时平在 3.8R。
       # 实测剩余半仓落袋中位 1.63R、实际回吐中位 1.20R（15m K 线会跳空穿过 1.2R）。
       # 置 0 = 关闭该出场。
-      trail_arm: 1.5
-      trail_dd: 1.2
+      # 2026-11-10 B 档：移动止盈删除（0 = 关闭，与「右侧止盈」功能重叠）
+      trail_arm: 0.0
+      trail_dd: 0.0
       # 镜像出场的布林带宽度分位门槛（2026-11-09 浩哥选 B 落地）。
       # 语义：CE 翻转 + HA 反向关键K线 之外，再要求当时 BBW 分位 ≥ 本值才认这次翻转。
       # 为什么加：CE 是 ATR 通道，低波动时价格来回穿，翻转极频繁 —— 那是噪音。
@@ -117,6 +150,9 @@ strategies:
       #   ≥70  598笔 +65.5R DD−20.5 ← 峰，且回撤最小 | ≥80 +56.5R | ≥90 +55.3R
       # 置 0 = 关闭本闸，行为退回纯「CE翻转+HA」三闸。
       mirror_bbw_min: 70.0
+      # 2026-11-10 B 档：镜像出场整条删除（与新「右侧止盈」后两条完全重叠，
+      #   且两套并存时镜像先触发，把本该走右侧止盈的单子提前掐掉）
+      mirror_exit: false
       fee_rate: 0.0005
       slip_pct: 0.0
 pools:
@@ -129,16 +165,29 @@ pools:
     whitelist:
     - BTCUSDT
     - ETHUSDT
+    - HYPEUSDT
+    - SOLUSDT
+    - XRPUSDT
+    - BNBUSDT
+    - DOGEUSDT
+    - AVAXUSDT
+    - NEARUSDT
+    - UNIUSDT
+    - SUIUSDT
+    - ADAUSDT
   monitor:
     size: 40
     min_quote_vol: 5000000
     max_spike: 8.0
     refresh_sec: 60
     min_dwell_sec: 900
-    stop_min_pct: 1.0
-    stop_exit_pct: 0.85
-    eff_min: 0.3
-    eff_exit: 0.25
+    # 2026-11-10 B 档：进池 1.0% → 0.5%，出池 0.85% → 0.30%
+    #   ⚠ 必须一起改：出池线必须低于进池线，否则进池立刻被踢（倒挂）
+    stop_min_pct: 0.5
+    stop_exit_pct: 0.3
+    # 2026-11-10 B 档：EFF 从池子闸删除（0 = 关闭），改到进场闸（eff_min_signal）
+    eff_min: 0.0
+    eff_exit: 0.0
     eff_win: 96
     smooth_sec: 300
     kl_interval: 15m

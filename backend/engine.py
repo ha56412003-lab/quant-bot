@@ -129,7 +129,10 @@ async def manage_positions(ctx, strategies):
             db.update_position(pos["id"], mae_pct=exc_pct)
             pos["mae_pct"] = exc_pct
         reason = None
-        if now - pos["opened_at"] >= pos["max_hold_sec"]:
+        # 2026-11-10 B 档：时间止损整条删除（max_hold_sec = 0）。
+        # ⚠ 这个 `pos["max_hold_sec"] and` 是安全阀，不是装饰：
+        #   不留它，`now - opened_at >= 0` 恒真 → 每个仓位开出来就被立刻平掉。
+        if pos["max_hold_sec"] and now - pos["opened_at"] >= pos["max_hold_sec"]:
             # 2026-11-09 浩哥定：去掉「平半豁免」，到点一律平。
             # 原先 half_closed=1 就永不受时间约束，导致平半线越低长尾越长：
             # 1.0 半时出现过 90.0 小时的单子，1.8 半也有 42.5 小时。

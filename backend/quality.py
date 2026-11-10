@@ -90,18 +90,25 @@ MAX_SPIKE = 8.0          # 单根最大振幅 ÷ ATR 上限（2026-11-08 从 4.0
 MONITOR_SIZE = 40        # 监控池容量（2026-11-08 从 200 收紧，实测组合约 39 个）
 
 # ── 第 1 道：止损距离 ──────────────────────────────────────
-STOP_MIN_PCT = 1.00      # 进池线（%）
-STOP_EXIT_PCT = 0.85     # 出池线（%），必须低于进池线
+# 2026-11-10 B 档：进池 1.00 → 0.50，出池 0.85 → 0.30
+#   必须成对改：出池线一旦高于进池线，币刚进池就被踢，池子空转。
+#   0.5% 依据：B 档回测 279 笔里止损 0.5~1.0% 那档 106 笔胜率 51.9%、仍赚钱；
+#   过滤掉的是 0.5% 以下（手续费吃掉 1R 的 20%+）。
+STOP_MIN_PCT = 0.50      # 进池线（%）
+STOP_EXIT_PCT = 0.30     # 出池线（%），必须低于进池线
 # 摆动回看根数 —— 只作回退默认值，真实值从 strategies.yaml 的
 # S15_CE_ZLSMA.params.swing_lookback 读（见 _swing_lb）。
 # 2026-11-09 修：原先是硬编码 20，与策略各存一份 —— 一旦改 yaml，
 # 池表仍按 20 算止损距离、策略按新窗口算，两边对不上，
 # 会出现「池表显示止损 3% 通过过滤、实际开仓却按 1.8% 算」的鬼故事。
-STOP_LOOKBACK = 20
+STOP_LOOKBACK = 8
 
-# ── 第 2 道：趋势效率 ──────────────────────────────────────
-EFF_MIN = 0.30           # 进池线
-EFF_EXIT = 0.25          # 出池线
+# ── 第 2 道：趋势效率（2026-11-10 B 档：从池子闸删除，0 = 关闭）────────
+# 为什么删：EFF 从「选币」挪到「择时」更有效（回测净R +66%）。
+# 池子四道闸从此只管「有没有量、会不会插针、止损距离合不合理」，
+# 趋势的事交给进场那一刻（strategies.yaml → eff_min_signal: 0.30 / eff_win_signal: 48）。
+EFF_MIN = 0.0            # 进池线（0 = 关闭本闸）
+EFF_EXIT = 0.0           # 出池线（0 = 关闭本闸）
 EFF_WIN = 96             # 窗口：96 根 15m = 24 小时
 
 # ── 平滑与刷新 ────────────────────────────────────────────
@@ -485,10 +492,12 @@ def recompute(universe) -> list[str]:
     """根据当前数据重算监控池名单。返回新名单。
 
     进出池用平滑后的（5 分钟中位数）止损距离与 EFF，带滞回：
-        进池：止损 ≥ STOP_MIN_PCT 且 EFF ≥ EFF_MIN
-        出池：止损 < STOP_EXIT_PCT 或 EFF < EFF_EXIT
+        进池：止损 ≥ STOP_MIN_PCT（EFF_MIN > 0 时另加 EFF ≥ EFF_MIN）
+        出池：止损 < STOP_EXIT_PCT（EFF_EXIT > 0 时另加 EFF < EFF_EXIT）
         中间：不动
-    持仓中的币不特殊对待（2026-11-08 浩哥定）—— 出场由 engine 负责。
+    2026-11-10 B 档起 EFF_MIN / EFF_EXIT 均为 0 → 趋势效率闸关闭，
+    只判「成交额 / 插针 / 止损距离」三道。持仓中的币不特殊对待
+    （2026-11-08 浩哥定）—— 出场由 engine 负责。
     """
     global _monitor, _ts
     now = time.time()
@@ -512,7 +521,8 @@ def recompute(universe) -> list[str]:
         if stop is not None and stop < STOP_EXIT_PCT:
             continue
         # 趋势效率掉到出池线以下 → 移除（走成横盘了）
-        if eff is not None and eff < EFF_EXIT:
+        # 2026-11-10 B 档：EFF_EXIT = 0 → 本闸关闭，不再按趋势效率踢人
+        if EFF_EXIT > 0 and eff is not None and eff < EFF_EXIT:
             continue
         # 成交额 / 插针不达标 → 移除
         ok, _why = _judge(sym)
@@ -532,12 +542,13 @@ def recompute(universe) -> list[str]:
         if sym in in_pool:
             continue
         stop, eff = _smoothed(sym)
-        if stop is None or eff is None:
+        if stop is None:
             continue                       # 还没采样到 → 不冒进
         if stop < STOP_MIN_PCT:
             continue                       # 止损太窄，手续费会吃掉 1R
-        if eff < EFF_MIN:
-            continue                       # 宽幅震荡，没方向
+        if EFF_MIN > 0:                    # EFF 闸开着才判（EFF_MIN=0 时整段跳过）
+            if eff is None or eff < EFF_MIN:
+                continue                   # 没数据 / 宽幅震荡，没方向
         ok, _why = _judge(sym)
         if not ok:
             continue
