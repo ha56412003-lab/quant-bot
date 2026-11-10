@@ -174,11 +174,12 @@ chk(float(P["swing_lookback"]) == 8, "swing_lookback = 8", "实际 %s" % P["swin
 chk(float(P["max_risk_pct"]) == 5.0, "max_risk_pct = 5.0")
 chk(float(P["dev_atr_mult"]) == 1.0, "dev_atr_mult = 1.0（偏离闸 = 1.0×ATR20）")
 chk(float(P["key_mult"]) == 0.7, "key_mult = 0.7")
-chk(float(MON["stop_min_pct"]) == 0.5 and float(MON["stop_exit_pct"]) == 0.3,
-    "池子进 0.5% / 出 0.3%（否则倒挂）",
-    "实际 %s/%s" % (MON["stop_min_pct"], MON["stop_exit_pct"]))
-chk(float(MON["stop_min_pct"]) > float(MON["stop_exit_pct"]),
-    "进池线 > 出池线（不倒挂）")
+# 2026-11-10 定档：池子止损距离闸已整条删除
+chk("stop_min_pct" not in MON and "stop_exit_pct" not in MON,
+    "池子止损距离闸已删除（两键不该存在）",
+    "残留 %s" % [k for k in ("stop_min_pct", "stop_exit_pct") if k in MON])
+chk(float(P.get("dual_stop_min_pct") or 0) == 0.5,
+    "两档止损分界 = 0.5%", "实际 %s" % P.get("dual_stop_min_pct"))
 
 print()
 print("=" * 78)

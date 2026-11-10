@@ -465,6 +465,12 @@ class S15CeZlsma(Base):
         key_bodyfrac = float(self._p("key_bodyfrac", 0.5))
         # ⑤b 关键K线止损：那根大阳线的低点 / 大阴线的高点
         stop_key = bool(self._p("stop_key", False))
+        # ⑤c 两档止损（2026-11-10 定档 · 浩哥）：
+        #    三条取近后若距离 < dual_stop_min_pct（0.50%），说明是「关键K线」那条
+        #    把止损贴到了脸上（BTC/ETH 这类大币常见，0.3~0.5%）→ 这一档只保留 ②CE 通道。
+        #    回测 60 天（40 币）：只 CE 336 笔 / 54.8% / 1.31 / +52.21R / −13.32R，
+        #    相对「一律三条取近」+14.84R、回撤少 1.23R。取 0 = 关闭两档。
+        dual_stop_min_pct = float(self._p("dual_stop_min_pct", 0.5))
         # ⑥ 进场 EFF 闸（2026-11-10 从池子闸挪到进场闸，回测净R +66%）
         eff_min_sig = float(self._p("eff_min_signal", 0.0))
         eff_win_sig = int(self._p("eff_win_signal", 48))
@@ -694,6 +700,19 @@ class S15CeZlsma(Base):
                        (side == "short" and _kb < stop):
                         stop = _kb
                         stop_src = "key"
+                # ⑤c 两档止损：三条取近后距离 <0.50% → 这一档只用 ②CE 通道
+                #    （关键K线那条贴脸时，1R 太小，噪音一打就碎；回测胜率 51.6%→54.8%）
+                if dual_stop_min_pct > 0 and stop_src == "key":
+                    _d3 = ((px - stop) if side == "long" else (stop - px)) / px * 100.0
+                    if _d3 < dual_stop_min_pct - 1e-9:
+                        if _ce_stop is not None and math.isfinite(_ce_stop):
+                            stop = _ce_stop
+                            stop_src = "dual_ce"
+                        else:
+                            # CE 拿不到 → 退回 ①摆动，绝不能留在贴脸的 key 上
+                            stop = (min(ind["low_raw"][i - swing_lb + 1:i + 1]) if side == "long"
+                                    else max(ind["high_raw"][i - swing_lb + 1:i + 1]))
+                            stop_src = "dual_swing"
                 risk = (px - stop) if side == "long" else (stop - px)
 
                 if risk <= 0 or not math.isfinite(risk):

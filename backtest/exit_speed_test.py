@@ -88,7 +88,7 @@ def sim(ks, ind, half_at_r=2.0, half_tp_r=1.0, maxh=64, mirror_bbw=True,
         key_bar=False, key_mult=1.0, key_closepos=0.66, key_bodyfrac=0.5,
         stop_key=False, right_exit=False, full_at_r=0.0, right_exit_strict=True,
         key_buf_mult=0.0, stop_key_far=False, bbw_min=None, dev_atr_mult=0.0,
-        mirror_exit=True):
+        mirror_exit=True, dual_stop_min_pct=0.0, dual_mode="both", dual_buf=0.2):
     """与线上同源的单币逐笔回测，新增 trail_arm / trail_dd 移动止盈。
 
     trail_arm=0 表示关闭移动止盈 → 行为必须与原 simulate 完全一致。
@@ -221,6 +221,33 @@ def sim(ks, ind, half_at_r=2.0, half_tp_r=1.0, maxh=64, mirror_bbw=True,
                 if (want == "long" and kb > stop) or (want == "short" and kb < stop):
                     stop = kb
                     stop_src = "key"
+        # ── 两档止损（浩哥 2026-11-10 定档）─────────────────────────────
+        # 三条取近算完之后，如果距离 < dual_stop_min_pct（0.50%），说明是「关键K线」
+        # 那条把止损压到贴脸了（主流大币常见）→ 这一档改成 ①② 两候选取近。
+        #   dual_mode = "both"   : ①摆动(8根) + ②CE 通道，取近
+        #   dual_mode = "ce"     : 只用 ②CE 通道
+        #   dual_mode = "ce_buf" : ②CE 通道再往外推 dual_buf×ATR(20)，与①取近
+        if dual_stop_min_pct > 0 and stop_key:
+            _d3 = abs(entry - stop) / entry * 100.0
+            if _d3 < dual_stop_min_pct - 1e-9:
+                _li = max(0, i - _sw + 1)
+                _sw_stop = (min(lo_raw[j] for j in range(_li, i + 1)) if want == "long"
+                            else max(hi_raw[j] for j in range(_li, i + 1)))
+                _ce_stop = ind["long_stop"][i] if want == "long" else ind["short_stop"][i]
+                if dual_mode == "ce":
+                    cands = [_ce_stop] if _ce_stop is not None else [_sw_stop]
+                elif dual_mode == "ce_buf":
+                    if _ce_stop is not None:
+                        _a = atr20[i] if (atr20 is not None and i < len(atr20) and atr20[i]) else 0.0
+                        _ce_b = (_ce_stop - dual_buf * _a) if want == "long" else (_ce_stop + dual_buf * _a)
+                        cands = [_sw_stop, _ce_b]
+                    else:
+                        cands = [_sw_stop]
+                else:
+                    cands = [_sw_stop] + ([_ce_stop] if _ce_stop is not None else [])
+                stop = max(cands) if want == "long" else min(cands)
+                stop_src = "dual_" + dual_mode
+                d_dual = abs(entry - stop) / entry * 100.0
         risk = (entry - stop) if want == "long" else (stop - entry)
         _cap = MAX_RISK_PCT if max_risk_pct is None else max_risk_pct
         if risk <= 0 or risk / entry * 100 > _cap:

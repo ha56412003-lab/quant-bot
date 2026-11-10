@@ -83,7 +83,9 @@ try:
         key_bar=bool(P["key_bar"]), key_mult=float(P["key_mult"]),
         key_closepos=float(P["key_closepos"]), key_bodyfrac=float(P["key_bodyfrac"]),
         stop_key=bool(P["stop_key"]), stop_mode="both",
-        min_stop_pct=float(MON["stop_min_pct"]), swing=int(P["swing_lookback"]),
+        min_stop_pct=0.0, swing=int(P["swing_lookback"]),
+        # 2026-11-10 定档：池子止损闸已删 → 两档止损由策略侧处理
+        dual_stop_min_pct=float(P.get("dual_stop_min_pct") or 0.0), dual_mode="ce",
         half_at_r=float(P["half_at_r"]), half_tp_r=float(P.get("half_tp_r") or 0.0),
         full_at_r=float(P["full_at_r"]), right_exit=bool(P["right_exit"]),
         right_exit_strict=bool(P["right_exit_strict"]),

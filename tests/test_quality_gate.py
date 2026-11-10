@@ -130,67 +130,61 @@ q._hist.clear()
 q._rows.clear()
 q.MONITOR_SIZE = 40
 q.MIN_DWELL_SEC = 900
-q.STOP_MIN_PCT, q.STOP_EXIT_PCT = 1.00, 0.85
+# 2026-11-10 定档：止损距离闸整条删除（窄止损改由策略「两档止损」处理）
+#   → 这一段只测 EFF 闸（EFF_MIN / EFF_EXIT）与进出池滞回。
 q.EFF_MIN, q.EFF_EXIT = 0.30, 0.25
 q.MIN_QUOTE_VOL, q.MAX_SPIKE = 5e6, 8.0
-
-_q_judge = q._judge
-q._judge = lambda s: (True, "")     # 所有币成交额/插针都过
 
 U = ["A", "B", "C", "D", "E"]
 for s in U:
     q._rows[s] = {"qv": 1e8}
 
+_q_judge = q._judge
+q._judge = lambda s: (True, "")     # 所有币成交额/插针都过
+
+
 def set_val(sym, stop, eff, n=5):
     q._hist[sym] = {"stop": [stop] * n, "eff": [eff] * n, "ts": [time.time()] * n}
 
-# A: 稳定达标 → 应进池
-set_val("A", 1.5, 0.5)
-# B: 止损刚好 1.00 → 应进池（>=）
-set_val("B", 1.00, 0.30)
-# C: 止损 0.99 → 不进池
-set_val("C", 0.99, 0.50)
-# D: EFF 0.29 → 不进池
-set_val("D", 2.0, 0.29)
-# E: 止损 0.87（在滞回带内 0.85~1.00）→ 不进池（因为未在池）
-set_val("E", 0.87, 0.50)
+
+# 止损距离不再参与判定：随便填，结果必须与它无关
+set_val("A", 1.50, 0.50)
+set_val("B", 0.10, 0.30)   # 止损 0.10% 极窄 + EFF 边界 0.30 → 必须能进池
+set_val("C", 0.99, 0.29)
+set_val("D", 2.00, 0.29)
+set_val("E", 0.87, 0.10)
 
 pool = q.recompute(U)
 check("进池数量", len(pool), 2)
 check("A 进池", "A" in pool, True)
-check("B 边界1.00进池", "B" in pool, True)
-check("C 止损0.99不进", "C" in pool, False)
+check("B 极窄止损仍进池（止损闸已删）", "B" in pool, True)
+check("C EFF0.29不进", "C" in pool, False)
 check("D EFF0.29不进", "D" in pool, False)
-check("E 滞回带内不进", "E" in pool, False)
+check("E EFF0.10不进", "E" in pool, False)
 
-# 现在 A 已进池。把 A 的止损降到 0.84（低于出池线）但保护期内（刚进）→ 仍留
-set_val("A", 0.84, 0.50)
+# 保护期内 EFF 掉到 0.10 → 仍留
+set_val("A", 1.50, 0.10)
 pool = q.recompute(U)
 check("保护期内不被踢", "A" in pool, True)
 
-# 把 A 的进池时间往前拨 20 分钟，过保护期
+# 过保护期 → 踢
 q._in_since["A"] = time.time() - 1200
 pool = q.recompute(U)
-check("过保护期+止损0.84 → 踢出", "A" in pool, False)
+check("过保护期+EFF0.10 → 踢出", "A" in pool, False)
 
-# A 重新达标 → 能再进
-set_val("A", 1.5, 0.5)
+# 重新达标 → 能再进
+set_val("A", 1.50, 0.50)
 pool = q.recompute(U)
 check("重新达标再进池", "A" in pool, True)
 
-# 中间地带：A 现在在池内，止损 0.90（0.85~1.00）→ 不动，留在池
+# 中间地带 0.27 → 不动
 q._in_since["A"] = time.time() - 1200
-set_val("A", 0.90, 0.40)
-pool = q.recompute(U)
-check("中间地带不踢", "A" in pool, True)
-
-# EFF 中间地带 0.27 → 也不踢
-set_val("A", 1.2, 0.27)
+set_val("A", 1.20, 0.27)
 pool = q.recompute(U)
 check("EFF中间地带不踢", "A" in pool, True)
 
 # EFF 掉到 0.24 → 踢
-set_val("A", 1.2, 0.24)
+set_val("A", 1.20, 0.24)
 pool = q.recompute(U)
 check("EFF跌破0.25踢出", "A" in pool, False)
 

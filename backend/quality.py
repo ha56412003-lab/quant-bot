@@ -89,13 +89,12 @@ MIN_QUOTE_VOL = 5e6      # 24h 成交额下限：500 万 U（2026-11-08 从 1000
 MAX_SPIKE = 8.0          # 单根最大振幅 ÷ ATR 上限（2026-11-08 从 4.0 放宽）
 MONITOR_SIZE = 40        # 监控池容量（2026-11-08 从 200 收紧，实测组合约 39 个）
 
-# ── 第 1 道：止损距离 ──────────────────────────────────────
-# 2026-11-10 B 档：进池 1.00 → 0.50，出池 0.85 → 0.30
-#   必须成对改：出池线一旦高于进池线，币刚进池就被踢，池子空转。
-#   0.5% 依据：B 档回测 279 笔里止损 0.5~1.0% 那档 106 笔胜率 51.9%、仍赚钱；
-#   过滤掉的是 0.5% 以下（手续费吃掉 1R 的 20%+）。
-STOP_MIN_PCT = 0.50      # 进池线（%）
-STOP_EXIT_PCT = 0.30     # 出池线（%），必须低于进池线
+# ── 第 1 道：止损距离 —— 2026-11-10 定档：整条删除 ──────────
+# 原「进池 ≥0.50% / 出池 <0.30%」取消。原因（数据，不是想法）：
+#   这道闸把主流大币全挡在池外（BTC 0.316% / ETH 0.490% / BNB 0.352% / DOGE 0.403%），
+#   而这些币不是不能做，是「关键K线止损贴脸」造成的假窄 —— 已改由策略侧
+#   「两档止损」处理（距离 <0.50% 时这一档只用 CE 通道），不需要在池子层拦。
+#   删除后监控池 = 成交额 + 插针 两道闸，按成交额取前 MONITOR_SIZE 个。
 # 摆动回看根数 —— 只作回退默认值，真实值从 strategies.yaml 的
 # S15_CE_ZLSMA.params.swing_lookback 读（见 _swing_lb）。
 # 2026-11-09 修：原先是硬编码 20，与策略各存一份 —— 一旦改 yaml，
@@ -151,7 +150,7 @@ _bootstrap_done = False   # 首次全量建缓存是否完成
 def configure(cfg: dict | None = None) -> None:
     """从 strategies.yaml 的 pools.monitor 段热更新阈值（缺项保留原值）。"""
     global MIN_QUOTE_VOL, MAX_SPIKE, MONITOR_SIZE, MIN_DWELL_SEC
-    global STOP_MIN_PCT, STOP_EXIT_PCT, EFF_MIN, EFF_EXIT, EFF_WIN
+    global EFF_MIN, EFF_EXIT, EFF_WIN
     global SMOOTH_SEC, KL_INTERVAL, REFRESH_SEC, TICK_SEC
     global DAILY_REFRESH_SEC
     cfg = cfg or {}
@@ -167,8 +166,6 @@ def configure(cfg: dict | None = None) -> None:
     MIN_QUOTE_VOL = _f("min_quote_vol", MIN_QUOTE_VOL)
     MAX_SPIKE = _f("max_spike", MAX_SPIKE)
     MIN_DWELL_SEC = _i("min_dwell_sec", MIN_DWELL_SEC)
-    STOP_MIN_PCT = _f("stop_min_pct", STOP_MIN_PCT)
-    STOP_EXIT_PCT = _f("stop_exit_pct", STOP_EXIT_PCT)
     EFF_MIN = _f("eff_min", EFF_MIN)
     EFF_EXIT = _f("eff_exit", EFF_EXIT)
     EFF_WIN = _i("eff_win", EFF_WIN)
@@ -491,13 +488,11 @@ async def _refresh_daily(universe) -> int:
 def recompute(universe) -> list[str]:
     """根据当前数据重算监控池名单。返回新名单。
 
-    进出池用平滑后的（5 分钟中位数）止损距离与 EFF，带滞回：
-        进池：止损 ≥ STOP_MIN_PCT（EFF_MIN > 0 时另加 EFF ≥ EFF_MIN）
-        出池：止损 < STOP_EXIT_PCT（EFF_EXIT > 0 时另加 EFF < EFF_EXIT）
-        中间：不动
-    2026-11-10 B 档起 EFF_MIN / EFF_EXIT 均为 0 → 趋势效率闸关闭，
-    只判「成交额 / 插针 / 止损距离」三道。持仓中的币不特殊对待
-    （2026-11-08 浩哥定）—— 出场由 engine 负责。
+    2026-11-10 定档（浩哥）：池子只判「成交额 / 插针」两道。
+    已删除的两道：③ 止损距离（进 0.50% / 出 0.30%）、④ 白名单直通。
+    止损距离太窄的问题改由策略侧「两档止损」解决（<0.50% 时只用 CE）。
+    EFF_MIN / EFF_EXIT 均为 0 → 趋势效率闸也关闭（判断挪到进场第⑥道）。
+    持仓中的币不特殊对待（2026-11-08 浩哥定）—— 出场由 engine 负责。
     """
     global _monitor, _ts
     now = time.time()
@@ -517,9 +512,7 @@ def recompute(universe) -> list[str]:
             continue
         # —— 满保护期，才做清退判断 ——
         stop, eff = _smoothed(sym)
-        # 止损距离掉到出池线以下 → 移除（手续费要吃不消了）
-        if stop is not None and stop < STOP_EXIT_PCT:
-            continue
+        # 2026-11-10 定档：止损距离出池线整条删除（窄止损由策略两档处理）
         # 趋势效率掉到出池线以下 → 移除（走成横盘了）
         # 2026-11-10 B 档：EFF_EXIT = 0 → 本闸关闭，不再按趋势效率踢人
         if EFF_EXIT > 0 and eff is not None and eff < EFF_EXIT:
@@ -544,8 +537,7 @@ def recompute(universe) -> list[str]:
         stop, eff = _smoothed(sym)
         if stop is None:
             continue                       # 还没采样到 → 不冒进
-        if stop < STOP_MIN_PCT:
-            continue                       # 止损太窄，手续费会吃掉 1R
+        # 2026-11-10 定档：进池止损线删除（原 ≥0.50%），池子只判成交额 / 插针
         if EFF_MIN > 0:                    # EFF 闸开着才判（EFF_MIN=0 时整段跳过）
             if eff is None or eff < EFF_MIN:
                 continue                   # 没数据 / 宽幅震荡，没方向
@@ -579,8 +571,8 @@ def recompute(universe) -> list[str]:
     _ts = now
     if picked:
         READY.set()      # 池子有内容了，扫描循环可以开工
-    log.info("monitor recomputed: %d 个，容量 %d（止损≥%.2f%% + EFF≥%.2f + 插针≤%.1f）",
-             len(picked), MONITOR_SIZE, STOP_MIN_PCT, EFF_MIN, MAX_SPIKE)
+    log.info("monitor recomputed: %d 个，容量 %d（成交额≥%.0f万 + 插针≤%.1f）",
+             len(picked), MONITOR_SIZE, MIN_QUOTE_VOL / 1e4, MAX_SPIKE)
     return picked
 
 
@@ -635,9 +627,6 @@ def snapshot() -> dict:
         "ts": _ts,
         "min_quote_vol": MIN_QUOTE_VOL,
         "max_spike": MAX_SPIKE,
-        # 新方案（生效）
-        "stop_min_pct": STOP_MIN_PCT,
-        "stop_exit_pct": STOP_EXIT_PCT,
         "eff_min": EFF_MIN,
         "eff_exit": EFF_EXIT,
         "eff_win": EFF_WIN,

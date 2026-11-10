@@ -236,7 +236,6 @@ FACTS = [
     ("quality.MIN_QUOTE_VOL", "backend/quality.py", "MIN_QUOTE_VOL"),
     ("quality.MAX_SPIKE", "backend/quality.py", "MAX_SPIKE"),
     ("quality.MONITOR_SIZE", "backend/quality.py", "MONITOR_SIZE"),
-    ("quality.STOP_MIN_PCT", "backend/quality.py", "STOP_MIN_PCT"),
     ("quality.STOP_EXIT_PCT", "backend/quality.py", "STOP_EXIT_PCT"),
     ("quality.EFF_MIN", "backend/quality.py", "EFF_MIN"),
     ("quality.EFF_EXIT", "backend/quality.py", "EFF_EXIT"),

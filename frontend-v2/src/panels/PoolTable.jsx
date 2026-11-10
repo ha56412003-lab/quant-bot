@@ -87,21 +87,11 @@ export default function PoolTable({ pool }) {
       ),
     },
     {
-      // 监控池第 1 道闸：止损距离下限。B 档 = 进池 ≥0.50% / 出池 <0.30%（阈值从后端读）
+      // 止损距离：2026-11-10 定档起不再是进池闸（那道闸已删），只作参考显示。
+      //   窄止损（<0.50%）由策略「两档止损」处理 → 这一列不再标红，避免误读成"不合格"。
       title: '止损%', dataIndex: 'stop_pct', align: 'right', width: 56,
       sorter: (a, b) => (a.stop_pct || 0) - (b.stop_pct || 0),
-      render: (v) => {
-        const lo = pool?.stop_min_pct ?? 0.5
-        const ok = v != null && v >= lo
-        return (
-          <span style={{
-            color: v == null ? undefined : (ok ? 'var(--green, #0f7a3d)' : 'var(--red, #d4595e)'),
-            fontWeight: ok ? 600 : 400,
-          }}>
-            {v != null ? `${v.toFixed(2)}%` : '-'}
-          </span>
-        )
-      },
+      render: (v) => <span>{v != null ? `${v.toFixed(2)}%` : '-'}</span>,
     },
     {
       // 监控池 EFF 闸：B 档已关闭（eff_min=0 → 不参与筛选），

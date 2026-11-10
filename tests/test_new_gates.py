@@ -253,10 +253,12 @@ def test_config():
     mon = cfg["pools"]["monitor"]
     chk(mon.get("size") == 40, "C25 池子 size = 40（扩到 50 只多单量不增利润）",
         f"实际 {mon.get('size')}")
-    chk(mon.get("stop_min_pct") == 0.5, "C26 池子 stop_min_pct = 0.5", f"实际 {mon.get('stop_min_pct')}")
-    chk(mon.get("stop_exit_pct") == 0.3,
-        "C27 池子 stop_exit_pct = 0.3（必须 < 进池线，否则倒挂）",
-        f"实际 {mon.get('stop_exit_pct')}")
+    # 2026-11-10 定档：止损距离闸整条删除（BTC/ETH 曾被它挡在池外）
+    chk("stop_min_pct" not in mon and "stop_exit_pct" not in mon,
+        "C26 池子止损距离闸已删除（两键不该存在）",
+        f"实际 {[k for k in ('stop_min_pct', 'stop_exit_pct') if k in mon]}")
+    chk(float(p.get("dual_stop_min_pct") or 0) == 0.5,
+        "C27 两档止损分界 dual_stop_min_pct = 0.5", f"实际 {p.get('dual_stop_min_pct')}")
     chk(mon.get("eff_min") == 0.0 and mon.get("eff_exit") == 0.0,
         "C28 池子 EFF 闸已关闭（挪到进场闸）",
         f"实际 {mon.get('eff_min')} / {mon.get('eff_exit')}")

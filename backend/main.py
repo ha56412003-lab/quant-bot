@@ -988,8 +988,6 @@ async def api_pool():
     return {"ts": snap["ts"], "min_quote_vol": snap["min_quote_vol"],
             "max_spike": snap["max_spike"],
             # 2026-11-08 新闸门参数
-            "stop_min_pct": snap.get("stop_min_pct"),
-            "stop_exit_pct": snap.get("stop_exit_pct"),
             "eff_min": snap.get("eff_min"),
             "eff_exit": snap.get("eff_exit"),
             "eff_win": snap.get("eff_win"),
