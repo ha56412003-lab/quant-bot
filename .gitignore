@@ -78,3 +78,7 @@ strategies.yaml.bak_*
 .bak_1111_security/
 .view_key_history.txt
 .vk_rotate.log
+
+# 页面冒烟测试的运行时产物（每次跑都变，不进仓库）
+reports/smoke_latest.json
+reports/smoke_fail_*.png
