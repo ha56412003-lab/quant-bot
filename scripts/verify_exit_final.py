@@ -5,7 +5,7 @@
 
 五道门：
   ① py_compile      三个核心文件能编译
-  ② tests/run_all   13 个测试文件
+  ② tests/run_all.py 11 个测试文件
   ③ tests/test_new_gates   A–E 组（69 项：配置锁 / 关键K线 / 自适应偏离 / 三取近止损 / 出场链）
   ④ scripts/audit_exit_v2  静态审计（51 项：顺序 / 已删除项 / 回测口径）
   ④b scripts/verify_breakeven  保本移损真跑（16 项：置位/落库/触发价/回归）
@@ -54,7 +54,7 @@ print("  " + ("compile OK" if r.returncode == 0 else (r.stderr or "")[-400:]))
 ROWS.append(("① py_compile", "PASS" if r.returncode == 0 else "FAIL", r.returncode))
 
 # ② 单元测试
-run("② tests/run_all.py（13 个测试文件）", [PY, "tests/run_all.py"])
+run("② tests/run_all.py（11 个测试文件）", [PY, "tests/run_all.py"])
 
 # ③ 新闸门测试
 ok3, _ = run("③ tests/test_new_gates.py（A–E 组）", [PY, "tests/test_new_gates.py"])
