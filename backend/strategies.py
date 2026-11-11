@@ -291,7 +291,7 @@ def _ce_zlsma(ks, ce_len=1, ce_mult=2.0, z_len=50, use_close=True, use_ha=True):
 
 _LAST_BAR = {}   # (sid, symbol) -> 已评估过的K线时间戳，防止高频扫描重复出信号
 
-# 三道光闸诊断：每根 15m K 线评估完把三道闸的即时状态存在这里。
+# 进场闸门诊断：每根 15m K 线评估完把每道闸的即时状态存在这里。
 # 只写内存、不额外拉 K 线（扫描本来就在算 CE/HA/BBW，算完原本是丢掉的）。
 # 页面用它回答「今天是没机会，还是门槛卡死了」。
 _GATE_STATE = {}   # symbol -> {ts, dir, ce, ha, bbw, bbw_thr, atr_pct, ok, why}
@@ -573,7 +573,7 @@ class S15CeZlsma(Base):
                 d_now = int(dirs_arr[i] or 1)
                 d_prev = int(dirs_arr[i - 1] or 1)
 
-                # ── 三道光闸诊断（纯内存，零额外流量）──────────────────────
+                # ── 进场闸门诊断（纯内存，零额外流量）──────────────────────
                 # 三步的判断本来就要做，这里只是把结果留下给页面看。
                 # 顺序：CE 翻转 → HA 形态 → BBW 分位，全过才开仓。
                 _bp = bbw_pct[i]
@@ -629,12 +629,15 @@ class S15CeZlsma(Base):
                             if (key_bar and atr_n is not None and i < len(atr_n)) else None),
                     "eff": _eff_diag,
                     # 2026-11-09：第五道闸（止损距离上限）在面板上原本不可见，
-                    # 被拦的币显示「四闸全过·待成交」，等一晚上也不开仓，误导。
+                    # 被拦的币显示「全部闸门通过·待成交」，等一晚上也不开仓，误导。
                     # 这里先占位，算完止损后回填真实值。
                     "risk": (round(_ref_dist, 3)
                              if (_ref_dist > 0 and math.isfinite(_ref_dist)) else None),
                     "stop_src": _ref_src,
                     "risk_thr": max_risk_pct,
+                    # 第⑤道闸现在有上下限（2026-11-11 加了 min_stop_dist_pct），
+                    # 面板必须两个都拿到，否则会出现「面板说通过、实际被拦」的不一致。
+                    "risk_lo": float(self._p("min_stop_dist_pct", 0.0)),
                     "atr_pct": round(atr / c * 100.0, 3) if c > 0 else None,
                     "ok": False, "why": _why,
                 }
@@ -651,7 +654,7 @@ class S15CeZlsma(Base):
 
                 # ③ 关键 K 线（HA 阳线站上均线 / 阴线跌破均线）
                 #    2026-11-06 核对后调整：HA 形态必须在 BBW 之前判断。
-                #    顺序定为 CE → HA → BBW，与「三道光闸」诊断表、与浩哥的理解一致。
+                #    顺序定为 CE → HA → KEY → BBW → DEV → RISK → EFF，与面板列序一致。
                 #    两种顺序不影响开不开仓（都是 continue），但会影响诊断显示「卡在哪道」。
                 key_long = c > z and c > o
                 key_short = c < z and c < o
@@ -742,6 +745,20 @@ class S15CeZlsma(Base):
                 #    （_rpct 由 _stop_ref 一起算好，不重复计算）
                 if _g is not None:
                     _g["risk"] = round(_rpct, 3)
+                # ⑤ 止损距离下限（2026-11-11 浩哥定：0.60%）
+                #    为什么要有下限：手续费按名义仓位收（0.05%×2），止损越窄，
+                #    手续费占 1R 的比例越大 —— 入场止损 0~0.5% 那档手续费吃掉
+                #    2R 的 18.4%，而且噪音轻易就能打掉它。40币60天按入场止损距离
+                #    分桶实测：<0.75% 的 81 笔（占 24%）合计亏 3.6R，是唯一整体
+                #    亏钱的一档；卡到 0.60% 后五项同时变好（见 strategies.yaml 注释）。
+                #    ★ 0 = 关闭。别和旧的「监控池筛币」混淆：这是进场闸。
+                _min_stop = float(self._p("min_stop_dist_pct", 0.0))
+                if _min_stop > 0 and _rpct < _min_stop - 1e-9:
+                    if _g is not None:
+                        _g["why"] = f"止损太近{_rpct:.2f}%"
+                    log.info("S15 %s 止损距离 %.2f%% < %.2f%%（下限），跳过开仓",
+                             sym, _rpct, _min_stop)
+                    continue
                 if _rpct > max_risk_pct:
                     if _g is not None:
                         _g["why"] = f"止损太远{_rpct:.2f}%"
@@ -768,7 +785,7 @@ class S15CeZlsma(Base):
 
                 # 这里只是「信号已生成」——后面还要过 risk.allow_entry 九道闸
                 # （熔断 / 日目标 / 事件静默 / 并发 / 杠杆 / 单币上限…），
-                # 任何一道拒绝都不会有仓位。所以策略层只能说「四闸全过」，
+                # 任何一道拒绝都不会有仓位。所以策略层只能说「全部闸门通过」，
                 # 真实结论由 /api/gates 用持仓表 + 信号表的 skip_reason 覆盖。
                 _GATE_STATE[sym]["ok"] = True
                 _GATE_STATE[sym]["why"] = "全闸通过"
@@ -822,7 +839,32 @@ class S15CeZlsma(Base):
         try:
             # 峰顶维护（无条件，必须）—— 前端「峰顶R / 峰顶→当前价回撤区」靠它。
             # 原先这段藏在已删除的镜像出场里，镜像一删峰顶就冻结，所以提到最前面。
-            self._refresh_peak(ctx, pos)
+            st = self._refresh_peak(ctx, pos)
+
+            # ⓪ 保本移损（2026-11-11 浩哥定：1.5R）
+            #    峰顶到过 be_at_r → 把「有效止损」抬到入场价，剩下的仓最差打平。
+            #    ★ 不动 pos["stop_price"]：那是全系统算 R 的分母
+            #      （_refresh_peak / _half_take_profit / _full_target / _right_exit
+            #       都用 abs(entry-stop_price)），改成 entry 就等于分母归零。
+            #      所以只置 be_on=1，由 engine 判「要不要平」时改用 entry_price。
+            #    ★ 必须落库：只放内存的话重启后丢失 → 已经抬过的止损又掉回原位。
+            #    回测 40币60天：1.5R 触发 29 笔、净值 +52.54R（比无保本 +0.33R）、
+            #      回撤 -13.32→-12.82R、胜率 55.1%（五档最高）。
+            _be_at_r = float(self._p("be_at_r", 0.0))
+            if (_be_at_r > 0 and not int(pos.get("be_on") or 0) and st
+                    and float(st.get("peak") or 0.0) >= _be_at_r - 1e-9):
+                try:
+                    if db.update_position(pos["id"], be_on=1):
+                        pos["be_on"] = 1
+                        log.info("S15 %s 峰顶 %.2fR ≥ %.2fR → 止损抬到入场价 %s（保本）",
+                                 pos.get("symbol"), float(st.get("peak") or 0.0),
+                                 _be_at_r, pos.get("entry_price"))
+                except Exception as exc:  # noqa: BLE001
+                    # 落库失败不能拖死出场判断（下一轮还会再判一次），
+                    # 但 ★必须是 warning★：第一版用 log.debug 把
+                    # 「update_position 白名单里没有 be_on」的 ValueError 吞掉了，
+                    # 表现是「代码看着对、保本从来不生效」。静默失败比报错更贵。
+                    log.warning("be_on 落库失败 %s: %s", pos.get("symbol"), exc)
 
             # ① 平一半（half_at_r = 1.2R）
             half = await self._half_take_profit(ctx, pos)
@@ -859,8 +901,9 @@ class S15CeZlsma(Base):
         sign = 1.0 if side == "long" else -1.0
         cur_r = (px - entry) * sign / risk
         if not math.isfinite(cur_r):
-            return
-        self._touch_pos_state(pos, entry, risk, cur_r)
+            return None
+        # 返回值给 check_exit 用：保本移损要读峰顶（st["peak"]）
+        return self._touch_pos_state(pos, entry, risk, cur_r)
 
     def _full_target(self, ctx, pos):
         """② 兜底全平（2026-11-10 B 档）：已平半 且 现价R ≥ full_at_r(2.0) → 平剩余半仓。

@@ -1081,7 +1081,7 @@ html, body, #root {
   font-size: 9.5px;
   margin-left: 5px;
 }
-/* 出场三闸：三个小灯，各对应一条规则，亮 = 这条已经满足，全亮就出场。 */
+/* 出场图例：三个小灯（平半 / 兜底全平 / 右侧止盈），亮 = 这条已经满足。 */
 .spider-root .cards .card .c4 .c4-exit {
   flex: 1;
   display: inline-flex;

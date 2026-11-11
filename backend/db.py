@@ -104,6 +104,14 @@ def init():
             # 峰顶不准 → 出局点就画错、也可能提前或拖后出场。
             # 原本只在 _S15_POS_STATE 内存里，重启归零后要重新爬。
             "ALTER TABLE positions ADD COLUMN peak_r REAL NOT NULL DEFAULT 0",
+            # 保本移损标记（2026-11-11）：1 = 峰顶到过 be_at_r，有效止损已抬到入场价。
+            # ★ 为什么用标志位而不是直接改 stop_price：
+            #   stop_price 是「风险基准」—— _refresh_peak / _half_take_profit /
+            #   _full_target / _right_exit 全用 abs(entry-stop_price) 算 R。
+            #   一旦把它改成 entry_price，分母变 0，整个 R 体系崩掉（除零 / 无穷）。
+            #   所以 stop_price 永远保留原始值，只有 engine 判「要不要平」时才看 be_on。
+            # ★ 必须落库：只放内存的话重启后丢失 → 已经抬过的止损又掉回原位。
+            "ALTER TABLE positions ADD COLUMN be_on INTEGER NOT NULL DEFAULT 0",
             # 这笔仓位是在哪家交易所开的（binance / okx / bitget）。
             # 为什么必须落库：曾经只存一个全局「当前执行交易所」，切过去之后
             # close_position 会拿新交易所去平旧仓位 —— 旧仓位在另一家，
@@ -341,6 +349,7 @@ _POSITION_WRITABLE = {
     "mfe_pct", "mae_pct", "entry_factors", "reason", "mode", "leverage",
     "extra_margin", "fee_rate", "slip_pct", "half_closed",
     "peak_r",
+    "be_on",   # 2026-11-11：保本移损标记（峰顶到过 be_at_r 后置 1）
 }
 
 

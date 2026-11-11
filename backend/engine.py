@@ -9,6 +9,7 @@ Bookkeeping (equity snapshot, halt check, meta) is throttled to ~10s.
 """
 import asyncio
 import logging
+import math
 import time
 
 from . import config, db, executor, factors, risk, quality, shadow, daily_target
@@ -103,6 +104,48 @@ def _clear_price_miss(symbol):
         db.log("info", f"行情恢复：{symbol}")
 
 
+def _same_bar_allow(cnt, side, cap):
+    """同一信号时点同向名额判定（纯函数，不改计数，调用方负责 +1）。
+
+    cap <= 0 → 不限（恒 True）。
+    口径与 scripts/exp_sameside_1111.py::cap_same_bar 完全一致：
+    cap=2 表示「同一根 15m K 线同一方向最多开 2 笔」。
+    ★ 抽成纯函数只是为了能单测（scripts/verify_same_bar_cap.py），
+      逻辑本身没有任何隐藏状态。
+    """
+    return cap <= 0 or cnt.get(side, 0) < cap
+
+
+def _hard_stop_reason(pos, price):
+    """④ 硬止损判定（纯函数，抽取出来为了能单测）。
+
+    2026-11-11 加了保本移损：峰顶到过 be_at_r 后 strategies.check_exit 会置
+    be_on=1，这里就把触发价从「原始止损」换成「入场价」。
+    ★ 为什么不直接改 pos["stop_price"]：它是全系统算 R 的分母
+      （abs(entry-stop_price)），改成 entry 就除零，整套 R 体系崩掉。
+
+    返回 (reason, be_triggered)：
+      - 没触发     → (None, False)
+      - 原始止损   → ("止损触发", False)
+      - 保本止损   → ("保本止损", True)
+    """
+    stop = pos.get("stop_price")
+    side = pos.get("side")
+    if not stop or side not in ("long", "short"):
+        return None, False
+    be_on = int(pos.get("be_on") or 0)
+    try:
+        stop_eff = float(pos["entry_price"]) if be_on else float(stop)
+    except (KeyError, TypeError, ValueError):
+        return None, False
+    if not stop_eff or not math.isfinite(stop_eff):
+        return None, False
+    hit = (price <= stop_eff) if side == "long" else (price >= stop_eff)
+    if not hit:
+        return None, False
+    return ("保本止损" if be_on else "止损触发"), bool(be_on)
+
+
 async def manage_positions(ctx, strategies):
     for pos in db.open_positions():
         price = factors.mark_price_of(pos["symbol"])
@@ -142,10 +185,10 @@ async def manage_positions(ctx, strategies):
             # 「让利润奔跑」靠 ② 2.0R 兜底 + ③ 右侧止盈来做，不靠免死金牌。
             # （移动止盈已于 2026-11-10 整条删除，这里不再提它。）
             reason = "达到最长持仓时限"
-        if not reason and pos["stop_price"]:
-            if (side == "long" and price <= pos["stop_price"]) or \
-               (side == "short" and price >= pos["stop_price"]):
-                reason = "止损触发"
+        # ④ 硬止损 —— 判定抽成纯函数 _hard_stop_reason()，便于单测
+        #    （2026-11-11 加保本移损后触发价有两种可能，必须能单独验）
+        if not reason:
+            reason, _be_hit = _hard_stop_reason(pos, price)
         if not reason:
             strat = strategies.get(pos["strategy"])
             if strat:
@@ -301,9 +344,27 @@ async def scan_loop():
                     continue
                 # 择优入场：强度高且新鲜（翻转后根数少）的信号优先，
                 # 避免"列表顺序先到先得"把额度浪费在弱信号上。
-                signals.sort(key=lambda s: -(
-                    getattr(s, "strength", 0.0)
-                    / (1.0 + 0.3 * max(0, getattr(s, "fresh", 999)))))
+                # 择优入场的排序（2026-11-11 浩哥定 B 方案时一并改）。
+                #   strength = |收盘 − ZLSMA50| / ATR = 「离均线多远」。
+                #   ★ 以前是降序（strength 大的先开）—— 那是「专挑追得最狠的先上」，
+                #     等于在最没空间的位置入场。改成升序：离均线最近的先开
+                #     = 刚翻转、还没跑远的那笔，空间才大。
+                #   fresh = 距信号触发已过几根 K 线，永远越小越好（所以单独升序放第二位）。
+                #   实测（scripts/exp_sameside_order_1111.py，限 2 笔）：
+                #     降序 54.8% / 1.34 / +44.33R  →  升序 56.3% / 1.43 / +53.75R
+                signals.sort(key=lambda s: (
+                    getattr(s, "strength", 0.0),
+                    max(0, getattr(s, "fresh", 999))))
+                # ── 同一信号时点同向限笔（2026-11-11 浩哥定：2 笔）
+                #    同一根 15m K 线，40 个币会同时算出同向信号 —— 那不是 N 个独立
+                #    机会，是 1 个机会 × N 个标的（信号共线）。11-10 23:45:22 因此
+                #    一秒开了 6 个空，V 型反转全灭，已平 7 笔 −1,089.71U。
+                #    ★ 只数「本轮 evaluate 产生的信号」，不和已有持仓合并 —— 与回测
+                #      口径一致（scripts/exp_sameside_1111.py::cap_same_bar）。
+                #    ★ 必须在 allowed 之后才计数：被风控否掉的信号不占名额。
+                _msb = int((scfg.get("params") or {}).get("max_same_bar_side") or 0)
+                _side_cnt = {"long": 0, "short": 0}
+                _capped = []
                 for sig in signals:
                     qok, qwhy = quality.is_tradable(sig.symbol)
                     if not qok:
@@ -320,14 +381,29 @@ async def scan_loop():
                     if not allowed:
                         db.log_signal(sig.strategy, sig.symbol, sig.side, sig.reason, False, why)
                         continue
+                    if not _same_bar_allow(_side_cnt, sig.side, _msb):
+                        # 名额已满：记一条信号日志，面板/信号流里能查到被谁挤掉
+                        db.log_signal(sig.strategy, sig.symbol, sig.side, sig.reason,
+                                      False, f"同一K线同向已满{_msb}笔")
+                        _capped.append(sig.symbol)
+                        continue
                     sig.size_mult *= mult
                     price = factors.mark_price_of(sig.symbol)
                     qty = risk.position_qty(sig, scfg, equity_cache, cfg_global, price)
                     leverage = int((scfg.get("risk") or {}).get("leverage")
                                    or cfg_global.get("max_gross_leverage", 3))
                     pid = await executor.open_position(sig, qty, price, leverage)
+                    # ★ 名额只在「真开成了」之后才 +1。
+                    #   放在开仓前会有两个错：① 资金不足/下单失败也占名额，把本该开的挤掉；
+                    #   ② 与回测口径不一致（回测里每笔信号都算开成）。
+                    if pid:
+                        _side_cnt[sig.side] = _side_cnt.get(sig.side, 0) + 1
                     db.log_signal(sig.strategy, sig.symbol, sig.side, sig.reason,
                                   bool(pid), "" if pid else "执行失败/资金不足")
+                if _msb > 0 and _capped:
+                    log.info("同K线同向限笔 %d 笔：本轮开 %d（多%d/空%d），拦下 %s",
+                             _msb, sum(_side_cnt.values()), _side_cnt.get("long", 0),
+                             _side_cnt.get("short", 0), ",".join(s.replace("USDT", "") for s in _capped))
             try:
                 shadow.settle(factors.mark_price_of)
             except Exception as _exc:  # noqa: BLE001

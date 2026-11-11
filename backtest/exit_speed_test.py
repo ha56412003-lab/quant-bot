@@ -88,6 +88,9 @@ def sim(ks, ind, half_at_r=2.0, half_tp_r=1.0, maxh=64, mirror_bbw=True,
         key_bar=False, key_mult=1.0, key_closepos=0.66, key_bodyfrac=0.5,
         stop_key=False, right_exit=False, full_at_r=0.0, right_exit_strict=True,
         key_buf_mult=0.0, stop_key_far=False, bbw_min=None, dev_atr_mult=0.0,
+        bbw_max=None,
+        atr_min_mult=0.0, macd_filter=False, macd_fast=5, macd_slow=10, macd_sig=5,
+        be_at_r=0.0, be_after_half=False,
         mirror_exit=True, dual_stop_min_pct=0.0, dual_mode="both", dual_buf=0.2):
     """与线上同源的单币逐笔回测，新增 trail_arm / trail_dd 移动止盈。
 
@@ -121,6 +124,21 @@ def sim(ks, ind, half_at_r=2.0, half_tp_r=1.0, maxh=64, mirror_bbw=True,
     """
     ho, hc = ind["open"], ind["close"]
     zl, dirs, atr, bp = ind["zlsma"], ind["dir"], ind["atr"], ind["bbw_pct"]
+    # MACD(5,10,5) 的 DIF（快 EMA − 慢 EMA），用于「0 轴上方才做多」的方向过滤。
+    # 注意：DIF 用原始收盘价算，不用 HA（HA 更平滑，会把 0 轴穿越再往后推一根）。
+    _mdif = None
+    if macd_filter:
+        _cl = [float(k["close"]) for k in ks]
+
+        def _ema(vals, n):
+            k = 2.0 / (n + 1.0)
+            out = [vals[0]]
+            for v in vals[1:]:
+                out.append(v * k + out[-1] * (1 - k))
+            return out
+
+        _ef, _es = _ema(_cl, macd_fast), _ema(_cl, macd_slow)
+        _mdif = [_ef[j] - _es[j] for j in range(len(_cl))]
     hi_raw, lo_raw = ind["high_raw"], ind["low_raw"]
     n = len(hc)
     _sw = SWING if swing is None else int(swing)
@@ -159,6 +177,13 @@ def sim(ks, ind, half_at_r=2.0, half_tp_r=1.0, maxh=64, mirror_bbw=True,
         if bbw_min is None or bbw_min > 0:
             _bm = BBW_MIN if bbw_min is None else bbw_min
             if bp[i] is None or bp[i] < _bm:
+                i += 1
+                continue
+            # 上限（bbw_max=None 表示不设上限，与定档一致）：
+            # 分位 90%+ 意味着波动率已经爆发到近 100 根的极值 —— 那常常是
+            # 「行情走完大半」而不是「趋势刚启动」。2026-11-11 六连亏的六笔
+            # 入场 BBW 全在 84~96%，正是这条假设的实盘样本。
+            if bbw_max is not None and bp[i] > bbw_max:
                 i += 1
                 continue
         # ⑥ 进场位置闸（线上 yaml min_dev_pct: 0.5）：进场价离 ZLSMA 必须够远。
@@ -257,22 +282,48 @@ def sim(ks, ind, half_at_r=2.0, half_tp_r=1.0, maxh=64, mirror_bbw=True,
         if min_stop_pct > 0 and risk / entry * 100 < min_stop_pct - 1e-9:
             i += 1
             continue
+        # 新闸 A：止损距离下限 = atr_min_mult × ATR(20)（0 = 关闭）。
+        # 来自 S16 的「3×ATR 下限」——它要回答的问题是：止损太窄的单子是不是
+        # 被 15m 噪音打掉的？代价是止损变宽 → 仓位变小 → 单量可能暴跌。
+        if atr_min_mult > 0 and atr20 is not None and i < len(atr20) and atr20[i]:
+            _a_min = atr_min_mult * atr20[i]
+            if risk < _a_min - 1e-12:
+                i += 1
+                continue
+        # 新闸 B：MACD(fast,slow,sig) 的 DIF 在 0 轴同侧才做（macd_filter=False = 关闭）。
+        # 做多要 DIF > 0，做空要 DIF < 0 —— 只判 0 轴方向，不判金叉死叉（滞后更小）。
+        if macd_filter and _mdif is not None:
+            if want == "long" and not (_mdif[i] > 0):
+                i += 1
+                continue
+            if want == "short" and not (_mdif[i] < 0):
+                i += 1
+                continue
 
         sign = 1 if want == "long" else -1
         peak = 0.0
         half_done = False
+        _be_stop = stop      # 有效止损价（保本移损会把它抬到入场价）
+        _be_on = False       # 保本是否已触发
         ep = er = ei = None
         for j in range(i + 1, n):
             o_, h_, l_, c_ = (float(ks[j]["open"]), float(ks[j]["high"]),
                               float(ks[j]["low"]), float(ks[j]["close"]))
-            # ① 硬止损
-            if want == "long" and l_ <= stop:
-                ep, er, ei = min(o_, stop), "hard_stop", j
+            # ① 硬止损（_be_stop：保本移损生效后，止损价已抬到入场价）
+            if want == "long" and l_ <= _be_stop:
+                ep, er, ei = min(o_, _be_stop), ("breakeven" if _be_on else "hard_stop"), j
                 break
-            if want == "short" and h_ >= stop:
-                ep, er, ei = max(o_, stop), "hard_stop", j
+            if want == "short" and h_ >= _be_stop:
+                ep, er, ei = max(o_, _be_stop), ("breakeven" if _be_on else "hard_stop"), j
                 break
             peak = max(peak, ((h_ - entry) if want == "long" else (entry - l_)) / risk)
+            # ⓪b 保本移损（浩哥 2026-11-11 问的「1.5R 保本」）：
+            #    峰顶到 be_at_r 之后，把止损抬到入场价 —— 剩下的仓最差打平，不再回到 −1R。
+            #    be_after_half=True 时只在平半之后才生效（与「平半是转折点」的设计一致）
+            if be_at_r > 0 and not _be_on and peak >= be_at_r - 1e-9 \
+                    and (half_done or not be_after_half):
+                _be_on = True
+                _be_stop = entry
             cur = ((c_ - entry) if want == "long" else (entry - c_)) / risk
             # ⓪ 快速失败（线上 _quick_fail：满 4h 峰顶仍 < 0.5R 就走）
             #    线上在 check_exit 最前面，仅排在 engine 的 12h/硬止损之后
@@ -345,8 +396,22 @@ def sim(ks, ind, half_at_r=2.0, half_tp_r=1.0, maxh=64, mirror_bbw=True,
         r = (g - (entry + ep) * FEE) / risk
         if half_done:
             r = 0.5 * half_at_r + 0.5 * r
+        # strength：2026-11-11 加，只为对齐「同K线同向限笔」的排序口径。
+        #   线上 engine 择优入场是 strength/(1+0.3*fresh) 降序，fresh 恒 0
+        #   （信号那根立即入场）→ 等价于按 strength 降序。回测必须同序，
+        #   否则「限 2 笔留哪 2 笔」会和线上不是同一批。
+        #   ★ 只新增一个只读字段，不参与任何计算，不影响历史结果。
+        _sig_i = min(i, len(ks) - 1)
+        try:
+            _stg = abs(float(ks[_sig_i]["close"]) - float(zl[_sig_i])) / float(atr[_sig_i])
+        except (TypeError, ValueError, IndexError, ZeroDivisionError):
+            _stg = 0.0
         out.append(dict(side=want, r=r, bars=ei - i, reason=er, peak=peak,
+                        strength=_stg,
                         risk_pct=risk / entry * 100, stop_src=stop_src,
+                        bbw_pct=(bp[i] if (bp is not None and i < len(bp)) else None),
+                        atr_pct=((atr20[i] / float(ks[i]["close"]) * 100.0)
+                                 if (atr20 is not None and i < len(atr20) and atr20[i]) else None),
                         d_swing=d_swing, d_ce=d_ce, d_key=d_key,
                         entry_ts=int(ks[i + 1].get("ts", i + 1)),
                         exit_ts=int(ks[ei].get("ts", ei))))

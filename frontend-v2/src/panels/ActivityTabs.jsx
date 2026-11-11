@@ -93,7 +93,7 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
     return () => { ro.disconnect(); window.removeEventListener('resize', calc) }
   }, [])
 
-  // 切换标签后各 tab 的状态行高度不同（经济事件/三道光闸有状态行），要重算
+  // 切换标签后各 tab 的状态行高度不同（经济事件/七道进场闸有状态行），要重算
   const onTabChange = () => setTimeout(() => calcRef.current(), 80)
 
 
@@ -195,7 +195,7 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
         </span>
       } },
     // ⑤ 止损距离上限（2026-11-09 新增）—— 与④偏离方向相反：这道是「越近越好」。
-    //   以前被它拦掉的币在面板上显示「四闸全过·待成交」，等一晚上也不开仓，误导。
+    //   以前被它拦掉的币在面板上显示「全过·待成交」，等一晚上也不开仓，误导。
     { title: t('gate.col.risk'), dataIndex: 'risk', width: 52, align: 'right',
       render: (v, r) => {
         const thr = r.risk_thr || 0
@@ -219,7 +219,7 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
         </span>
       } },
     { title: t('gate.col.why'), dataIndex: 'why', width: 52,
-      // 绿标签只给「真在持仓」的；四闸全过但被风控拦下的用橙色文字，
+      // 绿标签只给「真在持仓」的；七闸全过但被风控拦下的用橙色文字，
       // 直接写明被哪道闸挡了（例：已达日目标，今日停止开新仓）。
       render: (v, r) => r.opened
         ? <Tag color="green" style={{ margin: 0 }}>{t('gate.opened')}</Tag>
@@ -283,7 +283,7 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
     : `${t('act.events')}${evRows.length ? ` (${evRows.length})` : ''}`
 
   // 「经济事件」放到最后一个标签（2026-11-06 浩哥要求）。
-  // 它偏参考信息，日常盯的是四道光闸 / 信号流 / 成交记录 / 运行日志。
+  // 它偏参考信息，日常盯的是七道进场闸 / 信号流 / 成交记录 / 运行日志。
   const eventsItem = { key: 'events', label: evLabel,
       children: (
         <div>

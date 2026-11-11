@@ -92,7 +92,7 @@ const DICT = {
     'dash.col.upnl': '浮盈', 'dash.col.excursion': '峰值/谷值', 'dash.col.age': '持仓时间 / 上限',
     'dash.col.action': '操作', 'dash.long': '多', 'dash.short': '空',
     'dash.openMark': '开', 'dash.closeMark': '平',
-    'act.gates': '七道闸', 'gate.bar': 'K线', 'gate.col.symbol': '币种', 'gate.col.dir': '方向', 'gate.col.ce': 'CE', 'gate.col.ha': 'HA', 'gate.col.key': '关键K', 'gate.col.bbw': 'BBW', 'gate.col.dev': '偏离', 'gate.col.risk': '止损', 'gate.col.eff': 'EFF', 'gate.col.atr': 'ATR', 'gate.col.why': '结论', 'gate.opened': '已开仓', 'gate.outPool': '池外', 'gate.summary': ({ce, ha, key, bbw, dev, risk, eff, n}) => `CE翻转 ${ce}/${n} · HA形态 ${ha}/${n} · 关键K线 ${key}/${n} · BBW达标 ${bbw}/${n} · 偏离够 ${dev}/${n} · 止损够近 ${risk}/${n} · 趋势效率 ${eff}/${n}`, 'act.signals': '信号流', 'act.trades': '成交记录', 'act.logs': '运行日志', 'act.events': '经济事件',
+    'act.gates': '七道闸', 'gate.bar': 'K线', 'gate.col.symbol': '币种', 'gate.col.dir': '方向', 'gate.col.ce': 'CE', 'gate.col.ha': 'HA', 'gate.col.key': '关键K', 'gate.col.bbw': 'BBW', 'gate.col.dev': '偏离', 'gate.col.risk': '止损', 'gate.col.eff': 'EFF', 'gate.col.atr': 'ATR', 'gate.col.why': '结论', 'gate.opened': '已开仓', 'gate.outPool': '池外', 'gate.summary': ({ce, ha, key, bbw, dev, risk, eff, n}) => `CE翻转 ${ce}/${n} · HA形态 ${ha}/${n} · 关键K线 ${key}/${n} · BBW达标 ${bbw}/${n} · 偏离够 ${dev}/${n} · 止损合适 ${risk}/${n} · 趋势效率 ${eff}/${n}`, 'act.signals': '信号流', 'act.trades': '成交记录', 'act.logs': '运行日志', 'act.events': '经济事件',
     // 经济事件面板（与「信号流」并列）—— 静默闸门要看得见
     'ev.quietNow': '静默中', 'ev.normal': '正常开仓', 'ev.window': '静默窗口',
     'ev.col.time': '时间', 'ev.col.cd': '倒计时', 'ev.col.title': '事件',

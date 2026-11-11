@@ -683,7 +683,7 @@ def _eff_signal_min() -> float:
 
 @app.get("/api/gates")
 async def api_gates():
-    """四道光闸诊断：监控池每个币最新一根 15m 的四道闸状态。
+    """进场闸门诊断：监控池每个币最新一根 15m 的七道闸状态。
 
     数据来自策略扫描时留在内存里的中间结果（strategies._GATE_STATE），
     不额外拉 K 线，零流量成本。回答的问题是：今天没开仓，是
@@ -699,14 +699,14 @@ async def api_gates():
         log.debug("gates: quality snapshot failed: %s", exc)
         qdata = {}
     eff_min = float(getattr(quality, "EFF_MIN", 0.30) or 0.30)
-    # ★ 2026-11-09 修：策略说「四闸全过」≠ 真开仓。
+    # ★ 2026-11-09 修：策略说「全部闸门通过」≠ 真开仓。
     #   信号后面还有 risk.allow_entry 九道闸，任何一道拒绝都没有仓位
-    #   （实例：RSR 06:45 四闸全过，但被「已达日目标」拦下，页面却写「已开仓」）。
+    #   （实例：RSR 06:45 全部闸门通过，但被「已达日目标」拦下，页面却写「已开仓」）。
     #   所以结论列必须用两样真实事实覆盖：
     #     （持仓币已在上面的循环里整行跳过，不在本表出现）
     #     ② signals 表本根 K 线的最新信号被拒 → 直接显示它的 skip_reason
     # ★ 2026-11-09 再修：池外的币永远不会被扫描，_GATE_STATE 是历史残留。
-    #   照旧显示「四闸全过·待成交」会让人以为在排队等开仓（实际等到天亮也不开）。
+    #   照旧显示「全过·待成交」会让人以为在排队等开仓（实际等到天亮也不开）。
     #   池外一律明说「池外」，并尽可能带上被踢原因（EFF 不达标 / 池满）。
     held = {p["symbol"] for p in db.open_positions()}
     sig_map = {}
@@ -734,6 +734,10 @@ async def api_gates():
         dev_thr = v.get("dev_thr") or 0
         risk = v.get("risk")
         risk_thr = v.get("risk_thr") or 0
+        # 2026-11-11：第⑤道闸从「只有上限」变成「有下限也有上限」。
+        # 下限（min_stop_dist_pct 0.60）由 strategies 通过 risk_lo 传过来，
+        # 不在这里读 yaml —— 保持「门槛值只有一个真源」。
+        risk_lo = v.get("risk_lo") or 0
         # ── 结论列：以真实事实为准 ──────────────────────────────
         sig = sig_map.get(sym) or {}
         sig_ts = int(sig.get("ts") or 0)
@@ -759,7 +763,7 @@ async def api_gates():
             else:
                 verdict = "池外·池满未入选"
         elif v.get("ok") and sig_fresh and not sig.get("acted") and sig.get("skip_reason"):
-            # 只有「这一轮四闸真的全过了、信号刚刚真被风控拦下」才报拦截原因，
+            # 只有「这一轮全部闸门真的过了、信号刚刚真被风控拦下」才报拦截原因，
             # 否则会出现「CE 都没翻」却写着「已达日目标」的自相矛盾（2026-11-09 踩到）。
             verdict = sig["skip_reason"]          # 例：已达日目标，今日停止开新仓
         elif v.get("ok"):
@@ -768,14 +772,17 @@ async def api_gates():
             verdict = v.get("why") or ""
         rows.append({"symbol": sym, "in_monitor": sym in mon,
                      "dev_ok": (dev is not None and dev >= dev_thr) if dev_thr > 0 else True,
-                     # 第五道闸：止损距离 ≤ 上限（risk_thr=0 表示这道闸关闭）
-                     "risk_ok": (risk is not None and risk <= risk_thr) if risk_thr > 0 else True,
+                     # 第五道闸：下限 ≤ 止损距离 ≤ 上限（两个都为 0 表示这道闸关闭）
+                     "risk_ok": (risk is not None
+                                 and (risk <= risk_thr if risk_thr > 0 else True)
+                                 and (risk >= risk_lo if risk_lo > 0 else True)),
+                     "risk_lo": risk_lo,
                      "opened": sym in held, "verdict": verdict,
                      **v,                                  # 含 key（关键K线）/ eff（进场 EFF）
                      "eff_thr": eff_sig,                   # 逐行给门槛，前端才能画 0.73/0.30
                      "pool_eff": (qdata.get(sym) or {}).get("eff"),
                      "why": verdict})
-    # 有戏的排前面：在池 > CE 已翻 > HA 成立 > 偏离够 > 止损够近 > BBW 高
+    # 有戏的排前面：在池 > CE 已翻 > HA 成立 > 偏离够 > 止损合适 > BBW 高
     rows.sort(key=lambda r: (not r.get("in_monitor"), not r.get("ok"), not r.get("ce"),
                              not r.get("ha"), not r.get("dev_ok"), not r.get("risk_ok"),
                              -(r.get("bbw") or 0)))
