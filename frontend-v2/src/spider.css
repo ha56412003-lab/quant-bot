@@ -1640,10 +1640,23 @@ html:not([data-theme]) .ant-btn-dangerous:not(.ant-btn-primary):hover {
   .hdr .btns { gap: 4px; }
 
   /* ── ③ 卡片：7 列 × 2 行 → 2 列，高度自适应 ── */
+  /* ★ 卡片区改用 flex：v2.css 里有 5 条不同断点的
+     .spider-root .cards{grid-template-rows:80px 80px / 120px 120px / ...}
+     会把行高压死，实测 10 张卡只能显示 498px（需要 548px）。
+     换成 flex + wrap 后彻底摆脱 grid 行高约束。 */
   .spider-root .cards {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    grid-template-rows: auto !important;
-    gap: 6px;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-content: flex-start !important;
+    gap: 6px !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+  }
+  .spider-root .cards .card {
+    flex: 0 0 calc(50% - 3px) !important;
+    width: auto !important;
+    min-width: 0 !important;
   }
   .card { padding: 6px 8px; grid-template-rows: auto auto auto auto; }
 
@@ -1651,8 +1664,22 @@ html:not([data-theme]) .ant-btn-dangerous:not(.ant-btn-primary):hover {
   .spider-root .mid { grid-template-columns: minmax(0, 1fr) !important; gap: 10px; }
   .spider-root .bot { grid-template-columns: minmax(0, 1fr) !important; gap: 10px; }
   .spider-root .rv  { grid-template-columns: minmax(0, 1fr) !important; }
-  /* 卡片宽度由 v2.css 的 .spider-root .cards .card 控制，一并放开 */
+  /* 卡片宽度被 v2.css:628 写死 371px，手机上必须放开 */
   .spider-root .cards .card { width: 100% !important; }
+
+  /* ── ★★ 高度三把锁（这才是「压在竖列里挤成一团」的真凶）★★
+     v2.css:1265-1267 用 height / min-height / max-height 三个 !important 把卡片区
+     钉死在 272px；v2.css:395/399 又给 mid/bot 设了 min-height 520/560。
+     只解 height 没用 —— 上一轮就是只改了 height，min/max 还锁着，
+     所以 .cards 内容需要 548px 却只能显示 272px，视觉上全部挤在一起。
+     三把必须一起解。spider.css 晚于 v2.css 加载，同权重后者胜。 */
+  .spider-root .cards,
+  .spider-root .mid,
+  .spider-root .bot {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+  }
 
   /* ── ⑤ 图表区给固定高度（否则 canvas 塌成 0 高）── */
   .stage { height: 210px; min-height: 210px; }
@@ -1668,6 +1695,119 @@ html:not([data-theme]) .ant-btn-dangerous:not(.ant-btn-primary):hover {
   .feed { font-size: 11px; line-height: 1.55; max-height: 200px; overflow-y: auto; }
   .ticker { max-width: 100%; overflow: hidden; }
 
-  /* ── ⑧ 兜底：任何元素都不许横向撑破视口 ── */
-  .board > * { min-width: 0; max-width: 100%; }
+  /* ── ⑧ flex 子元素默认会收缩 ──
+     不改这条，各区域会被强行压扁（实测：cards 需要 548px 只给了 272px，
+     mid 需要 1446px 只给 718px，bot 需要 1799px 只给 593px）。
+     flex:0 0 auto = 不放大、不收缩、按内容真实高度。 */
+  .board > * { flex: 0 0 auto !important; min-width: 0; max-width: 100%; }
+
+  /* ⑨ grid 单列时子元素默认被拉伸到整列高，图表区会莫名变成 700 多 px */
+  .spider-root .mid, .spider-root .bot { align-items: start !important; }
+
+  /* ⑩ 顶栏在 flex 里同样被压到 50px（真实需要 220px） */
+  .spider-root .hdr { height: auto !important; }
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════
+   手机横屏（2026-11-11 · 浩哥要求「手机做成默认横屏展示」）
+
+   说明：网页本身无法强制手机转横屏（浏览器限制，JS 的
+        screen.orientation.lock 只在 Android 全屏下可用，iOS 不支持）。
+        能做的两件事：
+          A. 横屏时给一套真正好用的紧凑多列布局（本段）
+          B. 竖屏时顶部提示「横过来更完整」（下一段）
+        用户横过来后浏览器会自动重排，等于"默认横屏"的体验。
+
+   目标机型：844×390（iPhone 横屏）、926×428（大屏手机横屏）、
+            915×412 等。上限 max-height:600px 不会误伤 iPad 横屏（768px 高）。
+   ══════════════════════════════════════════════════════════════════════ */
+@media (orientation: landscape) and (max-height: 600px) {
+
+  /* ① 解掉 v2.css:1265 的高度三把锁（跟竖屏同一套病因） */
+  .spider-root .cards,
+  .spider-root .mid,
+  .spider-root .bot {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+  }
+
+  /* ② board 改成纵向流式，行高不再固定 */
+  .spider-root .board {
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    transform: none !important;
+    display: flex !important;
+    flex-direction: column;
+    gap: 6px;
+    padding: 0;
+    grid-template-rows: none !important;
+  }
+  .spider-root .board > * { flex: 0 0 auto !important; min-width: 0; }
+
+  /* ③ 顶栏压成一行（横屏本来就只有 390px 高，顶栏不能占两行） */
+  .spider-root .hdr {
+    height: auto !important;
+    min-height: 0 !important;
+    flex-wrap: nowrap !important;
+    gap: 8px !important;
+    padding: 2px 0 !important;
+  }
+  .spider-root .hdr h1 { font-size: 15px !important; letter-spacing: 0 !important; }
+  .spider-root .hdr h1 .zh { font-size: 13px !important; }
+  .spider-root .hdr .clock { font-size: 14px !important; }
+  .spider-root .hdr .tagline { display: none !important; }
+  .spider-root .hdr .logo { width: 24px !important; height: 24px !important; }
+
+  /* ④ 卡片：横屏够宽 → 4 列（828px / 4 ≈ 204px 一张） */
+  .spider-root .cards {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-content: flex-start !important;
+    gap: 4px !important;
+  }
+  .spider-root .cards .card {
+    flex: 0 0 calc(25% - 3px) !important;
+    width: auto !important;
+    min-width: 0 !important;
+    height: 104px !important;
+  }
+
+  /* ⑤ 中间保持 2 列（图表 + 侧栏），底部保持 3 列 */
+  .spider-root .mid { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) !important; gap: 6px !important; }
+  .spider-root .bot { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 6px !important; }
+  .spider-root .mid > *, .spider-root .bot > * { min-width: 0; }
+
+  /* ⑥ 图表高度按横屏给 */
+  .spider-root .stage { height: 240px !important; min-height: 240px !important; }
+
+  /* ⑦ 表格可横滑 */
+  .ant-table-content, .ant-table-body, .ant-table-header { overflow-x: auto !important; }
+  .ant-table { font-size: 11px; }
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════
+   竖屏提示：建议横过来（只提示，不挡内容，可直接滑走）
+   ══════════════════════════════════════════════════════════════════════ */
+@media (max-width: 820px) and (orientation: portrait) {
+  .spider-root::before {
+    content: "↻  把手机横过来，看板更完整（竖屏要滑 4000px，横屏约 1700px）";
+    display: block;
+    position: sticky;
+    top: 0;
+    z-index: 999;
+    margin: 0 0 8px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    background: #1b1f2a;
+    border: 1px solid #2f3646;
+    color: #9fb4d8;
+    font-size: 12.5px;
+    line-height: 1.5;
+    text-align: center;
+    letter-spacing: .01em;
+  }
 }
