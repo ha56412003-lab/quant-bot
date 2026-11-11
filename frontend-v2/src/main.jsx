@@ -7,6 +7,7 @@ import { ConfigProvider, theme as antdTheme } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
 import App from './App'
+import ErrorBoundary from './ErrorBoundary'
 import { I18nProvider, useI18n } from './i18n'
 
 /* ── 玫红深色主题（原来的，一字未改） ── */
@@ -195,7 +196,9 @@ function LocaleShell() {
 initTheme()
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-  <I18nProvider>
-    <LocaleShell />
-  </I18nProvider>
+  <ErrorBoundary name="整个看板">
+    <I18nProvider>
+      <LocaleShell />
+    </I18nProvider>
+  </ErrorBoundary>
 )

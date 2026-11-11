@@ -13,6 +13,7 @@ import FactorsPage from './pages/FactorsPage'
 import JournalPage from './pages/JournalPage'
 import RiskPage from './pages/RiskPage'
 import ConfigPage from './pages/ConfigPage'
+import ErrorBoundary from './ErrorBoundary'
 
 const PAGES = [
   ['dashboard', '总览', Dashboard],
@@ -34,6 +35,8 @@ export default function App() {
 
   const nav = PAGES.map(([k, label]) => [k, label])
   const PageComp = (PAGES.find((p) => p[0] === page) || PAGES[0])[2]
+  // 页面名字，给 ErrorBoundary 显示用（「策略库加载失败」比「这一块加载失败」好懂）
+  const pageLabel = (PAGES.find((p) => p[0] === page) || PAGES[0])[1]
   const pos = positions?.positions || []
 
   if (page !== 'dashboard') {
@@ -58,7 +61,9 @@ export default function App() {
             <ModeSwitch status={status} />
           </span>
         </div>
-        <PageComp status={status} />
+        <ErrorBoundary key={page} name={pageLabel}>
+          <PageComp status={status} />
+        </ErrorBoundary>
       </div>
       <NetAlertBanner />
       </>
@@ -70,7 +75,9 @@ export default function App() {
     <PaperField />
     <SpiderBoard status={status} positions={pos} nav={nav}
                  activeNav={page} onNavigate={setPage}>
-      <PageComp status={status} />
+      <ErrorBoundary key={page} name={pageLabel}>
+        <PageComp status={status} />
+      </ErrorBoundary>
     </SpiderBoard>
     <NetAlertBanner />
     </>
