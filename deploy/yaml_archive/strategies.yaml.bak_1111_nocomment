@@ -1,0 +1,125 @@
+global:
+  universe:
+  - BTCUSDT
+  - ETHUSDT
+  - SOLUSDT
+  - BNBUSDT
+  - XRPUSDT
+  - DOGEUSDT
+  - SUIUSDT
+  - ADAUSDT
+  - AVAXUSDT
+  - LINKUSDT
+  - TONUSDT
+  - TRXUSDT
+  - LTCUSDT
+  - BCHUSDT
+  - NEARUSDT
+  - APTUSDT
+  - ARBUSDT
+  - OPUSDT
+  - DOTUSDT
+  - POLUSDT
+  - INJUSDT
+  - SEIUSDT
+  - TIAUSDT
+  - 1000PEPEUSDT
+  - WIFUSDT
+  - ORDIUSDT
+  - 1000SHIBUSDT
+  - FILUSDT
+  - ATOMUSDT
+  - UNIUSDT
+  max_position_pct_per_coin: 32.0
+  max_gross_leverage: 6
+  daily_loss_halt_pct: 10.0
+  unrealized_halt_pct: 8.0
+  risk_per_trade_pct: 1.5
+  max_concurrent_coins: 8
+  max_same_side: 6
+  event_quiet_minutes: 30
+  fear_greed_extreme:
+    greed: 85
+    fear: 15
+    size_mult: 0.6
+  daily_target:
+    enabled: true
+    target_usd: 500
+    sustain_sec: 30
+    auto_close_sec: 300
+    pause_new: true
+    notify: true
+strategies:
+  S15_CE_ZLSMA:
+    enabled: true
+    scan_interval: 15m
+    symbols: []
+    risk:
+      capital_usd: 0.0
+      leverage: 6
+      max_position_usd: 0
+      risk_per_trade_pct: 0
+    max_hold_hours: 0
+    params:
+      kline_interval: 15m
+      ce_len: 1
+      ce_mult: 1.5
+      zlsma_len: 50
+      use_close: true
+      use_ha: true
+      swing_lookback: 8
+      min_atr_pct: 0
+      bbw_pct_min: 70.0
+      max_risk_pct: 5.0
+      dual_stop_min_pct: 0.5
+      min_dev_pct: 0.0
+      dev_atr_mult: 1.0
+      key_bar: true
+      key_mult: 0.7
+      key_closepos: 0.66
+      key_bodyfrac: 0.5
+      stop_key: true
+      half_at_r: 1.2
+      full_at_r: 2.0
+      right_exit: true
+      right_exit_strict: true
+      eff_min_signal: 0.3
+      eff_win_signal: 48
+      min_stop_dist_pct: 0.6
+      be_at_r: 1.5
+      max_same_bar_side: 2
+      fee_rate: 0.0005
+      slip_pct: 0.0
+pools:
+  candidate:
+    size: 200
+    refresh_hour: 3
+    min_amp_pct: 10.0
+    max_amp_pct: 300.0
+    vol_days: 30
+    whitelist:
+    - BTCUSDT
+    - ETHUSDT
+    - HYPEUSDT
+    - SOLUSDT
+    - XRPUSDT
+    - BNBUSDT
+    - DOGEUSDT
+    - AVAXUSDT
+    - NEARUSDT
+    - UNIUSDT
+    - SUIUSDT
+    - ADAUSDT
+  monitor:
+    size: 50
+    min_quote_vol: 5000000
+    max_spike: 8.0
+    refresh_sec: 60
+    min_dwell_sec: 300
+    eff_min: 0.0
+    eff_exit: 0.0
+    eff_win: 96
+    smooth_sec: 300
+    kl_interval: 15m
+    daily_refresh_sec: 86400
+    tick_sec: 60

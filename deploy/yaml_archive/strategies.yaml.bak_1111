@@ -1,0 +1,146 @@
+global:
+  universe:
+  - BTCUSDT
+  - ETHUSDT
+  - SOLUSDT
+  - BNBUSDT
+  - XRPUSDT
+  - DOGEUSDT
+  - SUIUSDT
+  - ADAUSDT
+  - AVAXUSDT
+  - LINKUSDT
+  - TONUSDT
+  - TRXUSDT
+  - LTCUSDT
+  - BCHUSDT
+  - NEARUSDT
+  - APTUSDT
+  - ARBUSDT
+  - OPUSDT
+  - DOTUSDT
+  - POLUSDT
+  - INJUSDT
+  - SEIUSDT
+  - TIAUSDT
+  - 1000PEPEUSDT
+  - WIFUSDT
+  - ORDIUSDT
+  - 1000SHIBUSDT
+  - FILUSDT
+  - ATOMUSDT
+  - UNIUSDT
+  max_position_pct_per_coin: 32.0
+  max_gross_leverage: 6
+  daily_loss_halt_pct: 10.0
+  unrealized_halt_pct: 8.0
+  risk_per_trade_pct: 1.5
+  max_concurrent_coins: 8
+  max_same_side: 6
+  event_quiet_minutes: 30
+  fear_greed_extreme:
+    greed: 85
+    fear: 15
+    size_mult: 0.6
+  daily_target:
+    enabled: true
+    target_usd: 500
+    sustain_sec: 30
+    auto_close_sec: 300
+    pause_new: true
+    notify: true
+strategies:
+  S15_CE_ZLSMA:
+    enabled: true
+    scan_interval: 15m
+    symbols: []
+    risk:
+      capital_usd: 0
+      leverage: 6
+      max_position_usd: 0
+      risk_per_trade_pct: 0
+    # 2026-11-09 浩哥定（最终版）：16 小时，engine.py 里去掉「平半后豁免」。
+    #
+    # ⚠ 这里走了一大圈，真实原因必须留档：
+    #   当天先把 16 改成 12，因为回测说 12h 能 +94.2R 且最长持仓压到 12h。
+    #   后来接实盘审计才发现——那条回测漏了「快速失败」（_quick_fail 4h/0.5R），
+    #   而线上 check_exit 第一步就是它。补上之后结论整个反转：
+    #
+    #     12h 强平 + 快速失败   +81.1R / 回撤 -22.7 / 最长 12h   ← 砍掉了 4~12h 的利润出口
+    #     16h 强平 + 快速失败   +91.4R / 回撤 -21.4 / 最长 16h   ← 采纳
+    #     12h 强平 + 关快速失败 +94.4R / 回撤 -25.0 / 最长 12h
+    #     纯原线上 + 快速失败   +100.0R / 回撤 -20.7 / 最长 76h
+    #
+    #   快速失败和强平在抢同一件事：前者 4h 砍没起色的，后者到点统一平。
+    #   12h 太短，正好把「慢性子但最终赚钱」那批（时间止损均笔 +0.60R）砍在
+    #   4 小时线上；16h 只砍掉真正到尾的烂尾单，两者才能并存。
+    #   三个方案差 3~9R 量级，选 16h 是为了回撤最好（-21.4）且留着早清保护。
+    max_hold_hours: 16
+    params:
+      kline_interval: 15m
+      ce_len: 1
+      ce_mult: 2.0
+      zlsma_len: 50
+      use_close: true
+      use_ha: true
+      swing_lookback: 20
+      min_atr_pct: 0
+      bbw_pct_min: 70.0
+      # 2026-11-09 浩哥定：30.0 → 5.0
+      # 依据实盘 80 笔：止损 ≥5% 的 23 笔（占 29%）合计 -118.78U，均峰值仅 0.32R，
+      # 永远够不到 1.8R/2R；止损 3~5% 的 32 笔才是唯一盈利档（+257.81U）。
+      # 收紧后剩余 57 笔合计 +225.80U。注意：新单生效，已有持仓不受影响。
+      max_risk_pct: 5.0
+      min_dev_pct: 0.5
+      quickfail_hours: 4.0
+      quickfail_min_r: 0.5
+      # 2026-11-09 浩哥定：平半线 2.0R → 1.8R，并新增移动止盈 trail_arm / trail_dd。
+      # 回测扫描（cap 5% / 12h 强平）：1.8半 + 移动1.5/1.2 = +94.2R 最优；
+      # 1.0半+1.2/0.8 只有 +45.9R（1.0 半太早，把 3R+ 的大肉砍光，最好一笔仅 3.02R）。
+      # half_tp_r 保持不变（3R 全平）：+94.2R vs 关掉它 +87.5R，两条并存更好。
+      half_at_r: 1.8
+      half_tp_r: 1.0
+      # 移动止盈：峰值 ≥ trail_arm 后，从现在回撤 trail_dd 个 R → 全平剩余半仓。
+      # 只在平半之后启用（trail_after_half 语义：arm 1.5 < 平半线 1.8，实际就是平半即武装）。
+      # 注意这是「相对回撤」不是「绝对落袋」：峰值 3R 时平在 1.8R，峰值 5R 时平在 3.8R。
+      # 实测剩余半仓落袋中位 1.63R、实际回吐中位 1.20R（15m K 线会跳空穿过 1.2R）。
+      # 置 0 = 关闭该出场。
+      trail_arm: 1.5
+      trail_dd: 1.2
+      # 镜像出场的布林带宽度分位门槛（2026-11-09 浩哥选 B 落地）。
+      # 语义：CE 翻转 + HA 反向关键K线 之外，再要求当时 BBW 分位 ≥ 本值才认这次翻转。
+      # 为什么加：CE 是 ATR 通道，低波动时价格来回穿，翻转极频繁 —— 那是噪音。
+      # 不带本闸时镜像出场占全部出场的 43%，均笔 −0.08R（等于在震荡里被反复扫）；
+      # 加 ≥70 后降到 14%，那些单子改走时间止损和移动止盈，反而赚钱。
+      # 实测（20币/60天/cap5%/偏离闸0.5%/8仓并发/当前出场）：
+      #   不带 620笔 +50.6R DD−22.5 | ≥50 +61.8R | ≥60 +61.3R
+      #   ≥70  598笔 +65.5R DD−20.5 ← 峰，且回撤最小 | ≥80 +56.5R | ≥90 +55.3R
+      # 置 0 = 关闭本闸，行为退回纯「CE翻转+HA」三闸。
+      mirror_bbw_min: 70.0
+      fee_rate: 0.0005
+      slip_pct: 0.0
+pools:
+  candidate:
+    size: 200
+    refresh_hour: 3
+    min_amp_pct: 10.0
+    max_amp_pct: 300.0
+    vol_days: 30
+    whitelist:
+    - BTCUSDT
+    - ETHUSDT
+  monitor:
+    size: 40
+    min_quote_vol: 5000000
+    max_spike: 8.0
+    refresh_sec: 60
+    min_dwell_sec: 900
+    stop_min_pct: 1.0
+    stop_exit_pct: 0.85
+    eff_min: 0.3
+    eff_exit: 0.25
+    eff_win: 96
+    smooth_sec: 300
+    kl_interval: 15m
+    daily_refresh_sec: 86400
+    tick_sec: 60

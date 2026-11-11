@@ -82,3 +82,9 @@ strategies.yaml.bak_*
 # 页面冒烟测试的运行时产物（每次跑都变，不进仓库）
 reports/smoke_latest.json
 reports/smoke_fail_*.png
+
+# 例外：deploy/yaml_archive/ 里的 yaml 历史备份**要进 git**（2026-11-11）
+# 服务器上只留 2 个，其余 5 个归档在这里，是回滚和值对照的唯一依据。
+# 不加这行会被上面的 *.bak_* / strategies.yaml.bak_* 规则挡掉。
+!deploy/yaml_archive/*
+!deploy/yaml_archive/**

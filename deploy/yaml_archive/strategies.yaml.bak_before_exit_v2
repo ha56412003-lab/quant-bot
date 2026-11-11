@@ -1,0 +1,109 @@
+global:
+  universe:
+  - BTCUSDT
+  - ETHUSDT
+  - SOLUSDT
+  - BNBUSDT
+  - XRPUSDT
+  - DOGEUSDT
+  - SUIUSDT
+  - ADAUSDT
+  - AVAXUSDT
+  - LINKUSDT
+  - TONUSDT
+  - TRXUSDT
+  - LTCUSDT
+  - BCHUSDT
+  - NEARUSDT
+  - APTUSDT
+  - ARBUSDT
+  - OPUSDT
+  - DOTUSDT
+  - POLUSDT
+  - INJUSDT
+  - SEIUSDT
+  - TIAUSDT
+  - 1000PEPEUSDT
+  - WIFUSDT
+  - ORDIUSDT
+  - 1000SHIBUSDT
+  - FILUSDT
+  - ATOMUSDT
+  - UNIUSDT
+  max_position_pct_per_coin: 32.0
+  max_gross_leverage: 6
+  daily_loss_halt_pct: 10.0
+  unrealized_halt_pct: 8.0
+  risk_per_trade_pct: 1.5
+  max_concurrent_coins: 8
+  max_same_side: 6
+  event_quiet_minutes: 30
+  fear_greed_extreme:
+    greed: 85
+    fear: 15
+    size_mult: 0.6
+  daily_target:
+    enabled: true
+    target_usd: 500
+    sustain_sec: 30
+    auto_close_sec: 300
+    pause_new: true
+    notify: true
+strategies:
+  S15_CE_ZLSMA:
+    enabled: true
+    scan_interval: 15m
+    symbols: []
+    risk:
+      capital_usd: 0
+      leverage: 6
+      max_position_usd: 0
+      risk_per_trade_pct: 0
+    max_hold_hours: 16
+    params:
+      kline_interval: 15m
+      ce_len: 1
+      ce_mult: 2.0
+      zlsma_len: 50
+      use_close: true
+      use_ha: true
+      swing_lookback: 20
+      min_atr_pct: 0
+      bbw_pct_min: 70.0
+      # 2026-11-09 浩哥定：30.0 → 5.0
+      # 依据实盘 80 笔：止损 ≥5% 的 23 笔（占 29%）合计 -118.78U，均峰值仅 0.32R，
+      # 永远够不到 1.8R/2R；止损 3~5% 的 32 笔才是唯一盈利档（+257.81U）。
+      # 收紧后剩余 57 笔合计 +225.80U。注意：新单生效，已有持仓不受影响。
+      max_risk_pct: 5.0
+      min_dev_pct: 0.5
+      quickfail_hours: 4.0
+      quickfail_min_r: 0.5
+      half_at_r: 2.0
+      half_tp_r: 1.0
+      fee_rate: 0.0005
+      slip_pct: 0.0
+pools:
+  candidate:
+    size: 200
+    refresh_hour: 3
+    min_amp_pct: 10.0
+    max_amp_pct: 300.0
+    vol_days: 30
+    whitelist:
+    - BTCUSDT
+    - ETHUSDT
+  monitor:
+    size: 40
+    min_quote_vol: 5000000
+    max_spike: 8.0
+    refresh_sec: 60
+    min_dwell_sec: 900
+    stop_min_pct: 1.0
+    stop_exit_pct: 0.85
+    eff_min: 0.3
+    eff_exit: 0.25
+    eff_win: 96
+    smooth_sec: 300
+    kl_interval: 15m
+    daily_refresh_sec: 86400
+    tick_sec: 60
