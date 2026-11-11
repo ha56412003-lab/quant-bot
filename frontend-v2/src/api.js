@@ -29,6 +29,34 @@ function _initToken() {
 
 export const API_TOKEN = _initToken()
 
+/* ── 观战 key（2026-11-11）────────────────────────────────────────
+   给朋友的链接：https://quant.hahayuyue.cn/?ro=1&k=<观战key>
+   → k 存进 localStorage 并从地址栏抹掉
+   → 之后所有 GET 自动带 x-view-key，后端才放行读操作
+   → 观战 key 只能读，不能写（写操作仍然必须有 x-api-token）
+*/
+const LS_VIEW = 'qb_view_key'
+
+function _initViewKey() {
+  try {
+    const q = new URLSearchParams(window.location.search)
+    const k = (q.get('k') || q.get('key') || '').trim()
+    if (k) {
+      localStorage.setItem(LS_VIEW, k)
+      q.delete('k')
+      q.delete('key')
+      const qs = q.toString()
+      window.history.replaceState({}, '', window.location.pathname + (qs ? '?' + qs : ''))
+      return k
+    }
+    return (localStorage.getItem(LS_VIEW) || '').trim()
+  } catch (e) {
+    return ''
+  }
+}
+
+export const VIEW_KEY = _initViewKey()
+
 let _ro = false
 try {
   const _q = new URLSearchParams(window.location.search)
@@ -39,10 +67,11 @@ try {
 /** true = 只读观战模式（URL 带 ?ro=1），所有写操作在前端就被挡掉 */
 export const READ_ONLY = _ro
 
-/** 统一请求头：有 token 就带上（后端只对写操作校验，GET 带了也无害） */
+/** 统一请求头：优先带操作 token（完整权限），没有就带观战 key（只读） */
 function _hdr(extra) {
   const h = Object.assign({}, extra || {})
   if (API_TOKEN) h['x-api-token'] = API_TOKEN
+  else if (VIEW_KEY) h['x-view-key'] = VIEW_KEY
   return h
 }
 
@@ -55,7 +84,19 @@ function _blockWrite(what) {
 
 const get = async (path) => {
   const r = await fetch(path, { headers: _hdr() })
-  if (!r.ok) throw new Error(`${path}: ${r.status}`)
+  if (!r.ok) {
+    if (r.status === 401) {
+      const err = new Error('没有访问权限：观战链接可能已失效，请向管理员要新链接')
+      err.unauthorized = true
+      throw err
+    }
+    if (r.status === 429) {
+      const err = new Error('请求太频繁，请等几秒再刷新')
+      err.rateLimited = true
+      throw err
+    }
+    throw new Error(`${path}: ${r.status}`)
+  }
   return r.json()
 }
 

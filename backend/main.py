@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import signal
+import threading
 import time
 
 import yaml
@@ -175,6 +176,82 @@ app = FastAPI(title="quant-bot", lifespan=lifespan)
 #  ③ 可选 token —— 上云后暴露公网时启用
 _WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
+# ══════════════════════════════════════════════════════════════════
+# 限流 + 读鉴权（2026-11-11 · 浩哥要求）
+#   ① 同一 IP 每分钟最多 N 次请求，超了返 429 —— 防高频刷 GET 拖垮单 worker
+#   ② /api/* 的 GET 必须带 x-api-token（完整权限）或 x-view-key（只读观战）
+#   ③ token 轮换宽限期：旧 token 放在 QB_API_TOKEN_PREV 里还能用
+#
+# ★ 设计原则：任一配置留空 → 对应的闸门退化回旧行为，
+#   绝对不会因为「忘了配」而把操作者锁在门外。
+# ══════════════════════════════════════════════════════════════════
+try:
+    _RATE_LIMIT_PER_MIN = int(os.environ.get("QB_RATE_LIMIT_PER_MIN") or "120")
+except ValueError:
+    _RATE_LIMIT_PER_MIN = 120
+_RATE_WINDOW_SEC = 60.0
+_rate_buckets: dict = {}          # ip -> [timestamp, ...]
+_rate_lock = threading.Lock()
+
+
+def _client_ip(request: Request) -> str:
+    """真实客户端 IP。经 Caddy 反代时 X-Real-IP 由 Caddy 覆写，客户端伪造无效。"""
+    xr = (request.headers.get("x-real-ip") or "").strip()
+    if xr:
+        return xr
+    xff = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if xff:
+        return xff
+    return request.client.host if request.client else "unknown"
+
+
+def _rate_hit(ip: str):
+    """滑动窗口限流。返回 (是否放行, 建议等待秒数)。"""
+    if _RATE_LIMIT_PER_MIN <= 0:
+        return True, 0
+    now = time.time()
+    cutoff = now - _RATE_WINDOW_SEC
+    with _rate_lock:
+        q = _rate_buckets.get(ip)
+        if q is None:
+            q = []
+            _rate_buckets[ip] = q
+        if q and q[0] < cutoff:
+            q[:] = [t for t in q if t >= cutoff]
+        if len(q) >= _RATE_LIMIT_PER_MIN:
+            return False, max(1, int(_RATE_WINDOW_SEC - (now - q[0])) + 1)
+        q.append(now)
+        # 字典别无限长：超过 4000 个 IP 就清掉空桶
+        if len(_rate_buckets) > 4000:
+            for k in [k for k, v in _rate_buckets.items() if not v][:2000]:
+                _rate_buckets.pop(k, None)
+    return True, 0
+
+
+def _take_token(request: Request) -> str:
+    """从 x-api-token 或 Authorization: Bearer 取操作 token。"""
+    tok = (request.headers.get("x-api-token") or "").strip()
+    if not tok:
+        auth = (request.headers.get("authorization") or "").strip()
+        if auth.lower().startswith("bearer "):
+            tok = auth[7:].strip()
+    return tok
+
+
+def _token_ok(tok: str) -> bool:
+    """校验操作 token。支持轮换宽限期：旧 token 在 PREV 里还能用。
+
+    ★ 2026-11-11 修过的一个坑：最初写成
+        return tok in (config.API_TOKEN, config.API_TOKEN_PREV)
+      当 API_TOKEN_PREV 留空时，空 token "" 会命中 ""，等于「无凭据也能写」。
+      测试脚本抓出来了。现在显式拒绝空值。
+    """
+    if not tok or not config.API_TOKEN:
+        return False
+    if tok == config.API_TOKEN:
+        return True
+    return bool(config.API_TOKEN_PREV) and tok == config.API_TOKEN_PREV
+
 
 @app.middleware("http")
 async def _api_guard(request: Request, call_next):
@@ -197,6 +274,21 @@ async def _api_guard(request: Request, call_next):
         log.warning("拒绝访问：Host=%s 不在白名单", host)
         return JSONResponse({"detail": f"host not allowed: {host}"}, status_code=403)
 
+    path = request.url.path
+
+    # ★ ①.5 限流（2026-11-11）：防高频刷 GET 拖垮单 worker。
+    #   本机直连（127.0.0.1 / ::1）不限流 —— SSH 进来排查、本机脚本不受影响。
+    cip = _client_ip(request)
+    if cip not in ("127.0.0.1", "::1", "localhost"):
+        ok_rate, retry_after = _rate_hit(cip)
+        if not ok_rate:
+            log.warning("限流：ip=%s path=%s", cip, path)
+            return JSONResponse(
+                {"detail": f"请求过于频繁，请 {retry_after} 秒后再试"},
+                status_code=429,
+                headers={"Retry-After": str(retry_after)},
+            )
+
     # ② 写操作的跨站防护
     if request.method in _WRITE_METHODS:
         site = (request.headers.get("sec-fetch-site") or "").lower()
@@ -215,15 +307,23 @@ async def _api_guard(request: Request, call_next):
                 log.warning("拒绝跨站写请求: origin=%s", origin)
                 return JSONResponse({"detail": "cross-site origin rejected"}, status_code=403)
 
-        # ③ token（配置了才校验）
-        if config.API_TOKEN:
-            tok = (request.headers.get("x-api-token") or "").strip()
-            if not tok:
-                auth = (request.headers.get("authorization") or "").strip()
-                if auth.lower().startswith("bearer "):
-                    tok = auth[7:].strip()
-            if tok != config.API_TOKEN:
-                return JSONResponse({"detail": "invalid api token"}, status_code=401)
+        # ③ 写操作 token（配置了才校验；支持轮换宽限期 QB_API_TOKEN_PREV）
+        if config.API_TOKEN and not _token_ok(_take_token(request)):
+            return JSONResponse({"detail": "invalid api token"}, status_code=401)
+
+    # ★ ④ 读操作鉴权（2026-11-11）
+    #   配了 QB_VIEW_KEY 之后，/api/* 的 GET/HEAD 必须带
+    #   x-api-token（完整权限）或 x-view-key（只读观战），否则 401。
+    #   ★ 静态资源（/assets/*）与首页 HTML 不拦 —— 否则页面本身都打不开。
+    #   ★ QB_VIEW_KEY 留空时整段跳过 = 旧行为，不会把操作者锁在门外。
+    elif config.VIEW_KEY and path.startswith("/api/"):
+        if config.API_TOKEN and _token_ok(_take_token(request)):
+            pass                                          # 操作者，放行
+        elif (request.headers.get("x-view-key") or "").strip() == config.VIEW_KEY:
+            pass                                          # 观战者，放行
+        else:
+            log.warning("拒绝未授权的读请求: %s %s", request.method, path)
+            return JSONResponse({"detail": "need view key or api token"}, status_code=401)
 
     return await call_next(request)
 

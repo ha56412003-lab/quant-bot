@@ -65,6 +65,18 @@ API_ALLOWED_HOSTS = [h.strip().lower() for h in os.environ.get(
 
 # 写操作 token：留空则不校验（本机用）。暴露公网时必须设置。
 API_TOKEN = os.environ.get("QB_API_TOKEN", "").strip()
+
+# ★ 令牌轮换宽限期（2026-11-11）：轮换后旧 token 再活一段时间，
+#   避免自己还没拿到新 token 就被锁在门外。
+#   轮换脚本会写这个值；到期后手工清空即可。
+API_TOKEN_PREV = os.environ.get("QB_API_TOKEN_PREV", "").strip()
+
+# ★ 观战专用 key（2026-11-11）：只给读权限，不能写。
+#   留空 → GET 不鉴权（向后兼容，等于现在的行为）。
+#   配了 → 所有 /api/* 的 GET 必须带 x-api-token（完整权限）
+#          或 x-view-key（只读观战），否则 401。
+#   ★ 设计要点：没配就退化回旧行为 → 不会因为忘配而把自己锁在外面。
+VIEW_KEY = os.environ.get("QB_VIEW_KEY", "").strip()
 PAPER_FEE_RATE = 0.0005      # taker
 PAPER_SLIPPAGE = 0.0003
 

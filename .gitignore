@@ -75,3 +75,4 @@ strategies.yaml.bak_*
 
 # 已废弃的启动入口（改名留档，不进仓库）
 *.disabled_*
+.bak_1111_security/
