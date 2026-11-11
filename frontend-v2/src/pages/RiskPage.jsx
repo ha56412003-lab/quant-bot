@@ -88,31 +88,37 @@ function GlobalRisk({ data, onSaved }) {
         {t('risk.dailyTarget')}
       </div>
       <Row gutter={[16, 12]}>
-        <Col xs={24} md={5}>
+        <Col xs={24} md={4}>
           <div style={{ fontSize: 11.5, color: '#8a96a8', marginBottom: 4 }}>{t('risk.dtEnable')}</div>
           <Switch checked={!!(v.daily_target || {}).enabled}
                   onChange={(c) => setV({ ...v, daily_target: { ...(v.daily_target || {}), enabled: c } })} />
         </Col>
-        <Col xs={24} md={5}>
+        <Col xs={24} md={4}>
           <div style={{ fontSize: 11.5, color: '#8a96a8', marginBottom: 4 }}>{t('risk.dtAmount')}</div>
-          <InputNumber style={{ width: '100%' }} min={10} step={50}
+          <InputNumber style={{ width: '100%' }} min={10} max={1000000} step={50}
                        disabled={!(v.daily_target || {}).enabled}
                        value={(v.daily_target || {}).target_usd ?? 200}
                        onChange={(x) => setV({ ...v, daily_target: { ...(v.daily_target || {}), target_usd: x } })} />
         </Col>
-        <Col xs={24} md={5}>
+        <Col xs={24} md={4}>
           <div style={{ fontSize: 11.5, color: '#8a96a8', marginBottom: 4 }}>{t('risk.dtSustain')}</div>
-          <InputNumber style={{ width: '100%' }} min={0} step={60}
+          <InputNumber style={{ width: '100%' }} min={0} max={86400} step={60}
                        disabled={!(v.daily_target || {}).enabled}
                        value={(v.daily_target || {}).sustain_sec ?? 300}
                        onChange={(x) => setV({ ...v, daily_target: { ...(v.daily_target || {}), sustain_sec: x } })} />
         </Col>
-        <Col xs={24} md={5}>
+        <Col xs={24} md={4}>
           <div style={{ fontSize: 11.5, color: '#8a96a8', marginBottom: 4 }}>{t('risk.dtAutoClose')}</div>
-          <InputNumber style={{ width: '100%' }} min={0} step={300}
+          <InputNumber style={{ width: '100%' }} min={0} max={86400} step={300}
                        disabled={!(v.daily_target || {}).enabled}
                        value={(v.daily_target || {}).auto_close_sec ?? 1800}
                        onChange={(x) => setV({ ...v, daily_target: { ...(v.daily_target || {}), auto_close_sec: x } })} />
+        </Col>
+        <Col xs={24} md={4}>
+          <div style={{ fontSize: 11.5, color: '#8a96a8', marginBottom: 4 }}>{t('risk.dtPause')}</div>
+          <Switch checked={!!((v.daily_target || {}).pause_new ?? true)}
+                  disabled={!(v.daily_target || {}).enabled}
+                  onChange={(c) => setV({ ...v, daily_target: { ...(v.daily_target || {}), pause_new: c } })} />
         </Col>
         <Col xs={24} md={4}>
           <div style={{ fontSize: 11.5, color: '#8a96a8', marginBottom: 4 }}>{t('risk.dtNotify')}</div>

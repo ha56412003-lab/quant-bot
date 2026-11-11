@@ -261,7 +261,42 @@ def set_strategy_symbols(sid, symbols):
     return _update_strategy(sid, lambda s: s.update(symbols=syms))
 
 
+# 策略级风控硬边界（2026-11-11）。与全局风控同一原则：
+#   前端 InputNumber 的 min/max 只影响体验，接口可以被 curl 直接调用，
+#   所以必须在写盘前挡。
+# 三个 0 都是**合法语义**，不是「关掉风控」，所以下限取 0：
+#   capital_usd 0        = 用全账户净值
+#   max_position_usd 0   = capital × leverage
+#   risk_per_trade_pct 0 = 用全局值
+# leverage 上限取 125 —— 币安 U 本位永续合约的最高档。
+_STRAT_RISK_BOUNDS = {
+    "capital_usd": (0.0, 1e9),
+    "leverage": (1, 125),
+    "max_position_usd": (0.0, 1e9),
+    "risk_per_trade_pct": (0.0, 100.0),
+}
+
+
 def set_strategy_risk(sid, risk):
+    # ① 先纯校验，一个字节都不碰 cfg（与 set_global_risk 同原则）。
+    # 2026-11-11 前这里是零校验，只做 float/int 转换：实测 leverage=999、
+    # capital_usd=-500 都能 200 成功落盘。
+    if not isinstance(risk, dict):
+        raise ValueError("risk 必须是对象")
+    bad = []
+    for k, (lo, hi) in _STRAT_RISK_BOUNDS.items():
+        if k not in risk or risk[k] is None:
+            continue
+        try:
+            got = float(risk[k])
+        except (TypeError, ValueError):
+            bad.append(f"{k}={risk[k]!r} 不是数字")
+            continue
+        if not (lo <= got <= hi):
+            bad.append(f"{k}={got:g} 超出允许范围 {lo:g} ~ {hi:g}")
+    if bad:
+        raise ValueError("策略风控参数不合法，已拒绝写入：" + "；".join(bad))
+
     def mutate(s):
         blk = s.setdefault("risk", dict(DEFAULT_STRATEGY_RISK))
         for k in DEFAULT_STRATEGY_RISK:
@@ -293,6 +328,16 @@ _RISK_BOUNDS = {
 _DAILY_TARGET_KEYS = ("enabled", "target_usd", "sustain_sec", "auto_close_sec",
                       "pause_new", "notify")
 
+# 日目标子键的硬边界（2026-11-11）。这块以前是**原样写入、连类型都不转**：
+#   sustain_sec=-1、target_usd=-999、auto_close_sec=-50 实测都能 200 落盘。
+#   target_usd 为负 = 永远达不到目标；auto_close_sec 为负 = 达成瞬间就砍仓。
+_DAILY_TARGET_NUM_BOUNDS = {
+    "target_usd": (10.0, 1_000_000.0),   # 赚够多少 U 就停手
+    "sustain_sec": (0.0, 86400.0),       # 需持续顶住多久才确认（0=立即）
+    "auto_close_sec": (0.0, 86400.0),    # 提醒后多久强制平仓（0=只提醒）
+}
+_DAILY_TARGET_BOOL_KEYS = ("enabled", "pause_new", "notify")
+
 
 def set_global_risk(updates):
     """把全局风控参数写回 strategies.yaml。
@@ -320,6 +365,31 @@ def set_global_risk(updates):
             continue
         if not (lo <= got <= hi):
             bad.append(f"{k}={got:g} 超出允许范围 {lo:g} ~ {hi:g}")
+
+    # ①b daily_target 的子键也要挡（2026-11-11）。
+    #     这块以前是原样写入、连类型都不转：sustain_sec=-1、target_usd=-999
+    #     都能 200 落盘。target_usd 为负 = 永远达不到目标；auto_close_sec 为负
+    #     = 达成瞬间就砍仓 —— 都属「一次误触废掉系统」。
+    _dt_in = updates.get("daily_target")
+    if isinstance(_dt_in, dict):
+        for _k, (_lo, _hi) in _DAILY_TARGET_NUM_BOUNDS.items():
+            if _k not in _dt_in or _dt_in[_k] is None:
+                continue
+            try:
+                _got = float(_dt_in[_k])
+            except (TypeError, ValueError):
+                bad.append(f"daily_target.{_k}={_dt_in[_k]!r} 不是数字")
+                continue
+            if not (_lo <= _got <= _hi):
+                bad.append(f"daily_target.{_k}={_got:g} 超出允许范围 {_lo:g} ~ {_hi:g}")
+        for _k in _DAILY_TARGET_BOOL_KEYS:
+            if _k not in _dt_in or _dt_in[_k] is None:
+                continue
+            if not isinstance(_dt_in[_k], bool):
+                bad.append(f"daily_target.{_k}={_dt_in[_k]!r} 必须是 true/false")
+    elif _dt_in is not None:
+        bad.append("daily_target 必须是对象")
+
     if bad:
         raise ValueError("风控参数不合法，已拒绝写入：" + "；".join(bad))
 
@@ -449,8 +519,17 @@ def save_credentials(updates):
         for key, val in to_set.items():
             if key not in seen:
                 out.append(f"{key}={val}")
-        ENV_PATH.write_text("\n".join(out) + "\n", encoding="utf-8")
-        ENV_PATH.chmod(0o600)
+        # ★ 2026-11-11：改原子写。原来是 ENV_PATH.write_text(...) 直接覆盖，
+        #   写到一半崩溃/断电 → .env 被截断 → 所有 API key 丢失、服务起不来。
+        #   改成「同目录临时文件 → os.replace()」：同分区 rename 是原子操作，
+        #   结果只可能是完整的旧版或完整的新版，不存在半截文件。
+        _tmp = ENV_PATH.with_name(ENV_PATH.name + ".tmp")
+        _tmp.write_text("\n".join(out) + "\n", encoding="utf-8")
+        try:
+            _tmp.chmod(0o600)
+        except OSError:
+            pass
+        os.replace(_tmp, ENV_PATH)
 
     for envk, val in to_set.items():
         os.environ[envk] = val

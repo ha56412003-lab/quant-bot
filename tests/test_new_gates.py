@@ -251,7 +251,7 @@ def test_config():
         f"实际 {p.get('bbw_pct_min')}")
     # 监控池
     mon = cfg["pools"]["monitor"]
-    chk(mon.get("size") == 40, "C25 池子 size = 40（扩到 50 只多单量不增利润）",
+    chk(mon.get("size") == 50, "C25 池子 size = 50（11-11 定档：50 档 +55.88R > 40 档 +45.93R）",
         f"实际 {mon.get('size')}")
     # 2026-11-10 定档：止损距离闸整条删除（BTC/ETH 曾被它挡在池外）
     chk("stop_min_pct" not in mon and "stop_exit_pct" not in mon,

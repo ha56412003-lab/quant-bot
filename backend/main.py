@@ -1017,7 +1017,12 @@ async def api_strategy_config(sid: str, payload: dict):
             config.set_strategy_display_name(sid, payload["display_name"])
     except KeyError:
         raise HTTPException(404, f"unknown strategy {sid}")
-    except (TypeError, ValueError):
+    except ValueError as exc:
+        # 2026-11-11：把具体原因带出去。原来统一回 "invalid config value"，
+        # 用户/脚本只能知道「填错了」，不知道「错在哪、允许范围多少」。
+        # 风控边界校验的报错本身就写清了 "leverage=999 超出允许范围 1 ~ 125"。
+        raise HTTPException(400, str(exc) or "invalid config value")
+    except TypeError:
         raise HTTPException(400, "invalid config value")
     db.log("info", f"策略 {sid} 配置更新")
     return {"ok": True}
@@ -1179,6 +1184,14 @@ async def api_candidates_rebuild():
 async def api_whitelist_set(payload: dict):
     """设置自选合约白名单（优先级最高，无条件进候选池）。"""
     wl = [str(s).strip().upper() for s in (payload.get("symbols") or []) if str(s).strip()]
+    # ★ 2026-11-11：加币种校验。原来任意字符串都能写进 yaml（NOTACOIN、
+    #   甚至超长串），与 set_strategy_symbols 的标准不一致 —— 同一条规则
+    #   在另一个入口漏了，用户填错只能靠候选池里的「已跳过」提示才发现。
+    _allowed = set(config.UNIVERSE) | set(config.KNOWN_SYMBOLS)
+    _bad = [s for s in wl if s not in _allowed]
+    if _bad:
+        raise HTTPException(
+            400, f"未知交易币种: {','.join(_bad[:5])}（需在全局监控或已知币列表内）")
     cfg = config.load_strategies()
     cfg.setdefault("pools", {}).setdefault("candidate", {})["whitelist"] = wl
     config.save_strategies(cfg)

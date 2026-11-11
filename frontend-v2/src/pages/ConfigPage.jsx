@@ -191,7 +191,7 @@ function UniverseConfig() {
   return (
     <Card size="small" title="每天候选币池" style={{ marginTop: 16 }}>
       <Alert type="info" showIcon style={{ marginBottom: 12, fontSize: 12 }}
-        message="每天自动重建一次。组成 = 自选合约（优先级最高）+ 按成交额排名补满 100 只。"
+        message={`每天自动重建一次。组成 = 自选合约（优先级最高）+ 按成交额排名补满 ${cand?.size ?? 200} 只。`}
         description={
           <span style={{ fontSize: 11.5, color: 'var(--mute, #7d8590)' }}>
             过滤：真加密货币 · USDT 本位 · 永续 · 在交易 · 30 天振幅 {cand?.min_amp_pct ?? 10}% ~ {cand?.max_amp_pct ?? 300}%
