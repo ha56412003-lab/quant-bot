@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Card, Segmented } from 'antd'
 import Chart from '../Chart'
+import { api } from '../api'
 import { useI18n } from '../i18n'
 
 // 标题视觉跟 Dashboard 右侧两张卡的 Card head 对齐（11.5px / 700 / 青色 / 字距 0.06em）。
@@ -83,7 +84,8 @@ export default function EquityChart({ activeMode, upnl = 0, realized = 0 }) {
 
   useEffect(() => {
     let alive = true
-    const load = () => fetch(`/api/equity?mode=${mode}`).then((r) => r.json())
+    // ★ 2026-11-11 修：裸 fetch 不带 x-api-token → 401 → 权益曲线永远是空的（页面显示「净值 --」）
+    const load = () => api.get(`/api/equity?mode=${mode}`)
       .then((d) => alive && setSeries(d.series || [])).catch(() => {})
     load()
     const timer = setInterval(load, 30000)
@@ -98,7 +100,7 @@ export default function EquityChart({ activeMode, upnl = 0, realized = 0 }) {
   useEffect(() => {
     let alive = true
     if (mode === active) { setStat(null); return () => { alive = false } }
-    const load = () => fetch(`/api/status?mode=${mode}`).then((r) => r.json())
+    const load = () => api.get(`/api/status?mode=${mode}`)
       .then((d) => alive && setStat(d)).catch(() => {})
     load()
     const timer = setInterval(load, 30000)

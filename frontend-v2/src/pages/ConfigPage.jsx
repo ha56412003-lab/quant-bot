@@ -108,7 +108,11 @@ function ExecutorExchange() {
   const { t } = useI18n()
   const [info, setInfo] = useState(null)
 
-  const load = () => fetch('/api/executor-exchange').then((r) => r.json())
+  // ★ 2026-11-11 修的 BUG：这里原本是裸 fetch('/api/executor-exchange')，
+  //   不带 x-api-token → 后端 401 → 响应体 {detail:...} 被当成数据塞进 info
+  //   → 下面的 info.exchange.toUpperCase() 读到 undefined → 整个配置页白屏。
+  //   现在走 api.get（自动带 token / 观战 key，401 会抛错被 catch 吞掉，info 保持 null）。
+  const load = () => api.get('/api/executor-exchange')
     .then(setInfo).catch(() => {})
   useEffect(() => { load() }, [])
 
@@ -121,7 +125,9 @@ function ExecutorExchange() {
     } catch (e) { message.error(`${t('common.opFailed')}: ${e.message}`) }
   }
 
-  if (!info) return null
+  // ★ 2026-11-11：还要防「接口返回了但字段不全」（比如后端异常返回 {detail:...}），
+  //   只判断 !info 拦不住，必须确认 exchange 存在才渲染，否则又是一次白屏。
+  if (!info || !info.exchange) return null
   return (
     <Card size="small" title={t('config.executor')} style={{ marginTop: 16 }}>
       <Alert type="info" showIcon style={{ marginBottom: 12, fontSize: 12 }}

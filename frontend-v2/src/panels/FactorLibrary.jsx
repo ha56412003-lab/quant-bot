@@ -38,14 +38,14 @@ export default function FactorLibrary({ factorsData }) {
   }
 
   const load = useCallback(() => {
-    fetch('/api/factor-config').then((r) => r.json())
+    api.get('/api/factor-config')
       .then((d) => setRows(d.factors || [])).catch(() => {})
   }, [])
 
   useEffect(() => {
     load()
     const timer = setInterval(load, 15000)
-    fetch('/api/strategies').then((r) => r.json()).then((d) => {
+    api.strategies().then((d) => {
       const s = new Set()
       for (const st of d.strategies || []) for (const f of st.factors || []) s.add(f.name)
       setDeps(s)
