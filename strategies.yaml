@@ -51,6 +51,11 @@ global:
     notify: true
 strategies:
   S15_CE_ZLSMA:
+    # ★ 版本号（2026-11-12 浩哥定）：服务器端 VS15-1.1
+    #   此前线上跑了几天的关键指标是错的，本版起口径才正确，后续所有优化都基于本版。
+    #   改动内容：ZLSMA 时段新触发口径 + ⑥偏离闸删除 + 反手关闭 + 全平线 2.5R
+    #   写成字段而不是注释，因为 config._write() 用 safe_dump 会丢注释。
+    version: "VS15-1.1"
     enabled: true
     scan_interval: 15m
     symbols: []

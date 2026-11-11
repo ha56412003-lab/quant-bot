@@ -166,6 +166,8 @@ export const api = {
   ackSystemAlert: (id) => post(`/api/system-alerts/${id}/ack`, {}),
   netStatus: () => get('/api/netstatus'),
   setGlobalRisk: (payload) => post('/api/risk/global', payload),
+  // 手动暂停 / 恢复运营（VS15-1.1）：系统更新前先停开新仓
+  opsPause: (action) => post('/api/ops/pause', { action }),
   universe: () => get('/api/universe'),
   // 三层池：候选池（每天 100 只）
   candidates: () => get('/api/pool/candidates'),

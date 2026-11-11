@@ -159,6 +159,8 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
         : <Tag color={v === '多' ? 'red' : 'green'} style={{ margin: 0, padding: '0 4px' }}>{v}</Tag>) },
     // ★ 2026-11-09：null = 这轮没扫过（持仓币被策略跳过），必须显示「-」。
     //   以前 v ? ✓ : ✗ 会把 null 画成 ✗，误导成「这道闸没过」（STRK/SEI 实例）。
+    // ★ VS15-1.1：列名「时段」（i18n 里 gate.col.ce），判的是 ZLSMA50 实体穿越
+    //   切出的多空时段方向，不是 _ce_zlsma 返回的 dir 序列 —— 浩哥嘴里的「CE」就指时段。
     { title: t('gate.col.ce'), dataIndex: 'ce', width: 21, align: 'center',
       render: (v) => (v == null ? <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
         : v ? <span style={{ color: '#35e08a', fontWeight: 700, fontSize: 13 }}>✓</span>
@@ -167,9 +169,10 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
       render: (v) => (v == null ? <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
         : v ? <span style={{ color: '#35e08a', fontWeight: 700, fontSize: 13 }}>✓</span>
             : <span style={{ color: '#7c8296' }}>✗</span>) },
-    // ②b 关键K线（B 档新增）—— 实体 > 0.7×ATR(20) 且收在极值三分之一、实体占比 > 50%。
-    //   三道里它砍得最狠（挡掉约 90% 的 CE 信号），所以必须单独一列，否则「没开仓」
-    //   只能看到 CE/HA 全绿，看不出真正卡在哪。
+    // ②b 关键K线（B 档新增）—— 实体 ≥ 1.0×ATR(20) 且收在极值三分之一、实体占比 > 50%。
+    //   ★ VS15-1.1：key_mult 已从 0.7 恢复到原版 1.0（旧注释写的 0.7 已过时）。
+    //   三道里它砍得最狠，所以必须单独一列，否则「没开仓」只能看到时段/HA 全绿，
+    //   看不出真正卡在哪。
     { title: t('gate.col.key'), dataIndex: 'key', width: 36, align: 'center',
       render: (v) => (v == null ? <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
         : v ? <span style={{ color: '#35e08a', fontWeight: 700, fontSize: 13 }}>✓</span>
@@ -187,7 +190,16 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
     { title: t('gate.col.dev'), dataIndex: 'dev', width: 52, align: 'right',
       render: (v, r) => {
         const thr = r.dev_thr || 0
-        if (thr <= 0) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>关</span>
+        // ★ VS15-1.1：⑥ 偏离闸已从后端代码物理删除 → dev_thr 恒为 0.0。
+        //   这列之所以保留，是因为 dev 真值还有诊断价值（想知道「闸若还开着会拦掉谁」）。
+        //   但必须一眼看出它不参与判定，不能画成「关」让人以为是临时关掉的闸。
+        if (thr <= 0) {
+          if (v == null) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>停用</span>
+          return <span title="⑥ 偏离闸已在 VS15-1.1 删除：此值仅供参考，不拦单"
+                       style={{ color: 'var(--mute, #8c8c8c)', fontSize: 11, opacity: 0.65 }}>
+            {v.toFixed(2)}%
+          </span>
+        }
         if (v == null) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
         const pass = v >= thr
         return <span title={`阈值 ${thr}`} style={{ color: pass ? 'var(--green, #52c41a)' : 'var(--mute, #8c8c8c)', fontSize: 12 }}>
@@ -231,7 +243,7 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
             display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>{v}</span> },
   ]
-  // 七道闸表 10 列挤 394px：antd small 表格单元格左右各 8px 内边距，10 列共吃掉 160px，
+  // 闸门表 8 列挤 394px：antd small 表格单元格左右各 8px 内边距，10 列共吃掉 160px，
   // 「3.55%」这种 35px 宽的数值只差 1px 就被省略号吃掉。onCell 直接下内边距最可靠
   // （试过全局 CSS :hover 覆盖，被 antd CSS-in-JS 压住不生效）。
   gateCols.forEach((c) => { c.onCell = () => ({ style: { padding: '2px 3px' } }) })
@@ -326,8 +338,10 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
             display: 'flex', flexWrap: 'wrap', gap: '1px 10px', alignItems: 'baseline',
           }}>
             <span style={{ opacity: .92 }}>{t('gate.bar')} {gateBar}</span>
+            {/* ★ VS15-1.1：⑥ 偏离闸已删，页头不再统计它的通过数（原来那格恒等于
+                全通过，看着像一道很宽的闸，实际不拦单）。 */}
             {[['gate.col.ce', 'ce_n'], ['gate.col.ha', 'ha_n'], ['gate.col.key', 'key_n'],
-              ['gate.col.bbw', 'bbw_n'], ['gate.col.dev', 'dev_n'],
+              ['gate.col.bbw', 'bbw_n'],
               ['gate.col.risk', 'risk_n'], ['gate.col.eff', 'eff_n']].map(([k, f]) => (
               <span key={k} style={{ whiteSpace: 'nowrap' }}>
                 {t(k)} {g[f] || 0}/{gateRows.length}

@@ -83,14 +83,15 @@ function PosCard({ p, avatar }) {
   const peakR = Math.max(peakFromMfe, peakFromMem, curR)
 
   // ── B 档出场刻度（2026-11-10 重构）──
-  // 现役出场只有四条：① 硬止损 ② 1.2R 平半 ③ 2.0R 兜底全平 ④ 右侧止盈。
+  // 现役出场只有四条：① 硬止损 ② 1.2R 平半 ③ 2.5R 兜底全平 ④ 右侧止盈。
+  //   ★ VS15-1.1：兜底全平线已由 2.0R 上调至 2.5R（双样本验证，钱全在右尾）。
   // 前三条是价位触发 → 直接画在 R 轴上（刻度值从后端读，前端不写死）；
   // ④ 是 K 线形态触发（反向关键K线 + HA 收盘穿回 ZLSMA50），策略在 0.5s 循环里
   //   现算现用、不落库，所以不画灯，只给规则图例。
   // ⚠ 老的「镜像出场三闸 + 快速失败第四盏灯」整块删除：这两套规则已下线，
   //   留着灯会让人以为仓位还受它们管（比不画更糟）。
   const halfR = Number(p.half_at_r) || 0
-  const fullR = Number(p.full_at_r) || 2
+  const fullR = Number(p.full_at_r) || 2.5   // 兜底值跟 yaml 一致（VS15-1.1）
   const halfDone = !!p.half_closed
   const phase = curR < 0 ? 'loss' : (halfDone || curR >= fullR) ? 'free' : 'run'
   const stopPct = (px && sl) ? Math.abs(px - sl) / px * 100 : 0

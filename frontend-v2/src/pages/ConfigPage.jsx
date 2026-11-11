@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   Card, Row, Col, Input, Button, message, Descriptions, Tag, Space,
-  Select, Alert, Radio, Table, Switch,
+  Select, Alert, Radio, Table, Switch, Modal,
 } from 'antd'
 import { api, fmtUsd } from '../api'
 import { useI18n } from '../i18n'
@@ -386,9 +386,105 @@ function AuditLog() {
   )
 }
 
+function OpsPause() {
+  // 手动暂停运营（VS15-1.1）：系统更新前先把「开新仓」关上，已开仓位不受影响
+  const [st, setSt] = useState(null)
+  const [busy, setBusy] = useState(false)
+
+  const load = () => api.status().then(setSt).catch(() => {})
+  useEffect(() => {
+    load()
+    const id = setInterval(load, 10000)     // 状态就是操作反馈，10 秒刷一次
+    return () => clearInterval(id)
+  }, [])
+
+  const doAction = async (action) => {
+    setBusy(true)
+    try {
+      await api.opsPause(action)
+      message.success(action === 'pause'
+        ? '已暂停运营：不会再开新仓'
+        : '已恢复运营：允许开新仓')
+      load()
+    } catch (e) {
+      message.error(`操作失败：${e.message}`)
+    } finally { setBusy(false) }
+  }
+
+  // ★ 读不到状态时**也要把卡片画出来**：
+  //   第一版写成 `if (!st) return null`，结果观战链接 / token 失效时整张卡片消失，
+  //   人会以为「这功能没做」。现在无论如何都显示，只是把状态说清楚。
+  if (!st) {
+    return (
+      <Card size="small" title="运营开关（系统更新前先停）" style={{ marginTop: 16 }}>
+        <Alert type="info" showIcon style={{ fontSize: 12 }}
+               message="读取不到运营状态"
+               description="观战链接是只读的，看不到这个开关；用带管理权限的地址登录后再看。" />
+      </Card>
+    )
+  }
+  const paused = !!st.manual_paused
+  const fused = !paused && !!st.halted            // 不是手动暂停却停了 = 日内熔断
+  const openN = st.open_positions || 0
+
+  const tag = paused
+    ? <Tag color="orange">已暂停运营</Tag>
+    : fused
+      ? <Tag color="red">日内熔断中</Tag>
+      : <Tag color="green">运行中</Tag>
+
+  return (
+    <Card size="small" title="运营开关（系统更新前先停）" style={{ marginTop: 16 }}>
+      <Alert
+        type={paused ? 'warning' : 'info'}
+        showIcon
+        style={{ marginBottom: 12, fontSize: 12 }}
+        message={paused
+          ? `已暂停：不会再开新仓。当前仍有 ${openN} 个仓位在跑 —— 暂停不会平仓。`
+          : `当前状态：${fused ? '日内熔断（风控自动触发，次日 0 点解除）' : '正常运行，允许开新仓'}`}
+        description={paused
+          ? '要让仓位也退出：到「总览」点「一键全平」，或等它按离场规则自己走完。'
+          : '系统更新 / 改参数 / 换凭据之前，先点「暂停运营」，避免更新中间冒出新的单。'}
+      />
+      <Space>
+        <span style={{ fontSize: 12, color: 'var(--mute, #7d8590)' }}>状态：</span>
+        {tag}
+        {openN > 0 && (
+          <span style={{ fontSize: 12, color: 'var(--mute, #7d8590)' }}>
+            持仓 {openN} 笔
+          </span>
+        )}
+        {paused ? (
+          <Button size="small" type="primary" loading={busy}
+                  onClick={() => doAction('resume')}>
+            恢复运营
+          </Button>
+        ) : (
+          <Button size="small" danger loading={busy}
+                  onClick={() => {
+                    Modal.confirm({
+                      title: '暂停运营？',
+                      content: `将立刻停止开新仓。${openN > 0
+                        ? `已开的 ${openN} 个仓位不受影响，会继续按离场规则管理。`
+                        : '当前没有持仓。'}`,
+                      okText: '暂停',
+                      okButtonProps: { danger: true },
+                      cancelText: '取消',
+                      onOk: () => doAction('pause'),
+                    })
+                  }}>
+            暂停运营
+          </Button>
+        )}
+      </Space>
+    </Card>
+  )
+}
+
 export default function ConfigPage() {
   return (
     <Row gutter={[16, 16]}>
+      <Col span={24}><OpsPause /></Col>
       <Col span={24}><Credentials /></Col>
       <Col span={24}><ExecutorExchange /></Col>
       <Col span={24}><UniverseConfig /></Col>

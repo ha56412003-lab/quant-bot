@@ -43,9 +43,28 @@ def daily_realized_pnl(mode="auto"):
     return db.realized_pnl_since(_day_start(), mode)
 
 
+def _halt_until_ts():
+    """日内熔断的截止时间戳（只读，不含手动暂停）。"""
+    return float(db.get_meta("halt_until", "0") or 0)
+
+
+def manual_paused():
+    """手动暂停运营（VS15-1.1 新增）。
+
+    用途：系统更新 / 改参数 / 换凭据前，在配置页点一下，立刻停开新仓，
+    但不动已开的仓位（要不要平仓是另一个决定，走「一键平仓」）。
+
+    为什么单独存一个 key：日内熔断（halt_until）是风控自动触发的，
+    恢复运营不能顺手把熔断也解掉 —— 两个语义必须分开。
+    """
+    return db.get_meta("manual_pause", "0") == "1"
+
+
 def halted():
-    until = float(db.get_meta("halt_until", "0") or 0)
-    return time.time() < until
+    """停开新仓：手动暂停 或 日内熔断，任一成立即停。"""
+    if manual_paused():
+        return True
+    return time.time() < _halt_until_ts()
 
 
 def open_unrealized_pnl(mode="auto"):
@@ -82,7 +101,9 @@ def check_daily_halt(equity, cfg_global):
     if not (equity > 0 and pnl < 0 and abs(pnl) / equity * 100 >= cfg_global["daily_loss_halt_pct"]):
         return False
     # 已经熔断中就不要每 10 秒重写 meta、重打一条 warn（日志会被刷爆）
-    if halted():
+    # ★ 只看熔断本身，不看 manual_paused：手动暂停中若真触发熔断，必须照常落库，
+    #   否则「恢复运营」一按就把熔断也放开了。
+    if time.time() < _halt_until_ts():
         return True
     tomorrow = _day_start() + 86400
     db.set_meta("halt_until", tomorrow)

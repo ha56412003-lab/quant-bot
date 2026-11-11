@@ -400,6 +400,11 @@ async def api_status(mode: str = ""):
         "equity": eq, "balance": bal, "unrealized": upnl,
         "daily_realized_pnl": day_pnl,
         "halted": risk.halted(),
+        # VS15-1.1：halted 现在 = 手动暂停 或 日内熔断。两者必须分开给前端，
+        # 否则界面上会把「我手动按的暂停」显示成「风控熔断」。
+        "manual_paused": risk.manual_paused(),
+        "manual_pause_ts": int(db.get_meta("manual_pause_ts", "0") or 0),
+        "halt_until_ts": int(risk._halt_until_ts()),
         "unrealized_halt_pct": _uh,
         "unrealized_loss_pct": _uloss,
         # True = 当前正被浮亏闸挡着，开不了新仓（这是实时状态，价格反弹就恢复）
@@ -729,6 +734,43 @@ async def api_close_all():
         out["error"] = (f"{failed} 个仓位没平掉（交易所拒单/未成交，或已被其他路径平仓），"
                         f"请刷新持仓确认后再试")
     return out
+
+
+@app.post("/api/ops/pause")
+async def api_ops_pause(payload: dict):
+    """手动暂停 / 恢复运营（VS15-1.1 新增）。
+
+    用途：系统更新、改参数、换凭据之前，先把「开新仓」这道闸关上，
+    避免更新过程中间冒出一笔新单。
+
+    ⚠ 只停开新仓，**不动已开的仓位**。要不要平仓是另一个决定，走
+      `POST /api/positions/close-all`。想让仓位在更新前干净退出，顺序是：
+      先 pause → 再 close-all（或等它自己按离场规则走完）。
+
+    与日内熔断完全分开存（manual_pause vs halt_until）：
+      恢复运营不能顺手把风控熔断也解掉。
+    """
+    action = str((payload or {}).get("action") or "").strip().lower()
+    if action not in ("pause", "resume"):
+        raise HTTPException(400, "action 必须是 'pause' 或 'resume'")
+    before = risk.manual_paused()
+    open_n = len(db.open_positions())
+    if action == "pause":
+        db.set_meta("manual_pause", "1")
+        db.set_meta("manual_pause_ts", int(time.time()))
+        db.log("warn", f"手动暂停运营：停止开新仓（已开 {open_n} 个仓位不受影响）")
+    else:
+        db.set_meta("manual_pause", "0")
+        db.set_meta("manual_pause_ts", "0")
+        db.log("info", "手动恢复运营：允许开新仓")
+    after = risk.manual_paused()
+    try:
+        config._audit("ops_" + action, "global",
+                      {"manual_paused": after, "open_positions": open_n})
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, "manual_paused": after, "halted": risk.halted(),
+            "changed": before != after, "open_positions": open_n}
 
 
 @app.post("/api/positions/{pid}/leverage")
