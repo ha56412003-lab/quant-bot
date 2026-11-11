@@ -8,7 +8,7 @@
 
 B 档出场链（就四条，顺序就是这个顺序）：
   ① half_at_r 1.2R  → 平一半            (_half_take_profit)
-  ② full_at_r 2.0R  → 兜底全平（只对已平半的仓位）(_full_target)
+  ② full_at_r 2.5R  → 兜底全平（只对已平半的仓位）(_full_target)
   ③ 右侧止盈        → HA 反向 + HA 收盘穿 ZLSMA50 + 那根【原始K线】是反向关键K线 (_right_exit)
   ④ 镜像出场        → mirror_exit=false，整条停用 (_mirror_exit)
   ⑤ 硬止损          → 在 engine.py，优先于以上所有
@@ -101,7 +101,7 @@ positions = [(k, body.find(p)) for k, p in
               ("right", "_right_exit"))]
 seq = [k for k, v in sorted(positions, key=lambda kv: kv[1]) if v >= 0]
 chk(seq == ["half", "full", "right"],
-    "顺序 = 平半 1.2R → 兜底 2.0R → 右侧止盈", "实际 %s" % seq)
+    "顺序 = 平半 1.2R → 兜底 2.5R → 右侧止盈", "实际 %s" % seq)
 chk("_refresh_peak" in body, "峰顶维护在 check_exit 最前面（无条件）",
     "峰顶藏在镜像里 → 镜像一关峰顶冻结")
 chk(body.find("_refresh_peak") < body.find("_half_take_profit"),
@@ -109,7 +109,7 @@ chk(body.find("_refresh_peak") < body.find("_half_take_profit"),
 
 full_body = method_block(S_SRC, "_full_target")
 chk("full_at_r" in full_body, "_full_target 用 full_at_r 门槛", repr(full_body[:80]))
-chk("half_closed" in full_body, "2.0R 兜底只对已平半的仓位生效",
+chk("half_closed" in full_body, "2.5R 兜底只对已平半的仓位生效",
     "没有 half_closed 判断 → 会在 2R 就把整仓平掉")
 
 print()
@@ -168,12 +168,12 @@ for pname in ("half_at_r", "full_at_r", "right_exit", "right_exit_strict",
     chk(pname in sig, "sim() 参数含 %s" % pname, "回测缺这个参数 → 口径对不上")
 
 chk(float(P["half_at_r"]) == 1.2, "half_at_r = 1.2", "实际 %s" % P["half_at_r"])
-chk(float(P["full_at_r"]) == 2.0, "full_at_r = 2.0", "实际 %s" % P["full_at_r"])
+chk(float(P["full_at_r"]) == 2.5, "full_at_r = 2.5（2026-11-12 由 2.0 上调）", "实际 %s" % P["full_at_r"])
 chk(bool(P["right_exit_strict"]) is True, "right_exit_strict = true")
 chk(float(P["swing_lookback"]) == 8, "swing_lookback = 8", "实际 %s" % P["swing_lookback"])
 chk(float(P["max_risk_pct"]) == 5.0, "max_risk_pct = 5.0")
-chk(float(P["dev_atr_mult"]) == 1.0, "dev_atr_mult = 1.0（偏离闸 = 1.0×ATR20）")
-chk(float(P["key_mult"]) == 0.7, "key_mult = 0.7")
+chk(float(P["dev_atr_mult"]) == 0.0, "dev_atr_mult = 0.0（⑥ 偏离闸已物理删除）")
+chk(float(P["key_mult"]) == 1.0, "key_mult = 1.0（VS15-1.1 恢复原版，原 0.7）")
 # 2026-11-10 定档：池子止损距离闸已整条删除
 chk("stop_min_pct" not in MON and "stop_exit_pct" not in MON,
     "池子止损距离闸已删除（两键不该存在）",
