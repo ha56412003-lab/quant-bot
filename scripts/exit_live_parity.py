@@ -34,7 +34,10 @@ _spec.loader.exec_module(est)
 BLK = yaml.safe_load(open('strategies.yaml', encoding='utf-8'))['strategies']['S15_CE_ZLSMA']
 ST = S15CeZlsma(BLK)
 CAP = 5.0
-MAXH = 64          # 16 小时 = 64 根 15m（线上 max_hold_hours: 16）
+# ★ 2026-11-11 更正：线上 yaml 现在是 max_hold_hours: 0（时间止损已关），
+#   这里的 64 根是历史遗留值。用它跑出来的结果只代表「有 16h 止损」的口径，
+#   跟现在的线上不一致 —— 拿它对比线上必须先把 MAXH 设成 None/0。
+MAXH = 64          # 历史值：16 小时 = 64 根 15m
 
 BARS = []
 for fp in sorted(glob.glob("backtest/data/*_15m_60d.json")):

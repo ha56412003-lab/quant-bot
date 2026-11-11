@@ -221,9 +221,12 @@ def _rate_hit(ip: str):
         if len(q) >= _RATE_LIMIT_PER_MIN:
             return False, max(1, int(_RATE_WINDOW_SEC - (now - q[0])) + 1)
         q.append(now)
-        # 字典别无限长：超过 4000 个 IP 就清掉空桶
+        # ★ 字典别无限长：超过 4000 个 IP 时踢掉「最久没活动」的那批。
+        #   （2026-11-11 修的一个 BUG：原先只清「空桶」，但发过请求的桶永远非空，
+        #     等于一个都清不掉 —— 大量不同 IP 打进来会无限增长。）
         if len(_rate_buckets) > 4000:
-            for k in [k for k, v in _rate_buckets.items() if not v][:2000]:
+            dead = sorted(_rate_buckets.items(), key=lambda kv: kv[1][-1] if kv[1] else 0)
+            for k, _v in dead[:2000]:
                 _rate_buckets.pop(k, None)
     return True, 0
 
@@ -282,9 +285,14 @@ async def _api_guard(request: Request, call_next):
     path = request.url.path
 
     # ★ ①.5 限流（2026-11-11）：防高频刷 GET 拖垮单 worker。
-    #   本机直连（127.0.0.1 / ::1）不限流 —— SSH 进来排查、本机脚本不受影响。
+    #   豁免两类：
+    #     ① 本机直连（127.0.0.1 / ::1）—— SSH 排查、本机脚本不受影响
+    #     ② 带有效操作 token 的请求 —— 你自己的看板每 5 秒轮询多个面板，
+    #        加上静态资源，120 次/分钟根本不够，按 IP 限会把你自家人拦住。
+    #        只限「没凭据的陌生请求」和「观战者」。
     cip = _client_ip(request)
-    if cip not in ("127.0.0.1", "::1", "localhost"):
+    _is_operator = bool(livekeys.api_token()) and _token_ok(_take_token(request))
+    if cip not in ("127.0.0.1", "::1", "localhost") and not _is_operator:
         ok_rate, retry_after = _rate_hit(cip)
         if not ok_rate:
             log.warning("限流：ip=%s path=%s", cip, path)

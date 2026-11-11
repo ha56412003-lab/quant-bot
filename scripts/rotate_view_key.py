@@ -251,7 +251,7 @@ NEW={new_vk}
 OLD={old_vk or "NONE"}
 TK=$(grep "^QB_API_TOKEN=" {LIVEKEYS} 2>/dev/null | head -1 | cut -d= -f2-)
 if [ -z "$TK" ]; then TK=$(grep "^QB_API_TOKEN=" .env | head -1 | cut -d= -f2-); fi
-echo "  服务运行时长         : $(ps -o etimes= -p $(systemctl show quantbot -p MainPID --value) 2>/dev/null | tr -d ' ') 秒（没重启的话应该 > 60）"
+echo "  服务运行时长         : $(ps -o etimes= -p $(systemctl show quantbot -p MainPID --value) 2>/dev/null | tr -d ' ') 秒（换完前后对比，只增不减 = 没重启）"
 echo "  新观战 key 读 status : $(curl -s -o /dev/null -w "%{{http_code}}" --noproxy "*" --max-time 8 -H "x-view-key: $NEW" http://127.0.0.1:8899/api/status)"
 if [ "$OLD" != "NONE" ]; then
   echo "  旧观战 key 读 status : $(curl -s -o /dev/null -w "%{{http_code}}" --noproxy "*" --max-time 8 -H "x-view-key: $OLD" http://127.0.0.1:8899/api/status)"

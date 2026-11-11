@@ -290,7 +290,7 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
           <div data-act-status style={{ fontSize: 12, marginBottom: 6 }}>
             {quietNow
               ? <span style={{ color: 'var(--red, #d4595e)', fontWeight: 600 }}>
-                  ⏸ {t('ev.quietTitle')}：{evName(quietNow)} —— 暂停开新仓，已有持仓照常管理（止损/平半/时间止损不受影响）
+                  ⏸ {t('ev.quietTitle')}：{evName(quietNow)} —— 暂停开新仓，已有持仓照常管理（止损/平半/右侧止盈不受影响）
                 </span>
               : ev.next_ts
                 ? <span style={{ color: 'var(--mute, #8c8c8c)' }}>

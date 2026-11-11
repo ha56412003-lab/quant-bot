@@ -17,7 +17,14 @@ from fastapi.testclient import TestClient          # noqa: E402
 
 from backend import config                          # noqa: E402
 from backend import db                              # noqa: E402
+from backend import livekeys                        # noqa: E402
 from backend.main import _rate_buckets, app         # noqa: E402
+
+# ★ 隔离：把凭据文件指到一个不存在的路径，强制走 config 里的测试值。
+#   否则本地一旦存在 data/livekeys，测试读到的就是真实凭据，断言全乱。
+livekeys.KEYS_FILE = os.path.join(ROOT, "data", "livekeys.__test_absent__")
+livekeys._cache["mtime_ns"] = -1
+livekeys._cache["data"] = {}
 
 PASS, FAIL = [], []
 
@@ -160,6 +167,27 @@ try:
     reset_rate()
     r = c.get("/assets/does-not-exist.js", headers={"x-real-ip": "203.0.113.10"})
     check("GET /assets/* 无凭据 -> 不是 401", r.status_code != 401, f"HTTP {r.status_code}")
+
+    # ══════════════════════════════════════════════════════
+    print("\n[9] 操作者不受限流（自己的看板不能被自己拦住）")
+    # ══════════════════════════════════════════════════════
+    # 你开一个看板：每 5 秒轮询 6 个面板 + 静态资源，120 次/分钟根本不够。
+    # 所以带有效 token 的请求必须豁免限流，只限陌生人 / 观战者。
+    reset_rate()
+    blocked = 0
+    for _ in range(200):
+        r = c.get("/api/gates", headers={"x-api-token": TOK, "x-real-ip": "203.0.113.11"})
+        if r.status_code == 429:
+            blocked += 1
+    check("带操作 token 连发 200 次 -> 0 次 429", blocked == 0, f"被限 {blocked} 次")
+
+    reset_rate()
+    blocked = 0
+    for _ in range(200):
+        r = c.get("/api/gates", headers={"x-view-key": VIEW, "x-real-ip": "203.0.113.12"})
+        if r.status_code == 429:
+            blocked += 1
+    check("观战 key 仍受限流（不是谁都能刷）", blocked > 0, f"被限 {blocked} 次")
 
 finally:
     config.VIEW_KEY, config.API_TOKEN, config.API_TOKEN_PREV = old

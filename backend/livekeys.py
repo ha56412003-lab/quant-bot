@@ -70,10 +70,17 @@ def _load():
 
 
 def get(name, fallback=""):
-    """取一个键。文件里没有或为空 → 用 fallback。"""
+    """取一个键。
+
+    ★ 语义（2026-11-11 修过的一个 BUG）：
+      文件里【明确写了】这个键（哪怕值是空的）→ 以文件为准，返回空字符串。
+      这样「把 QB_VIEW_KEY 留空」能真正关掉读鉴权，而不是被 .env 的旧值顶回去。
+      文件里【没有】这个键 → 回退到 fallback（环境变量）。
+    """
     data, _ = _load()
-    v = (data.get(name) or "").strip()
-    return v or fallback
+    if name in data:
+        return data[name]
+    return fallback
 
 
 def view_key():
@@ -94,7 +101,13 @@ def api_token_prev():
 def write(values: dict):
     """原子写入凭据文件（临时文件 + os.replace，读者不会读到半截）。
 
-    只更新传入的键，其余键保留原值。
+    只更新传入的键，其余键保留原值。传空字符串 = 把这个键写成空
+    （有意义的操作：等于关掉对应鉴权）。
+
+    ★ 当前没有任何代码路径调用它 —— 实际写入方是 scripts/rotate_view_key.py
+      和 rotate_token.py，它们通过 SSH 在服务器上直接改文件。
+      保留这个函数是为了让模块的读写 API 对称（以后要做「网页上改 key」
+      就直接能用），别当死代码删掉。
     """
     cur, _ = _load()
     merged = dict(cur)
@@ -106,8 +119,8 @@ def write(values: dict):
         f.write("# 热加载凭据 —— 改这个文件立即生效，不用重启服务\n")
         f.write("# 由 scripts/rotate_view_key.py / rotate_token.py 维护，手改也行\n")
         for k in sorted(merged):
-            if merged[k]:
-                f.write(f"{k}={merged[k]}\n")
+            # ★ 空值也要写出来（「把这个键留空」是有意义的操作：关掉对应鉴权）
+            f.write(f"{k}={merged[k]}\n")
     os.replace(tmp, KEYS_FILE)          # 原子替换
     # 让下一次 _load() 强制重读（os.replace 会改 mtime，但同秒内可能相同）
     with _lock:

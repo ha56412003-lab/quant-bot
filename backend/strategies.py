@@ -822,11 +822,15 @@ class S15CeZlsma(Base):
             —— engine.py 负责（优先级更高，先判）——
             ④ 硬止损（三条并列取近的那条：关键K线低点 / 8 根摆动 / CE 通道）
 
-        ★ 2026-11-10 B 档删掉的四条（方法已整段删除，不是靠开关关掉）：
-           · 16h 时间止损（max_hold_hours: 0）—— 把「慢性子但最终赚钱」那批砍在 4 小时线上
-           · 快速失败（_quick_fail）—— 实跑 12 笔 −440U
-           · 镜像出场（_mirror_exit）—— 与 ③ 后两条完全重叠，且会抢在 ③ 之前掐单
-           · 移动止盈 / 平半后再赚 N 个 R 全平（trail_arm/trail_dd/half_tp_r）—— 与 ② 抢同一个出口
+        ★ 2026-11-10 B 档下线了四条规则（方法体已删）。但注意：
+           · 16h 时间止损【没有完全删干净】—— 它留了一道安全阀：
+             strategies.py:92 仍会读 max_hold_hours 算出 max_hold_sec，
+             存进 positions 表，engine.py:178 用 `pos["max_hold_sec"] and ...`
+             判断（0 值短路，永不触发）。yaml 里 max_hold_hours: 0 就是关着。
+             这个 0 值保护必须留着：没有它，now-opened_at>=0 恒真，每单开出来就平。
+           · 快速失败（_quick_fail）—— 方法体已删，实跑 12 笔 −440U
+           · 镜像出场（_mirror_exit）—— 方法体已删，与 ③ 后两条重叠且会抢在前面掐单
+           · 移动止盈 / 平半后再赚 N 个 R 全平（trail_arm/trail_dd/half_tp_r）—— 已删
 
         ★ 平半后的逻辑变了（与旧版最大的区别）：
            旧：3R 全平 + 移动止盈 1.5/1.2（两条都在盯着"已经赚到的钱不要吐回去"）
