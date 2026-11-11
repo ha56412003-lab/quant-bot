@@ -69,3 +69,9 @@ strategies.yaml.bak_*
 *.tmp
 .cm*.tmp
 .commitmsg.tmp
+
+# 从服务器拉 yaml 时的本地备份（scripts/pull_server_yaml.py 生成，2026-11-11）
+.yaml_backups/
+
+# 已废弃的启动入口（改名留档，不进仓库）
+*.disabled_*
