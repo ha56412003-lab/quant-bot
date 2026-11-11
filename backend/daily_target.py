@@ -349,7 +349,13 @@ def summary(equity, day_start_equity, c):
         "pnl": round(pnl, 2),
         "target": c["target_usd"],
         "pct": round(min(999, pnl / target * 100), 1),
-        "hit": bool(st["state"] in ("alerted", "done") and st["day"] == _today()),
+        # hit = 「今天真的赚到目标了」。
+        # 以前只看 state in (alerted, done) —— 手动全平误设 done 时，
+        # 当日亏 76 U 也照样 hit=true，界面上的数字和标签自相矛盾。
+        # state 是流程状态，hit 是对账事实，两者必须分开算。
+        "hit": bool(st["state"] in ("alerted", "done")
+                    and st["day"] == _today()
+                    and pnl >= target),
         "blocked": blocked(),
         "auto_close_left": left,
         "sustain_sec": c["sustain_sec"],

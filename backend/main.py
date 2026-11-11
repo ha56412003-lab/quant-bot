@@ -678,15 +678,19 @@ async def api_dt_reset(payload: dict | None = None):
 @app.post("/api/positions/close-all")
 async def api_close_all():
     closed, failed = await executor.close_all("手动一键全平")
-    paused = False
-    if closed:
-        # 手动全平 = 主动落袋，当天不再自动开新仓（这是既有语义，不改）。
-        # 但必须把这件事说出来 —— 否则用户以为是「平完继续做」，
-        # 结果等一整天没单，还以为策略坏了。
-        daily_target.mark_done("手动一键全平")
-        paused = True
+    # ── 2026-11-11 改：手动全平不再把日目标置为 done ─────────────────────
+    # 原实现是「平完就 mark_done → paused_today=True」，后果是 risk.py::
+    # allow_entry 的第二道闸 _dtm.blocked() 从这一刻起拒掉当天所有信号，
+    # 而界面上没有任何说明，用户以为「平完继续做」，等一整天没单还
+    # 以为策略坏了（2026-11-11 16:08 实案：ERAUSDT 平仓后 2 小时零开仓，
+    # /api/status 却是 hit=true —— 因为 hit 原本只看 state 不看盈亏）。
+    #
+    # 两者的语义本来就不同：
+    #   手动一键全平 = 清掉仓位重新来（风险动作）
+    #   日目标 done  = 当日盈利 ≥ target，落袋收工（收益动作）
+    # 日目标该不该停开新仓，交给 daily_target.tick() 按 pnl >= target 判断。
     out = {"ok": failed == 0, "closed": closed, "failed": failed,
-           "paused_today": paused}
+           "paused_today": False}
     if failed:
         out["error"] = (f"{failed} 个仓位没平掉（交易所拒单/未成交，或已被其他路径平仓），"
                         f"请刷新持仓确认后再试")
