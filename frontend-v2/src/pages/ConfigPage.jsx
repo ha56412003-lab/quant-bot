@@ -114,12 +114,8 @@ function ExecutorExchange() {
 
   const switchTo = async (venue) => {
     try {
-      const r = await fetch('/api/executor-exchange', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ exchange: venue }),
-      })
-      const d = await r.json().catch(() => ({}))
-      if (!r.ok) throw new Error(d.detail || r.status)
+      // 走统一封装：自动带 x-api-token，只读模式下直接被拦（2026-11-11）
+      await api.post('/api/executor-exchange', { exchange: venue })
       message.success(`${t('config.executorOk')}: ${venue}`)
       load()
     } catch (e) { message.error(`${t('common.opFailed')}: ${e.message}`) }

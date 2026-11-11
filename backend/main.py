@@ -3,6 +3,7 @@ import asyncio
 import faulthandler
 import json
 import logging
+import os
 import signal
 import time
 
@@ -272,6 +273,11 @@ async def api_status(mode: str = ""):
         "now_ms": int(time.time() * 1000),
         "daily_target": daily_target.summary(
             eq, db.day_start_equity(), daily_target.cfg(cfg["global"])),
+        # 2026-11-11 本地/服务器身份分离：前端顶栏按 env_label 挂标签
+        # 本地 run_server.bat 设 QB_ENV_LABEL=本地测试；服务器不设 → 空串（正式盘）
+        "env_label": (os.environ.get("QB_ENV_LABEL") or "").strip(),
+        # 当前实际用的数据库文件名 —— 排查"两边数据对不上"时先看这个
+        "db_name": Path(config.DB_PATH).name,
     }
 
 

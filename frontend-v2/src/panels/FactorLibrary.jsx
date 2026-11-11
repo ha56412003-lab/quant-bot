@@ -5,6 +5,7 @@ import {
   Input, Select, Space,
 } from 'antd'
 import FactorsPanel from './FactorsPanel'
+import { api } from '../api'
 import { useI18n } from '../i18n'
 
 function IntervalEditor({ row, onSave }) {
@@ -66,10 +67,8 @@ export default function FactorLibrary({ factorsData }) {
 
   const update = async (name, payload) => {
     try {
-      await fetch(`/api/factor-config/${name}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
+      // 走统一封装：自动带 x-api-token，只读模式下直接被拦（2026-11-11）
+      await api.post(`/api/factor-config/${name}`, payload)
       message.success(`${name} ${t('common.updated')}`)
       load()
     } catch {

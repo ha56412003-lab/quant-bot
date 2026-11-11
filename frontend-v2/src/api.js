@@ -1,13 +1,69 @@
+/* ── 写操作鉴权 / 只读观战（2026-11-11）────────────────────────────
+   两种进入方式：
+     1) 自己的链接：?token=xxx
+        → 立刻存进 localStorage，并从地址栏抹掉（免得截图/转发把 token 漏出去）
+        → 之后所有请求自动带 x-api-token，后端才放行写操作
+     2) 给朋友的观战链接：?ro=1
+        → READ_ONLY = true，页面隐藏所有开仓/平仓/改参数按钮
+        → 而且他浏览器里没有 token，就算按 F12 手搓请求，后端也会 401
+   注意：光靠前端藏按钮是假只读，真正的墙在后端中间件（backend/main.py:178）。
+*/
+const LS_TOKEN = 'qb_api_token'
+
+function _initToken() {
+  try {
+    const q = new URLSearchParams(window.location.search)
+    const t = (q.get('token') || '').trim()
+    if (t) {
+      localStorage.setItem(LS_TOKEN, t)
+      q.delete('token')
+      const qs = q.toString()
+      window.history.replaceState({}, '', window.location.pathname + (qs ? '?' + qs : ''))
+      return t
+    }
+    return (localStorage.getItem(LS_TOKEN) || '').trim()
+  } catch (e) {
+    return ''
+  }
+}
+
+export const API_TOKEN = _initToken()
+
+let _ro = false
+try {
+  const _q = new URLSearchParams(window.location.search)
+  const _v = (_q.get('ro') || _q.get('readonly') || '').toLowerCase()
+  _ro = ['1', 'true', 'yes', 'on'].includes(_v)
+} catch (e) { _ro = false }
+
+/** true = 只读观战模式（URL 带 ?ro=1），所有写操作在前端就被挡掉 */
+export const READ_ONLY = _ro
+
+/** 统一请求头：有 token 就带上（后端只对写操作校验，GET 带了也无害） */
+function _hdr(extra) {
+  const h = Object.assign({}, extra || {})
+  if (API_TOKEN) h['x-api-token'] = API_TOKEN
+  return h
+}
+
+/** 只读模式的写操作统一拒绝（第二道防线在后端） */
+function _blockWrite(what) {
+  const err = new Error(`只读模式（观战链接）不能${what}`)
+  err.readonly = true
+  return err
+}
+
 const get = async (path) => {
-  const r = await fetch(path)
+  const r = await fetch(path, { headers: _hdr() })
   if (!r.ok) throw new Error(`${path}: ${r.status}`)
   return r.json()
 }
 
 const post = async (path, body) => {
+  if (READ_ONLY) throw _blockWrite('执行写操作')
   const r = await fetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: _hdr({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(body || {}),
   })
   const d = await r.json().catch(() => ({}))
@@ -55,7 +111,8 @@ export const api = {
   strategyConfig: (id, payload) => post(`/api/strategies/${id}/config`, payload),
   createStrategy: (base, name) => post('/api/strategies/create', { base, name }),
   deleteStrategy: async (id) => {
-    const r = await fetch(`/api/strategies/${id}`, { method: 'DELETE' })
+    if (READ_ONLY) throw _blockWrite('删除策略')
+    const r = await fetch(`/api/strategies/${id}`, { method: 'DELETE', headers: _hdr() })
     const d = await r.json().catch(() => ({}))
     if (!r.ok) throw new Error(d.detail || `${r.status}`)
     return d

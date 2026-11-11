@@ -3,9 +3,16 @@ cd /d "%~dp0"
 if not exist logs mkdir logs
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
-rem å¸å®‰ fapi å›½å†…ç›´è¿žä¸é€šï¼ˆhttpx.PoolTimeoutï¼‰ï¼Œè¡Œæƒ…/ä¸‹å•å¿…é¡»èµ°æœ¬æœºä»£ç†
+rem ±Ò°² fapi ¹úÄÚÖ±Á¬²»Í¨£¨httpx.PoolTimeout£©£¬ÐÐÇé/ÏÂµ¥±ØÐë×ß±¾»ú´úÀí
 set HTTP_PROXY=http://127.0.0.1:7897
 set HTTPS_PROXY=http://127.0.0.1:7897
-rem æœ¬æœºå›žçŽ¯ä¸è¦èµ°ä»£ç†
+rem ±¾»ú»Ø»·²»Òª×ß´úÀí
 set NO_PROXY=localhost,127.0.0.1,::1
+rem ===== ±¾µØ = ²âÊÔÅÌ£¨2026-11-11 Éí·Ý·ÖÀë£©=====
+rem 1) Êý¾Ý¿âÖ¸Ïò²âÊÔ¿â£º±¾µØÔõÃ´ÕÛÌÚ¶¼²»ÎÛÈ¾ÕýÊ½Á÷Ë®£¨ÕýÊ½¿âÖ»ÓÉ·þÎñÆ÷Ð´£©
+rem 2) ÈÕÄ¿±ê¹Ø±Õ£ºyaml Á½±ß¹²ÓÃ£¬¿¿»·¾³±äÁ¿¹Ø£¬±ÜÃâÁ½±ß¸÷±¨¸÷µÄ"½ñÈÕÄ¿±êÍê³É"
+rem 3) Ò³Ãæ±ê¼Ç£ºÇ°¶Ë¶¥À¸ÏÔÊ¾³ÈÉ«¡¸±¾µØ²âÊÔ¡¹£¬Ò»ÑÛ·ÖÇåÔÚ¿´ÄÄÌ¨
+set QB_DB_PATH=quantbot_test.db
+set QB_DAILY_TARGET_ENABLED=0
+set QB_ENV_LABEL=±¾µØ²âÊÔ
 .venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8899 >> logs\server.log 2>&1

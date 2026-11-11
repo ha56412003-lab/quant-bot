@@ -13,6 +13,11 @@ quantbot.db
 quantbot.db-journal
 quantbot.db-wal
 quantbot.db-shm
+# 本地测试库（2026-11-11 本地/服务器身份分离）：本地跑测试盘用，不进仓库
+quantbot_test.db
+quantbot_test.db-journal
+quantbot_test.db-wal
+quantbot_test.db-shm
 backtest/data/
 backtest/data5m/
 backtest/data80/

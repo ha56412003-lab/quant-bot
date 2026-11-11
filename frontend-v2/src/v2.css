@@ -2741,3 +2741,57 @@ html[data-theme="paper"] .spider-root .cards .card .bar.prog .peak-arrow {
    底部就多出一条横向滚动条。本表列宽已按容器反推、不需要横滚，直接裁掉。 */
 .pool-table .ant-table-body { overflow-x: hidden !important; }
 .pool-table .ant-table-thead th.ant-table-cell-scrollbar { visibility: hidden; }
+
+
+/* ===== 环境标签（本地测试 / 正式盘） 2026-11-11 ===== */
+.spider-root .hdr .envtag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  white-space: nowrap;
+  line-height: 1;
+  border: 1px solid transparent;
+  flex: 0 0 auto;
+}
+.spider-root .hdr .envtag i {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: 0 0 auto;
+}
+/* 本地测试盘 —— 橙色警示，别当成正式数据 */
+.spider-root .hdr .envtag.local {
+  color: #d4770a !important;
+  background: rgba(212, 119, 10, .14) !important;
+  border-color: rgba(212, 119, 10, .45) !important;
+}
+.spider-root .hdr .envtag.local i {
+  background: #d4770a !important;
+  box-shadow: 0 0 6px rgba(212, 119, 10, .7) !important;
+}
+/* 正式盘 —— 绿色 */
+.spider-root .hdr .envtag.live {
+  color: #0f7a3d !important;
+  background: rgba(15, 122, 61, .12) !important;
+  border-color: rgba(15, 122, 61, .40) !important;
+}
+.spider-root .hdr .envtag.live i {
+  background: #0f7a3d !important;
+  box-shadow: 0 0 6px rgba(15, 122, 61, .7) !important;
+}
+
+/* 只读观战标（?ro=1 给朋友看时）—— 蓝色，和本地橙/正式绿区分开 */
+.spider-root .hdr .envtag.ro {
+  color: #1e5fa8 !important;
+  background: rgba(30, 95, 168, .12) !important;
+  border-color: rgba(30, 95, 168, .42) !important;
+}
+.spider-root .hdr .envtag.ro i {
+  background: #1e5fa8 !important;
+  box-shadow: 0 0 6px rgba(30, 95, 168, .7) !important;
+}

@@ -1,6 +1,6 @@
 import React from 'react'
 import { message, Popconfirm } from 'antd'
-import { api } from '../api'
+import { api, READ_ONLY } from '../api'
 import { usePoll } from '../hooks'
 import EquityChart from '../panels/EquityChart'
 import ServerRack from '../panels/ServerRack'
@@ -201,7 +201,8 @@ export default function Dashboard({ status }) {
 
 
           {/* 「持仓操作区 0 单」整行已取消；一键全平收成小胶囊，浮在状态带右侧，仅持仓时出现 */}
-          {pos.length > 0 && (
+          {/* 只读观战模式（?ro=1）下不渲染任何平仓入口 —— 后端也会 401，双保险 */}
+          {pos.length > 0 && !READ_ONLY && (
             <div style={{ position: 'absolute', top: 3, right: 8, zIndex: 6 }}>
               <Popconfirm title={'确定全平 ' + pos.length + ' 单？'} onConfirm={closeAll}
                 okText={closingAll ? '正在平…' : '确定'}
@@ -422,6 +423,9 @@ ${r.advice}`}
                         )}
                       </td>
                       <td style={{ padding: '6px 8px' }}>
+                        {READ_ONLY ? (
+                          <span style={{ fontSize: 11, opacity: .45 }}>观战</span>
+                        ) : (
                         <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                           {[
                             { f: 1, label: '全平', main: true },
@@ -477,6 +481,7 @@ ${r.advice}`}
                             </Popconfirm>
                           ))}
                         </span>
+                        )}
                       </td>
                     </tr>
                   )

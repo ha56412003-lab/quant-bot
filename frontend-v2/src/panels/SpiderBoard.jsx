@@ -1,4 +1,5 @@
 import ThemeSwitch from '../ThemeSwitch'
+import { READ_ONLY } from '../api'
 import { useEffect, useRef, useState } from 'react'
 import '../spider.css'
 import avatars from '../avatars.json'
@@ -291,6 +292,28 @@ export default function SpiderBoard({ status, positions = [], nav, activeNav, on
               </div>
 
               <div className="spacer" style={{ flex: 1 }} />
+
+              {/* 环境标签（2026-11-11 身份分离）：
+                  本地 run_server.bat 设 QB_ENV_LABEL=本地测试 → 橙色「本地测试」
+                  服务器不设 → 绿色「正式盘」。一眼分清在看哪台机器，不会再搞混。
+                  ⚠ status 还没拿到时不渲染 —— 否则本地会先闪一下绿色的「正式盘」。 */}
+              {status && (
+                <span className={'envtag' + (status.env_label ? ' local' : ' live')}
+                      title={status.env_label
+                        ? `这台是测试盘，数据库 ${status.db_name || '?'}，日目标已关`
+                        : `这台是正式盘，数据库 ${status.db_name || '?'}`}>
+                  <i aria-hidden="true" />
+                  {status.env_label || '正式盘'}
+                </span>
+              )}
+
+              {/* 只读观战标记：URL 带 ?ro=1 给朋友看时出现，提示"只能看不能动" */}
+              {READ_ONLY && (
+                <span className="envtag ro" title="只读观战链接：所有开仓/平仓/改参数操作已禁用">
+                  <i aria-hidden="true" />
+                  只读观战
+                </span>
+              )}
 
               {/* 运行指示灯：运行中绿点 / 停盘红点 */}
               <span className="runled">

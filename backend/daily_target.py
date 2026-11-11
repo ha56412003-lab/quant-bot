@@ -14,6 +14,7 @@ import asyncio
 import datetime
 import json
 import logging
+import os
 import time
 import urllib.request
 
@@ -56,6 +57,20 @@ def cfg(global_cfg) -> dict:
             # 表现为"日目标整天不工作且界面无任何提示"。现在留痕 + 退回默认。
             log.warning("daily_target 配置项 %s=%r 非法，改用默认 %r", k, v, d)
             out[k] = d
+
+    # 2026-11-11：本地/服务器身份分离。
+    # strategies.yaml 是两边共用的配置文件（走 git 同步），所以不能靠改 yaml
+    # 来让"本地关、服务器开"——一同步就互相覆盖。改用环境变量覆盖：
+    #   本地 run_server.bat 设 QB_DAILY_TARGET_ENABLED=0 → 本地日目标关闭（测试盘）
+    #   服务器不设 → 保持 yaml 里的 true（正式盘，日目标生效）
+    _env = (os.environ.get("QB_DAILY_TARGET_ENABLED") or "").strip().lower()
+    if _env in ("0", "false", "no", "off"):
+        if out.get("enabled"):
+            log.info("daily_target 已被环境变量 QB_DAILY_TARGET_ENABLED=%s 关闭（测试盘）", _env)
+        out["enabled"] = False
+    elif _env in ("1", "true", "yes", "on"):
+        out["enabled"] = True
+
     return out
 
 

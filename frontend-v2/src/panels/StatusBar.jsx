@@ -1,6 +1,6 @@
 import React from 'react'
 import { Card, Col, Row, Statistic, Button, Modal, Input, message } from 'antd'
-import { api, fmtUsd } from '../api'
+import { api, READ_ONLY } from '../api'
 import { useI18n } from '../i18n'
 
 export function StatusCards({ status, positions }) {
@@ -42,6 +42,8 @@ export function StatusCards({ status, positions }) {
 
 export function ModeSwitch({ status }) {
   const { t } = useI18n()
+  // 只读观战模式（?ro=1）不显示模式切换 —— 观战的看客不能把盘切去实盘
+  if (READ_ONLY) return null
   const [confirmText, setConfirmText] = React.useState('')
   const [pre, setPre] = React.useState(null)     // 预检结果 {ok, items}
   const [open, setOpen] = React.useState(false)
