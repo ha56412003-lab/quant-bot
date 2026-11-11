@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   Card, Row, Col, Input, Button, message, Descriptions, Tag, Space,
-  Select, Alert, Radio,
+  Select, Alert, Radio, Table, Switch,
 } from 'antd'
 import { api, fmtUsd } from '../api'
 import { useI18n } from '../i18n'
@@ -238,12 +238,161 @@ function UniverseConfig() {
   )
 }
 
+// ── 操作日志（2026-11-11）────────────────────────────────────────────
+// 在加审计表之前，任何一个写接口都是「改完不留痕」：参数被谁、什么时候、
+// 从哪个 IP 改成了什么，一条都查不到。这个卡片就是那条缺失的记录。
+// 只有拿操作 token 的人能看（后端 /api/audit 会校验），观战者调用得 403。
+function _fmtTs(ts) {
+  try {
+    const d = new Date((ts || 0) * 1000)
+    const p = (n) => String(n).padStart(2, '0')
+    return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  } catch (e) { return '--' }
+}
+
+// 把 detail 压成一句人话：{"changed":{"leverage":{"old":6,"new":999}}}
+//                             → "leverage 6 → 999"
+function _fmtDetail(d) {
+  if (!d || typeof d !== 'object') return '--'
+  const parts = []
+  // 失败记录的形状是 {"payload": {...原始入参...}} —— 别把整坨 JSON 甩给用户，
+  // 只挑出「他到底想改哪个键」。
+  if (d.payload && typeof d.payload === 'object' && !d.changed) {
+    const flat = []
+    const walk = (o, pre) => {
+      for (const [k, v] of Object.entries(o || {})) {
+        if (v && typeof v === 'object' && !Array.isArray(v)) walk(v, pre ? `${pre}.${k}` : k)
+        else flat.push(`${pre ? pre + '.' : ''}${k}=${Array.isArray(v) ? `[${v.length}项]` : v}`)
+      }
+    }
+    walk(d.payload, '')
+    return `尝试写入 ${flat.slice(0, 5).join(', ')}${flat.length > 5 ? ' …' : ''}`
+  }
+  if (d.changed && typeof d.changed === 'object') {
+    for (const [k, v] of Object.entries(d.changed)) {
+      const o = v && typeof v === 'object' ? v.old : undefined
+      const n = v && typeof v === 'object' ? v.new : v
+      // old === new 的项没意义（比如只改 auto_close_sec，pause_new 被一起回填），跳过
+      if (o !== undefined && JSON.stringify(o) === JSON.stringify(n)) continue
+      parts.push(`${k} ${o === undefined || o === null ? '—' : o} → ${n}`)
+    }
+    if (!parts.length) parts.push('（值未变化）')
+  } else if (d.keys && typeof d.keys === 'object') {
+    // 凭据类：后端只给长度和前 4 位，绝不落明文
+    parts.push(Object.entries(d.keys).map(([k, v]) => `${k}(${v.len}位)`).join(' '))
+  } else if (d.enabled !== undefined) {
+    parts.push(`enabled → ${d.enabled.new}`)
+  } else if (d.count) {
+    parts.push(`${d.count.old} → ${d.count.new} 个`)
+    if ((d.added || []).length) parts.push(`+${d.added.slice(0, 6).join(',')}`)
+    if ((d.removed || []).length) parts.push(`-${d.removed.slice(0, 6).join(',')}`)
+  } else {
+    parts.push(JSON.stringify(d).slice(0, 120))
+  }
+  return parts.join('；') || '--'
+}
+
+const ACTION_LABEL = {
+  set_global_risk: '改全局风控',
+  set_strategy_risk: '改策略风控',
+  set_strategy_params: '改策略参数',
+  set_strategy_enabled: '开关策略',
+  set_strategy_symbols: '改监控币种',
+  set_strategy_interval: '改扫描间隔',
+  save_credentials: '改 API 凭据',
+  set_universe: '改全局币池',
+}
+
+function AuditLog() {
+  const { t } = useI18n()
+  const [rows, setRows] = useState([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [onlyFail, setOnlyFail] = useState(false)
+
+  const load = async () => {
+    setLoading(true)
+    try {
+      const r = await api.get(`/api/audit?limit=50${onlyFail ? '&only_fail=1' : ''}`)
+      setRows((r && r.rows) || [])
+      setTotal((r && r.total) || 0)
+    } catch (e) {
+      message.error(`操作日志读取失败: ${e.message || e}`)
+    }
+    setLoading(false)
+  }
+  useEffect(() => { load() }, [onlyFail])
+
+  const cols = [
+    { title: '时间', dataIndex: 'ts', width: 105, render: (v) => <span style={{ fontSize: 11 }}>{_fmtTs(v)}</span> },
+    {
+      title: '谁', dataIndex: 'actor', width: 90,
+      render: (v) => {
+        const s = String(v || '')
+        const color = s.startsWith('op:') ? 'green' : (s.startsWith('view:') ? 'blue' : 'default')
+        return <Tag color={color} style={{ fontSize: 10 }}>{s || '--'}</Tag>
+      },
+    },
+    {
+      title: '动作', dataIndex: 'action', width: 110,
+      render: (v) => <span style={{ fontSize: 11 }}>{ACTION_LABEL[v] || v}</span>,
+    },
+    {
+      title: '对象', dataIndex: 'target', width: 110,
+      render: (v) => <span style={{ fontSize: 11, color: 'var(--mute, #7d8590)' }}>{v || '--'}</span>,
+    },
+    {
+      title: '改了什么（旧 → 新）', dataIndex: 'detail',
+      render: (v, r) => (
+        <span style={{ fontSize: 11, wordBreak: 'break-all' }}>
+          {_fmtDetail(v)}
+          {r && r.ok ? null : <Tag color="red" style={{ marginLeft: 6, fontSize: 10 }}>失败 {r && r.err}</Tag>}
+        </span>
+      ),
+    },
+    {
+      title: 'IP', dataIndex: 'ip', width: 105,
+      render: (v) => <span style={{ fontSize: 10, color: 'var(--mute, #7d8590)' }}>{v || '--'}</span>,
+    },
+  ]
+
+  return (
+    <Card
+      size="small"
+      title={`操作日志（共 ${total} 条）`}
+      style={{ marginTop: 16 }}
+      extra={(
+        <Space size={8}>
+          <Switch size="small" checked={onlyFail} onChange={setOnlyFail}
+                  checkedChildren="只看失败" unCheckedChildren="全部" />
+          <Button size="small" onClick={load} loading={loading}>刷新</Button>
+        </Space>
+      )}
+    >
+      <div style={{ fontSize: 11, color: 'var(--mute, #7d8590)', marginBottom: 8 }}>
+        记录每一次参数/凭据/币种变更：谁改的、从哪个 IP、旧值改成什么。
+        API 凭据只记长度，不记内容。
+      </div>
+      <Table
+        size="small"
+        rowKey="id"
+        dataSource={rows}
+        columns={cols}
+        loading={loading}
+        pagination={rows.length > 20 ? { pageSize: 20, size: 'small' } : false}
+        locale={{ emptyText: '还没有任何变更记录' }}
+      />
+    </Card>
+  )
+}
+
 export default function ConfigPage() {
   return (
     <Row gutter={[16, 16]}>
       <Col span={24}><Credentials /></Col>
       <Col span={24}><ExecutorExchange /></Col>
       <Col span={24}><UniverseConfig /></Col>
+      <Col span={24}><AuditLog /></Col>
     </Row>
   )
 }

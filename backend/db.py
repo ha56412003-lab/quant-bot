@@ -80,6 +80,22 @@ def init():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ts INTEGER NOT NULL, level TEXT NOT NULL, msg TEXT NOT NULL
         );
+        -- 配置与操作审计（2026-11-11）。此前所有写接口完全无痕：
+        -- 「谁在什么时候把 leverage 从 6 改成 999」查不到任何记录。
+        -- 只记「改了什么」，凭据类只记长度与前 4 位，绝不落明文。
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts INTEGER NOT NULL,
+            actor TEXT NOT NULL DEFAULT '',      -- token 前 4 位 / 观战 key / system
+            ip TEXT NOT NULL DEFAULT '',
+            action TEXT NOT NULL,                -- set_global_risk / close_all ...
+            target TEXT NOT NULL DEFAULT '',     -- sid / global / pid / credentials
+            detail TEXT NOT NULL DEFAULT '',     -- JSON
+            ok INTEGER NOT NULL DEFAULT 1,       -- 1 成功 / 0 被拒或失败
+            err TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts);
+        CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action, ts);
         """)
         # additive migrations for pre-existing DBs
         for ddl in (
@@ -546,6 +562,61 @@ def recent_logs(limit=100):
     with _lock:
         rows = _conn.execute("SELECT * FROM logs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     return [dict(r) for r in rows]
+
+
+# ── 审计（2026-11-11）────────────────────────────────────────────────
+# 配置写入此前完全无痕。audit_log 记「谁、什么时候、改了什么、旧值→新值、成没成」。
+# detail 是 JSON 文本；凭据类由 config.save_credentials 自己脱敏（只给 len/head）。
+def audit(action, target="", detail=None, ok=True, err="", actor="", ip=""):
+    """写一条审计。绝不抛异常 —— 审计失败不能拖垮写接口本身。"""
+    try:
+        d = ""
+        if detail is not None:
+            try:
+                d = json.dumps(detail, ensure_ascii=False, default=str)[:4000]
+            except Exception:  # noqa: BLE001
+                d = str(detail)[:4000]
+        with _lock, _conn:
+            _conn.execute(
+                "INSERT INTO audit_log(ts,actor,ip,action,target,detail,ok,err) "
+                "VALUES(?,?,?,?,?,?,?,?)",
+                (int(time.time()), str(actor or "")[:64], str(ip or "")[:64],
+                 str(action or "")[:64], str(target or "")[:64], d,
+                 1 if ok else 0, str(err or "")[:500]))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def audit_recent(limit=100, action=None, only_fail=False):
+    """读审计，最新在前。action 支持前缀匹配（set_strategy_*）。"""
+    sql = "SELECT * FROM audit_log"
+    where, args = [], []
+    if action:
+        where.append("action LIKE ?")
+        args.append(str(action).replace("*", "%"))
+    if only_fail:
+        where.append("ok=0")
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY id DESC LIMIT ?"
+    args.append(max(1, min(int(limit or 100), 1000)))
+    with _lock:
+        rows = _conn.execute(sql, tuple(args)).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["detail"] = json.loads(d["detail"]) if d["detail"] else None
+        except Exception:  # noqa: BLE001
+            pass
+        out.append(d)
+    return out
+
+
+def audit_count():
+    with _lock:
+        row = _conn.execute("SELECT COUNT(*) AS n FROM audit_log").fetchone()
+    return int(row["n"] if row else 0)
 
 
 def prune(factor_days: int = 14, log_days: int = 30) -> dict:

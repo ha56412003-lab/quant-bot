@@ -1,5 +1,6 @@
 """FastAPI app: dashboard API + engine background task + static frontend."""
 import asyncio
+import contextvars
 import faulthandler
 import json
 import logging
@@ -193,6 +194,27 @@ _RATE_WINDOW_SEC = 60.0
 _rate_buckets: dict = {}          # ip -> [timestamp, ...]
 _rate_lock = threading.Lock()
 
+# ── 审计上下文（2026-11-11）──────────────────────────────────────────
+# config.py 的写函数不知道 HTTP 层的 actor/ip（它是纯配置层），所以两边靠
+# 这个 ContextVar + 一个注入的钩子打通：
+#   _api_guard 每个请求进来先 set 一次 → 下游路由函数调 config.set_* →
+#   config._audit() → _audit_bridge() → 从这两个变量取 actor/ip → db.audit()
+# actor 只留前 4 位：足够区分「是不是同一个人在改」，又不构成凭据泄露。
+# 后台线程（engine tick）不在请求上下文里 → get() 返回空 → 落 "system"。
+_ACTOR = contextvars.ContextVar("qb_actor", default="")
+_IP = contextvars.ContextVar("qb_ip", default="")
+
+
+def _audit_bridge(action, target, detail, ok, err):
+    """config.set_audit_hook 注入的实现：把配置层审计落到 db。"""
+    db.audit(action, target, detail, ok, err,
+             actor=_ACTOR.get() or "system", ip=_IP.get() or "")
+
+
+# 接上钩子。config.py 不 import db（db 已经 import config，会循环），
+# 只能在 main 这一侧把实现塞进去。放在模块级 = 任何一次写接口调用都不会漏记。
+config.set_audit_hook(_audit_bridge)
+
 
 def _client_ip(request: Request) -> str:
     """真实客户端 IP。经 Caddy 反代时 X-Real-IP 由 Caddy 覆写，客户端伪造无效。"""
@@ -291,7 +313,19 @@ async def _api_guard(request: Request, call_next):
     #        加上静态资源，120 次/分钟根本不够，按 IP 限会把你自家人拦住。
     #        只限「没凭据的陌生请求」和「观战者」。
     cip = _client_ip(request)
-    _is_operator = bool(livekeys.api_token()) and _token_ok(_take_token(request))
+    _tok_hdr = _take_token(request)
+    _is_operator = bool(livekeys.api_token()) and _token_ok(_tok_hdr)
+
+    # 审计上下文：下游 config 写函数靠它记「谁改的、从哪个 IP」。
+    # 三档角色：op（操作 token）/ view（观战 key）/ anon（裸访问，本该被拦）。
+    _vk = (request.headers.get("x-view-key") or "").strip()
+    if _is_operator:
+        _ACTOR.set("op:" + _tok_hdr[:4])
+    elif _vk:
+        _ACTOR.set("view:" + _vk[:4])
+    else:
+        _ACTOR.set("anon")
+    _IP.set(cip)
     if cip not in ("127.0.0.1", "::1", "localhost") and not _is_operator:
         ok_rate, retry_after = _rate_hit(cip)
         if not ok_rate:
@@ -1021,8 +1055,19 @@ async def api_strategy_config(sid: str, payload: dict):
         # 2026-11-11：把具体原因带出去。原来统一回 "invalid config value"，
         # 用户/脚本只能知道「填错了」，不知道「错在哪、允许范围多少」。
         # 风控边界校验的报错本身就写清了 "leverage=999 超出允许范围 1 ~ 125"。
+        # 同时落一条失败审计 —— 被拒的尝试也是证据。
+        try:
+            config.audit_rejected("set_strategy_params", sid,
+                                  {"payload": payload}, exc)
+        except Exception:  # noqa: BLE001
+            pass
         raise HTTPException(400, str(exc) or "invalid config value")
     except TypeError:
+        try:
+            config.audit_rejected("set_strategy_params", sid,
+                                  {"payload": payload}, "TypeError")
+        except Exception:  # noqa: BLE001
+            pass
         raise HTTPException(400, "invalid config value")
     db.log("info", f"策略 {sid} 配置更新")
     return {"ok": True}
@@ -1072,6 +1117,10 @@ async def api_risk_global(payload: dict):
     try:
         _cfg, changed = config.set_global_risk(payload)
     except ValueError as exc:
+        try:
+            config.audit_rejected("set_global_risk", "global", {"payload": payload}, exc)
+        except Exception:  # noqa: BLE001
+            pass
         raise HTTPException(400, str(exc)) from exc
     db.log("info", "全局风控参数更新: " + ", ".join(f"{k}={v}" for k, v in changed.items()))
     return {"ok": True, "changed": changed}
@@ -1388,6 +1437,24 @@ async def api_klines(symbol: str = "BTCUSDT", interval: str = "15m", limit: int 
 @app.get("/api/logs")
 async def api_logs(limit: int = 100):
     return {"logs": db.recent_logs(limit)}
+
+
+# ── 审计查询（2026-11-11）────────────────────────────────────────────
+# 只给操作 token 看：观战者不该知道「谁在什么时候把参数改成了什么」，
+# 审计行里还带 IP。
+#   GET /api/audit?limit=100
+#   GET /api/audit?action=set_*        按动作前缀筛
+#   GET /api/audit?only_fail=1         只看被拒/失败的
+@app.get("/api/audit")
+async def api_audit(request: Request, limit: int = 100, action: str = "",
+                    only_fail: int = 0):
+    if not _token_ok(_take_token(request)):
+        raise HTTPException(status_code=403, detail="需要操作 token 才能查看审计")
+    return {
+        "total": db.audit_count(),
+        "rows": db.audit_recent(
+            limit=limit, action=(action or None), only_fail=bool(only_fail)),
+    }
 
 
 # -- trade journal (JSONL files under journal/) -------------------------------
