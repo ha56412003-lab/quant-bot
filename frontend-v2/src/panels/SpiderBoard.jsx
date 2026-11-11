@@ -293,17 +293,14 @@ export default function SpiderBoard({ status, positions = [], nav, activeNav, on
 
               <div className="spacer" style={{ flex: 1 }} />
 
-              {/* 环境标签（2026-11-11 身份分离）：
-                  本地 run_server.bat 设 QB_ENV_LABEL=本地测试 → 橙色「本地测试」
-                  服务器不设 → 绿色「正式盘」。一眼分清在看哪台机器，不会再搞混。
-                  ⚠ status 还没拿到时不渲染 —— 否则本地会先闪一下绿色的「正式盘」。 */}
-              {status && (
-                <span className={'envtag' + (status.env_label ? ' local' : ' live')}
-                      title={status.env_label
-                        ? `这台是测试盘，数据库 ${status.db_name || '?'}，日目标已关`
-                        : `这台是正式盘，数据库 ${status.db_name || '?'}`}>
+              {/* 环境标记（2026-11-11 身份分离）：
+                  只在「不是正式盘」时才显示 —— 正式盘是常态，占位反而碍眼。
+                  本地 run_server.bat 设 QB_ENV_LABEL=本地测试 → 淡橙「本地测试」 */}
+              {status && status.env_label && (
+                <span className="envtag local"
+                      title={`测试盘 · 数据库 ${status.db_name || '?'} · 日目标已关`}>
                   <i aria-hidden="true" />
-                  {status.env_label || '正式盘'}
+                  {status.env_label}
                 </span>
               )}
 
