@@ -32,7 +32,21 @@ from backend.strategies import _ce_zlsma  # noqa: E402
 FEE = 0.0005
 SWING = 20
 MAXH = 64
-MAX_RISK_PCT = 30.0
+# ★ 2026-11-11 浩哥定 B 方案：从 strategies.yaml 读，回测口径永远跟线上一致。
+#   原来是写死 30.0，而线上 max_risk_pct = 5.0 —— 用它跑出来的结果
+#   （放行了止损 5%~30% 的单子）不代表真实表现，跨期比较时是陷阱。
+def _yaml_max_risk_pct(default=5.0):
+    """读 strategies.yaml 的 max_risk_pct；读不到就退回 5.0（线上值）。"""
+    try:
+        import yaml as _y
+        with open(os.path.join(ROOT, "strategies.yaml"), encoding="utf-8") as _f:
+            _n = _y.safe_load(_f)["strategies"]["S15_CE_ZLSMA"]
+        return float(_n.get("max_risk_pct") or default)
+    except Exception:                                   # noqa: BLE001
+        return default
+
+
+MAX_RISK_PCT = _yaml_max_risk_pct()
 
 SQ_WIN = 5
 SQ_LOW = 30.0

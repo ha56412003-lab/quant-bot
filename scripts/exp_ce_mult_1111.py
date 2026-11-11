@@ -14,7 +14,7 @@
     缓存里的 ind 是按旧参数算的，直接用会串味），其余出场参数全部读当前 strategies.yaml。
 
 ★ 自证：ce_mult=1.5 那一行的六项必须与 verify_exit_final.py 的输出完全一致
-       （4.35 / 56.3% / 1.43 / +53.75R / −9.07R / 4.33h），否则本实验作废。
+       （281 笔 / 4.68 单天 / 54.1% / 1.33 / +45.93R / −9.70R / 4.35h），否则本实验作废。
 
 只读，不改任何生产文件、不写库。
 用法：PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe scripts/exp_ce_mult_1111.py
@@ -162,10 +162,13 @@ def main():
     print("自证（ce_mult=1.5 必须等于 verify_exit_final 的六项）")
     print("=" * 82)
     s15 = rows[1.5][0]
-    exp = dict(n=261, win=56.3, net=53.75, mdd=-9.07)
+    # ★ 2026-11-11 修：这里原来写的是旧基准（261 笔 / 56.3% / +53.75R / −9.07R），
+    #   而打印出来的是新基准 —— 导致「比较用旧值、显示用新值」，永远报「不一致」。
+    #   现在两边统一用定档六项。
+    exp = dict(n=281, win=54.1, net=45.93, mdd=-9.70)
     ok = (s15["n"] == exp["n"] and abs(s15["win"] - exp["win"]) < 0.15
           and abs(s15["net"] - exp["net"]) < 0.5 and abs(s15["mdd"] - exp["mdd"]) < 0.5)
-    print("  期望：281 笔 / 54.1%% / +45.93R / −9.70R")
+    print("  期望：%d 笔 / %.1f%% / %+.2fR / %.2fR" % (exp["n"], exp["win"], exp["net"], exp["mdd"]))
     print("  实际：%d 笔 / %.1f%% / %+.2fR / %.2fR   →  %s"
           % (s15["n"], s15["win"], s15["net"], s15["mdd"], "一致 ✓" if ok else "★不一致，本实验作废★"))
     if not ok:
