@@ -9,6 +9,9 @@ __pycache__/
 *.pyo
 
 # Data
+# 服务器写操作 token（2026-11-11）：绝不进仓库
+.env.local
+.env.local.*
 quantbot.db
 quantbot.db-journal
 quantbot.db-wal
