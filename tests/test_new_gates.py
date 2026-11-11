@@ -49,12 +49,18 @@ def chk(cond, label, extra=""):
 
 
 class FakeCtx:
-    def __init__(self, px, ks):
+    def __init__(self, px, ks, pos_side=None):
         self._px = px
         self._ks = ks
+        self._pos = pos_side      # None = 无仓；'long'/'short' = 在管仓位方向
 
     def has_position(self, sym, sid):
-        return False
+        return self._pos is not None
+
+    def open_side(self, sym, sid=None):
+        # 2026-11-11 晚：evaluate 改用 open_side 区分「同向/反向」后，
+        # 测试替身必须同步 —— 否则 evaluate 直接抛 AttributeError，整只币跳过。
+        return self._pos
 
     async def klines(self, sym, iv, n):
         return self._ks
@@ -102,6 +108,21 @@ def patch_ind(zl=100.0, ha_open=100.0, ha_close=100.0, dir_now=1, dir_prev=-1,
         ind["short_stop"] = [short_stop] * n
     orig = S._ce_zlsma
     S._ce_zlsma = lambda *a, **k: ind
+    # ★ 2026-11-11 晚：触发口径改成「ZLSMA 时段」后，evaluate 不再看 ind["dir"]，
+    #   而是调 _zlsma_legs()。测试用的是平线 K 线（永远不穿越均线），
+    #   不伪造它就一律判「时段未确认」→ 所有开仓类用例 0 信号。
+    #   这里直接把「本根时段方向」焊成 dir_now，等价于旧 dir 翻转的语义。
+    _leg = [0] * n
+    _leg[n - 2] = dir_now
+    _lts = [0] * n
+    _lts[n - 2] = 1
+    _side_arr = [dir_now] * n
+    _starts = [(n - 2, dir_now, n - 3)] if dir_now else []
+    S._zlsma_legs = lambda *a, **k: (_leg, _lts, _side_arr, _starts)
+    # ★ 伪造的 leg_ts 恒为 1，_LEG_ENTERED 会在第一个用例之后就永久记住它，
+    #   导致后面所有开仓用例都被「本时段已入场」挡掉。每个用例必须从零点开始。
+    S._LEG_ENTERED.clear()
+    S._LAST_BAR.clear()
     return orig
 
 
@@ -114,7 +135,8 @@ def make_strategy(**over):
         "swing_lookback": 20, "min_atr_pct": 0, "bbw_pct_min": 70.0,
         "max_risk_pct": 30.0, "fee_rate": 0.0005, "slip_pct": 0.0,
         "half_at_r": 1.2,
-        "min_dev_pct": 0.0, "dev_atr_mult": 1.0,
+        "min_dev_pct": 0.0, "dev_atr_mult": 0.0,   # 偏离闸已删（2026-11-11 晚）
+        "reverse_enabled": False,                  # 反手默认关（回测已证伪）
     }
     st.p.update(over)
     st.sid = "S15_CE_ZLSMA"
@@ -124,69 +146,36 @@ def make_strategy(**over):
 
 
 # ══════════════════════════════════════════════════════
-#  A 组：进场偏离闸
+#  A 组：进场偏离闸 —— 2026-11-11 晚已【物理删除】
 # ══════════════════════════════════════════════════════
 def test_entry_dev():
+    """偏离闸已按 2026-11-11 晚浩哥的决定物理删除（见 strategies.py 第⑥道闸注释）。
+
+    旧用例 A1~A6 全部作废 —— 它们验的是「偏离不够 → 不开仓」，
+    而这条拦截现在根本不存在了，留着只会测出一个假失败，比没测试更糟。
+    唯一保留：诊断字段（面板仍显示「离均线多远」这个真实值，只是不再用它拦截）。
+    """
     print("\n" + "=" * 78)
-    print("A 组：进场偏离闸（进场价离 ZLSMA >= min_dev_pct%）")
+    print("A 组：偏离闸已删除，只验诊断字段还在")
     print("=" * 78)
 
-    async def run(entry_px, zl, min_dev, side="long"):
-        S._LAST_BAR.clear()
-        S._GATE_STATE.clear()
-        ks = make_ks(price=entry_px)
-        ctx = FakeCtx(entry_px, ks)
-        # A 组只验「固定下限」这条腿：把 ATR 那条腿关掉（dev_atr_mult=0），
-        # 门槛就退化成 min_dev_pct 本身。ATR 那条腿由 D 组 / 实盘面板覆盖。
-        st = make_strategy(min_dev_pct=min_dev, dev_atr_mult=0.0)
-        if side == "long":
-            # 多头：HA 阳线、站在均线上方、CE 由空翻多
-            orig = patch_ind(zl=zl, ha_open=entry_px * 0.995,
-                             ha_close=entry_px, dir_now=1, dir_prev=-1)
-        else:
-            orig = patch_ind(zl=zl, ha_open=entry_px * 1.005,
-                             ha_close=entry_px, dir_now=-1, dir_prev=1)
-        try:
-            return await st.evaluate(ctx)
-        finally:
-            S._ce_zlsma = orig
-
-    # A1 偏离 0.2% < 0.5% → 不开
-    sig = asyncio.run(run(entry_px=100.2, zl=100.0, min_dev=0.5))
-    chk(len(sig) == 0, "A1 偏离 0.2% < 门槛 0.5% → 不开仓", f"实际 {len(sig)} 个信号")
-
-    # A2 偏离 0.8% > 0.5% → 开
-    sig = asyncio.run(run(entry_px=100.8, zl=100.0, min_dev=0.5))
-    chk(len(sig) == 1, "A2 偏离 0.8% > 门槛 0.5% → 开仓", f"实际 {len(sig)} 个信号")
-
-    # A3 关闭（0）→ 偏离再小也开
-    sig = asyncio.run(run(entry_px=100.05, zl=100.0, min_dev=0.0))
-    chk(len(sig) == 1, "A3 min_dev_pct=0 关闭 → 偏离 0.05% 也开仓", f"实际 {len(sig)} 个信号")
-
-    # A4 边界：偏离正好 0.5% → 放过（判据是 < 才挡）
-    sig = asyncio.run(run(entry_px=100.5, zl=100.0, min_dev=0.5))
-    chk(len(sig) == 1, "A4 偏离正好 0.5% → 放过（判据 < 才挡）", f"实际 {len(sig)} 个信号")
-
-    # A5 空头同样生效
-    sig_low = asyncio.run(run(entry_px=99.8, zl=100.0, min_dev=0.5, side="short"))
-    chk(len(sig_low) == 0, "A5a 空头偏离 0.2% → 不开仓", f"实际 {len(sig_low)}")
-    sig_ok = asyncio.run(run(entry_px=99.2, zl=100.0, min_dev=0.5, side="short"))
-    chk(len(sig_ok) == 1, "A5b 空头偏离 0.8% → 开仓", f"实际 {len(sig_ok)}")
-
-    # A6 诊断表要能说清卡在哪
     S._LAST_BAR.clear()
     S._GATE_STATE.clear()
+    S._LEG_ENTERED.clear()
     ks = make_ks(price=100.2)
-    st = make_strategy()
+    st = make_strategy(min_dev_pct=0.5, dev_atr_mult=1.0)
     orig = patch_ind(zl=100.0, ha_open=99.5, ha_close=100.2, dir_now=1, dir_prev=-1)
     try:
-        asyncio.run(st.evaluate(FakeCtx(100.2, ks)))
+        sig = asyncio.run(st.evaluate(FakeCtx(100.2, ks)))
     finally:
         S._ce_zlsma = orig
+    # 关键行为：即使 yaml 里还写着门槛（0.5 / 1.0），代码也不再拦
+    chk(len(sig) == 1, "A0 偏离 0.2%（远小于旧门槛）仍然开仓 —— 闸真的删了", f"实际 {len(sig)} 个信号")
     g = S._GATE_STATE.get("TESTUSDT") or {}
-    chk("离均线" in str(g.get("why", "")),
-        "A6 诊断表写明「离均线仅X%」", f"why={g.get('why')}")
-    chk(g.get("dev") is not None, "A7 诊断表带 dev 字段（供前端显示）", f"dev={g.get('dev')}")
+    chk(g.get("dev") is not None, "A7 诊断表仍带 dev 字段（面板显示用，不再拦截）",
+        f"dev={g.get('dev')}")
+    chk(float(g.get("dev_thr") or 0) == 0.0, "A8 诊断表 dev_thr 恒为 0（门槛已归零）",
+        f"dev_thr={g.get('dev_thr')}")
 
 
 # ══════════════════════════════════════════════════════
@@ -202,19 +191,21 @@ def test_config():
     p = node["params"]
     # 红线：ce_len 不许动
     chk(p.get("ce_len") == 1, "C1 ce_len 仍为 1（红线未动）", f"实际 {p.get('ce_len')}")
-    chk(p.get("ce_mult") == 1.5, "C2 ce_mult = 1.5（六档扫描峰，作者原设计 2.0）",
+    # 2026-11-11 晚 浩哥定：恢复指标原版 2.0（此前 B 档为追单量调到 1.5）
+    chk(p.get("ce_mult") == 2.0, "C2 ce_mult = 2.0（指标原版，已恢复）",
         f"实际 {p.get('ce_mult')}")
     chk(p.get("swing_lookback") == 8, "C3 swing_lookback = 8（双止损最优）",
         f"实际 {p.get('swing_lookback')}")
-    # ④ 偏离闸（自适应）
-    chk(p.get("min_dev_pct") == 0.0, "C4 min_dev_pct = 0（固定门槛已让位给 ATR）",
-        f"实际 {p.get('min_dev_pct')}")
-    chk(p.get("dev_atr_mult") == 1.0, "C5 dev_atr_mult = 1.0（偏离闸 = 1.0×ATR20）",
+    # ④ 偏离闸（自适应）—— 2026-11-11 晚 物理删除
+    chk(p.get("min_dev_pct") == 0.0, "C4 min_dev_pct = 0", f"实际 {p.get('min_dev_pct')}")
+    chk(p.get("dev_atr_mult") == 0.0, "C5 dev_atr_mult = 0（偏离闸已物理删除）",
         f"实际 {p.get('dev_atr_mult')}")
     # ②b 关键K线
     chk(p.get("key_bar") is True, "C6 key_bar = true（关键K线闸开）",
         f"实际 {p.get('key_bar')}")
-    chk(p.get("key_mult") == 0.7, "C7 key_mult = 0.7（B 档定稿）", f"实际 {p.get('key_mult')}")
+    # 2026-11-11 晚 浩哥定：恢复指标原版 1.0（此前 B 档为追单量调到 0.7）
+    chk(p.get("key_mult") == 1.0, "C7 key_mult = 1.0（指标原版，已恢复）",
+        f"实际 {p.get('key_mult')}")
     chk(p.get("key_closepos") == 0.66, "C8 key_closepos = 0.66", f"实际 {p.get('key_closepos')}")
     chk(p.get("key_bodyfrac") == 0.5, "C9 key_bodyfrac = 0.5", f"实际 {p.get('key_bodyfrac')}")
     chk(p.get("stop_key") is True, "C10 stop_key = true（止损含关键K线低/高点）",
@@ -224,7 +215,7 @@ def test_config():
         f"实际 {p.get('half_at_r')}")
     chk("half_tp_r" not in p, "C12 half_tp_r 键已从 yaml 删除（旧「平半后再赚X全平」）",
         f"实际还在: {p.get('half_tp_r')}")
-    chk(p.get("full_at_r") == 2.0, "C13 full_at_r = 2.0（兜底全平）", f"实际 {p.get('full_at_r')}")
+    chk(p.get("full_at_r") == 2.5, "C13 full_at_r = 2.5（兜底全平，2026-11-12 由 2.0 上调）", f"实际 {p.get('full_at_r')}")
     chk(p.get("right_exit") is True, "C14 right_exit = true（右侧止盈开）",
         f"实际 {p.get('right_exit')}")
     chk(p.get("right_exit_strict") is True, "C15 right_exit_strict = true（必须严格）",
@@ -379,19 +370,15 @@ def test_key_bar():
         "D8d stop_key=false → 关键K线不参与止损",
         f"实际 {sig[0].stop_price if sig else None}")
 
-    # D9 自适应偏离：同一偏离，门槛随 ATR(20) 自动缩放
+    # D9 自适应偏离：2026-11-11 晚偏离闸物理删除 → 整组作废
+    #   （旧用例验的是「门槛随 ATR20 缩放」，现在门槛恒为 0，这条拦截不存在了）
     ks_small = make_ks_kb(base=100.0, big_at=218, side="long", amp=0.001)
     sig_small = asyncio.run(run(ks_small, 100.0))
     chk(len(sig_small) == 1,
-        "D9a ATR20≈0.2% 时门槛 0.2%，偏离 2.04% 放行", f"实际 {len(sig_small)}")
-    ks_big = make_ks_kb(base=100.0, big_at=218, side="long", amp=0.02)
-    sig_big = asyncio.run(run(ks_big, 100.0, zl=99.0))
-    chk(len(sig_big) == 0,
-        "D9b ATR20≈2% 时门槛抬到 2%，同一偏离 1.01% 不够 → 挡住",
-        f"实际 {len(sig_big)}")
+        "D9 偏离闸已删：ATR20 极小的币也照常开仓", f"实际 {len(sig_small)}")
     g = S._GATE_STATE.get("TESTUSDT") or {}
-    chk(g.get("dev_thr") is not None and float(g["dev_thr"]) > 1.0,
-        "D10 诊断表带自适应门槛 dev_thr（>1%）",
+    chk(float(g.get("dev_thr") or 0) == 0.0,
+        "D10 诊断表 dev_thr 恒为 0（不再随 ATR 缩放）",
         f"dev_thr={g.get('dev_thr')}")
 
 
@@ -477,11 +464,90 @@ def test_exit_chain():
     chk(True, "E11 时间止损/快速失败/移动止盈/镜像：代码已删、yaml 键已删（C 组锁定）")
 
 
+# ══════════════════════════════════════════════════════
+#  F 组：反向开仓（2026-11-11 晚 浩哥定「反转之后可以做反向单」）
+# ══════════════════════════════════════════════════════
+def test_reverse():
+    print("\n" + "=" * 78)
+    print("F 组：反向开仓（时段方向 vs 在管仓位方向）")
+    print("=" * 78)
+
+    def run(pos_side, dir_now, price=100.8, fresh=True, rev=True):
+        if fresh:
+            S._LAST_BAR.clear()
+            S._GATE_STATE.clear()
+            S._LEG_ENTERED.clear()
+        ks = make_ks(price=price)
+        st = make_strategy(reverse_enabled=rev)
+        ctx = FakeCtx(price, ks, pos_side=pos_side)
+        if dir_now == 1:
+            orig = patch_ind(zl=100.0, ha_open=price * 0.995, ha_close=price, dir_now=1)
+        else:
+            orig = patch_ind(zl=101.0, ha_open=price * 1.005, ha_close=price, dir_now=-1)
+        try:
+            return asyncio.run(st.evaluate(ctx))
+        finally:
+            S._ce_zlsma = orig
+
+    # F1 无仓 + 多头时段 → 普通开仓，不是反手
+    sig = run(None, 1)
+    chk(len(sig) == 1 and sig[0].reverse is False,
+        "F1 无仓 → 普通开仓（reverse=False）",
+        f"实际 {len(sig)} 个，reverse={sig[0].reverse if sig else None}")
+
+    # F2 持多 + 多头时段 → 同向，不重复开
+    sig = run("long", 1)
+    chk(len(sig) == 0, "F2 持多 + 多头时段 → 同向，不重复开仓", f"实际 {len(sig)} 个")
+    g = S._GATE_STATE.get("TESTUSDT") or {}
+    chk("同向" in str(g.get("why", "")), "F3 诊断写明「同向已有仓位」", f"why={g.get('why')}")
+
+    # F4 持多 + 空头时段 → 反向，发 reverse 信号
+    sig = run("long", -1)
+    chk(len(sig) == 1 and sig[0].reverse is True,
+        "F4 持多 + 时段转空 → 发反手信号（reverse=True）",
+        f"实际 {len(sig)} 个，reverse={sig[0].reverse if sig else None}")
+    chk(bool(sig) and sig[0].side == "short", "F5 反手信号方向 = short",
+        f"实际 {sig[0].side if sig else None}")
+    chk(bool(sig) and sig[0].stop_price > 100.8,
+        "F6 反手信号的止损在当前价上方（空单止损方向对）",
+        f"stop={sig[0].stop_price if sig else None} 现价=100.8")
+
+    # F7 持空 + 多头时段 → 反向
+    sig = run("short", 1)
+    chk(len(sig) == 1 and sig[0].reverse is True,
+        "F7 持空 + 时段转多 → 发反手信号（reverse=True）",
+        f"实际 {len(sig)} 个，reverse={sig[0].reverse if sig else None}")
+
+    # F8 反手成功后 _LEG_ENTERED 记住本时段（不然下一根会再反一次）
+    run("long", -1)
+    chk(bool(S._LEG_ENTERED), "F8 反手后 _LEG_ENTERED 已记账（本时段不再重复反手）",
+        f"_LEG_ENTERED={S._LEG_ENTERED}")
+
+    # F9/F10 engine 侧：reverse 分支必须存在，且必须在 allow_entry 之前
+    import backend.engine as E
+    import inspect
+    src = inspect.getsource(E)
+    chk('getattr(sig, "reverse", False)' in src,
+        "F9 engine 已接 reverse 分支（不接就永远开不出反手单）")
+    chk(0 <= src.find('getattr(sig, "reverse"') < src.find("risk.allow_entry(sig"),
+        "F10 reverse 平仓发生在 allow_entry 之前（顺序反了会被「同币已有仓位」硬闸拒掉）")
+
+    # F11 开关关闭（默认）→ 持多 + 时段转空也不开仓，等于回到「有仓就跳过」的旧行为
+    sig = run("long", -1, rev=False)
+    chk(len(sig) == 0, "F11 反手开关关闭 → 持多遇时段转空不开仓（默认行为）",
+        f"实际 {len(sig)} 个")
+    # F12 开关关闭时，无仓照常开仓（别把正常开仓也关掉）
+    sig = run(None, 1, rev=False)
+    chk(len(sig) == 1 and sig[0].reverse is False,
+        "F12 反手开关关闭不影响正常开仓", f"实际 {len(sig)} 个")
+
+
 def main():
     test_entry_dev()
     test_config()
     test_key_bar()
     test_exit_chain()
+    test_reverse()
     print("\n" + "=" * 78)
     total = len(PASS) + len(FAIL)
     print(f"结果：{len(PASS)} 通过 / {len(FAIL)} 失败  （共 {total} 项）")

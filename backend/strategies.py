@@ -26,6 +26,10 @@ class Signal:
     fresh: int = 999          # 距信号触发（如 CE 翻转）已过几根 K 线，越小越新鲜
     strength: float = 0.0     # 信号强度（如 |close-ZLSMA| / ATR），越大趋势越强
     stop_src: str = ""        # 止损来源诊断：swing / ce / key / dual_ce / dual_swing
+    # 反手标记（2026-11-11 晚 浩哥定）：本时段方向与在管仓位相反时置 True。
+    # 引擎收到后必须「先平旧仓、再开新仓」——risk.allow_entry 有「同币已有仓位
+    # 禁止对锁/加仓」的硬闸，顺序反了会被拒。
+    reverse: bool = False
     # 成本口径覆盖：None = 用全局 PAPER_FEE_RATE / PAPER_SLIPPAGE。
     # 为什么需要：S15 是挂单（maker）策略，回测按 0.02% 手续费 + 零滑点算出来
     # 的结论；如果线上按 taker 0.05% + 0.03% 滑点记账，每笔成本从 0.017R 涨到
@@ -73,6 +77,16 @@ class Ctx:
 
     def has_position(self, symbol, strategy=None):
         return bool(db.open_positions(strategy=strategy, symbol=symbol))
+
+    def open_side(self, symbol, strategy=None):
+        """该币在管仓位的方向：'long' / 'short' / None（无仓）。
+
+        反手要用 —— has_position 只告诉你「有没有」，反向开仓需要知道「是哪边」。
+        """
+        ps = db.open_positions(strategy=strategy, symbol=symbol)
+        if not ps:
+            return None
+        return str(ps[0].get("side") or "").lower() or None
 
 
 class Base:
@@ -377,6 +391,103 @@ def _is_key_bar(ks, i, atr_n, want, mult=1.0, closepos=0.66, bodyfrac=0.5):
     return (h - c) / rng > closepos       # ② 收在下 1/3
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# ZLSMA 实体穿越 → 多/空时段（leg）序列    【2026-11-11 晚 浩哥定档】
+# ══════════════════════════════════════════════════════════════════════════
+def _zlsma_legs(ks, ind, max_wait=3):
+    """用「ZLSMA50 实体穿越 + 下一根确认」切出多头段 / 空头段。
+
+    浩哥 2026-11-11 晚定档的定义：
+      · 穿越根 = ZLSMA 落在这根 K 线**实体内部**（min(开,收) ≤ ZLSMA ≤ max(开,收)）
+        连续多根都在实体内时，取「实体最长」的那一根
+      · 确认根 = 穿越根之后，第一根「实体完全在反面」的 K 线
+        转空：max(开,收) < ZLSMA      转多：min(开,收) > ZLSMA
+      · 逐根往后等确认，但最多等 max_wait 根（超时视为震荡，本次作废）
+      · 中途回到原来那一侧 = 假穿越，作废，等下一次
+      · 时段 = 从确认根开始，持续到下一次穿越确认为止
+
+    为什么不用 CE 的 dir：
+      CE 的 dir 本来就是「状态」（+1/-1 两个值，天然表示一段持续）。
+      旧代码把它降级成瞬时事件（只在翻那一根判断），结果翻转那根不合格，
+      整个时段就全废 —— UNI 2026-11-11 13:15 翻空那根不是关键K线，
+      13:15~18:15 四小时的空头行情一笔都没吃到。
+      正确用法：dir 划定战场（时段），关键 K 线决定开枪时点。
+
+    返回 (leg_dir, leg_ts, side, starts)：
+      leg_dir[i] = +1 / -1  第 i 根所属时段方向；0 = 尚未确认（不在任何时段内）
+      leg_ts[i]  = 该时段确认根的时间戳（用于「本时段是否已入场」的去重）
+      side[i]    = +1 实体全在均线上 / -1 全在下 / 0 均线在实体内 / None 数据不足
+      starts     = [(确认根下标, 方向, 穿越根下标), ...]
+    """
+    n = len(ks)
+    z = ind["zlsma"]
+    ho, hc = ind["open"], ind["close"]
+
+    # ① 逐根算实体相对均线的侧位
+    side: list = [None] * n
+    for i in range(n):
+        if z[i] is None or ho[i] is None or hc[i] is None:
+            continue
+        lo = min(ho[i], hc[i])
+        hi = max(ho[i], hc[i])
+        if lo > z[i]:
+            side[i] = 1
+        elif hi < z[i]:
+            side[i] = -1
+        else:
+            side[i] = 0
+
+    # ② 找穿越根 + 等确认
+    starts = []
+    i = 1
+    while i < n:
+        if side[i] == 0 and side[i - 1] in (1, -1):
+            j = i
+            while j < n and side[j] == 0:
+                j += 1
+            # [i, j) 是连续「均线在实体内」的区间 → 取实体最长的那根做穿越根
+            cross = i
+            best = -1.0
+            for k in range(i, min(j, n)):
+                body = abs(hc[k] - ho[k])
+                if body > best:
+                    best, cross = body, k
+            prev = side[i - 1]
+            conf = None
+            waited = 0
+            for m in range(j, n):
+                s = side[m]
+                if s is None or s == 0:
+                    waited += 1
+                    if waited > max_wait:
+                        break
+                    continue
+                if s == prev:          # 回到原侧 = 假穿越
+                    break
+                conf = (m, s, cross)
+                break
+            if conf:
+                starts.append(conf)
+            i = j
+            continue
+        i += 1
+
+    # ③ 按时段起点填充
+    leg_dir = [0] * n
+    leg_ts = [None] * n
+    for idx, (ci, d, _xi) in enumerate(starts):
+        end = starts[idx + 1][0] if idx + 1 < len(starts) else n
+        ts = ks[ci].get("ts", ci)
+        for t in range(ci, end):
+            leg_dir[t] = d
+            leg_ts[t] = ts
+    return leg_dir, leg_ts, side, starts
+
+
+_LEG_ENTERED = {}      # (sid, sym) -> 已入场的时段起点 ts；保证「一个时段只进一次」
+_LEG_MAX_WAIT = 3      # 穿越之后最多等几根确认
+
+
 class S15CeZlsma(Base):
     sid = "S15_CE_ZLSMA"
     FACTORS = []                 # 不需要任何 Clawby 因子，不消耗额度
@@ -415,7 +526,7 @@ class S15CeZlsma(Base):
         "exit_en": "Four exits: (1) hard stop = nearest of key-bar extreme / 8-bar swing / CE channel "
                    "(2) take half at 1.2R (3) after the half, a reverse key bar whose HA close "
                    "crosses back through ZLSMA50 closes the rest (right-side take-profit) "
-                   "(4) if it never crosses, the remainder closes at 2.0R as a backstop. "
+                   "(4) if it never crosses, the remainder closes at 2.5R as a backstop. "
                    "Removed: 16h time stop, quick-fail, trailing stop, mirror exit.",
         "factors_en": "15m klines (self-computed CE 1x1.5 / ZLSMA50 / ATR / Bollinger width percentile)",
         "risk_en": "CE flips constantly in chop, so entries add a BBW percentile gate (>70% over last "
@@ -503,7 +614,8 @@ class S15CeZlsma(Base):
         bbw_pct_min = float(self._p("bbw_pct_min", 70.0))
         max_risk_pct = float(self._p("max_risk_pct", 30.0))
         # ⑥ 进场位置闸（2026-11-08 浩哥批准落地）：进场价必须离 ZLSMA 至少这个百分比。
-        #    0 = 关闭该闸，行为退回三闸（回滚只需把这行配置删掉或设 0）。
+        #    ⚠ 2026-11-11 深夜：闸门本体已物理删除（见下方 ⑥ 处的注释），
+        #    这两个键只为「面板显示离均线多远」保留，设什么值都不再拦截。
         min_dev_pct = float(self._p("min_dev_pct", 0.0))
         # ④b 偏离闸（2026-11-10 B 档）：自适应门槛 = max(min_dev_pct, mult × ATR(20)%)
         #    mult=1.0 就把「离均线太近」的假突破挡在门外，且随每个币的波动自动缩放。
@@ -529,6 +641,12 @@ class S15CeZlsma(Base):
         #    真实限价挂单能力是执行层待办（观察期后单独做）。
         fee_rate = float(self._p("fee_rate", 0.0002))
         slip_pct = float(self._p("slip_pct", 0.0))
+        # 反手开关（2026-11-11 深夜 浩哥定：关）。
+        #   回测实证（20/40/80 币三组样本）：反手 71 笔均笔 −0.45R，净值 −32.21R，
+        #   而且回撤同时变大（−83.63R → −98.84R）—— 不是「少赚」是多亏。
+        #   原因：反手要等「时段确认 + 六闸全过」，那时趋势已走一半，追在反转尾巴上。
+        #   代码保留（Signal.reverse + engine 平旧仓那段），这里一个开关就能重开。
+        reverse_enabled = bool(self._p("reverse_enabled", False))
         kline_iv = str(self.p.get("kline_interval", "15m"))
 
         # EFF 窗口也在 need 里（2026-11-10 从池子闸挪到进场闸）
@@ -537,7 +655,11 @@ class S15CeZlsma(Base):
 
         for sym in self.syms(ctx):
             try:
-                if ctx.has_position(sym, self.sid):
+                # 2026-11-11 晚：旧写法 `if has_position: continue` 把「反向开仓」
+                # 这条路整个堵死了 —— 只要这个币有仓，无论新时段方向如何都跳过。
+                # 现在只记方向；反手开关关闭时（默认），行为与旧写法完全一致。
+                _pos_side = ctx.open_side(sym, self.sid)
+                if _pos_side and not reverse_enabled:
                     continue
                 ks = await ctx.klines(sym, kline_iv, need)
                 if not ks or len(ks) < need:
@@ -569,9 +691,25 @@ class S15CeZlsma(Base):
                 if not (math.isfinite(c) and math.isfinite(z)):
                     continue
 
-                # ① CE 方向翻转（事件，不是状态）
-                d_now = int(dirs_arr[i] or 1)
-                d_prev = int(dirs_arr[i - 1] or 1)
+                # ① 时段判定（ZLSMA50 实体穿越 + 下一根确认）—— 2026-11-11 晚 浩哥定档
+                #    旧写法 `d_now != d_prev` 只在 CE 翻转那一根判定，那根不是关键K线
+                #    整个时段就全废（UNI 13:15 翻空就是这样，四小时空头行情全丢）。
+                #    现在：ZLSMA 穿越划定多/空时段，时段内任意一根关键K线都能开枪。
+                _leg_dir, _leg_ts_arr, _side_arr, _leg_starts = _zlsma_legs(
+                    ks, ind, _LEG_MAX_WAIT)
+                d_now = int(_leg_dir[i] or 0)
+                leg_ts_now = _leg_ts_arr[i]
+
+                # 在管仓位 vs 本时段方向（2026-11-11 晚 浩哥定「反向开仓」）
+                #   同向 → 本时段已有仓，不重复开（一个时段一段仓位）
+                #   反向 → 继续往下走闸门，全过则发 reverse 信号，引擎先平后开
+                if _pos_side and d_now != 0:
+                    _want = "long" if d_now == 1 else "short"
+                    if _pos_side == _want:
+                        # 面板诊断表在这条路径上还没建条目，用 setdefault 现建一个，
+                        # 否则 why 永远是 None，面板看不出「为什么这只币没开」
+                        _GATE_STATE.setdefault(sym, {})["why"] = "同向已有仓位"
+                        continue
 
                 # ── 进场闸门诊断（纯内存，零额外流量）──────────────────────
                 # 三步的判断本来就要做，这里只是把结果留下给页面看。
@@ -579,7 +717,7 @@ class S15CeZlsma(Base):
                 _bp = bbw_pct[i]
                 _ha_ok = (c > z and c > o) if d_now == 1 else (c < z and c < o)
                 _thr = bbw_pct_min if bbw_pct_min > 0 else 70.0
-                _ce_ok = d_now != d_prev
+                _ce_ok = (d_now != 0)
                 # ⚠ 2026-11-06 修：原来写成 `_bp is None or _bp >= _thr`，
                 # 数据缺失时诊断表显示"这道过了"，而下面 ④ 的实际开仓判断是
                 # `bp is None → continue`（拒绝）。两处相反，诊断会骗人。
@@ -589,7 +727,7 @@ class S15CeZlsma(Base):
                 else:
                     _bbw_ok = True          # 策略层关掉 BBW 门槛，不参与判断
                 if not _ce_ok:
-                    _why = "CE没翻转"
+                    _why = "时段未确认"
                 elif not _ha_ok:
                     _why = "HA形态不对"
                 elif not _bbw_ok:
@@ -642,7 +780,18 @@ class S15CeZlsma(Base):
                     "ok": False, "why": _why,
                 }
 
-                if d_now == d_prev:
+                # ① 时段未确认 → 不参与开仓判断（面板已标「时段未确认」）
+                if d_now == 0:
+                    continue
+
+                # ①b 本时段已经进过场 → 不再重复（一个时段只开一次仓）
+                #     为什么需要这个标记：旧代码靠 `d_now != d_prev` 天然保证「一根只进一次」；
+                #     改成时段后，同一时段会有几十根 K 线，不加标记会连续重复开仓。
+                _leg_key = (self.sid, sym)
+                if leg_ts_now is not None and _LEG_ENTERED.get(_leg_key) == leg_ts_now:
+                    _g0 = _GATE_STATE.get(sym)
+                    if _g0 is not None:
+                        _g0["why"] = "本时段已入场"
                     continue
 
                 # ② ATR 门槛 —— 2026-11-06 已搬到池子模块（5m 双档）
@@ -701,34 +850,24 @@ class S15CeZlsma(Base):
                 if px <= 0 or not math.isfinite(px):
                     continue
 
-                # ⑥ 进场位置闸 —— 进场价离 ZLSMA 的距离必须够远（2026-11-08 浩哥批准）
+                # ⑥ 偏离闸已于 2026-11-11 晚按浩哥决定【物理删除】。
                 #
-                #    为什么加这道（60 天 / 20 币回测，docs/S15_参数优化证伪记录.md 附二）：
+                #    为什么删：旧口径在 CE 翻转那一根入场，那时价格已远离均线，
+                #    「离得够远」是个有效的假突破过滤器。换成「时段内首次关键K线」后，
+                #    刚确认的时段天然贴着均线 → 这道闸挡掉的恰恰是「刚启动的趋势」。
+                #    UNI 16:15 实证：关键K线过、BBW 89 过、EFF 0.59 过，唯独偏离
+                #    0.664% < 0.931% 被误杀。
+                #
+                #    ⚠ 留证（旧口径 60 天 20 币实测，不是推理）：
                 #      偏离 <=0.5% 的 104 笔：净R −14.8  均笔 −0.143  胜率 34.6%  止损率 51.9%
                 #      偏离  >0.5% 的 640 笔：净R +90.9  均笔 +0.142  胜率 47.8%  止损率 31.7%
-                #    贴均线进场 = 突破还没走出去 = 假突破；离均线够远才说明趋势真启动了。
-                #
-                #    与前三闸的关系（实测，不是推理）：
-                #      · 与 BBW 分位相关系数 −0.020 → 完全不冗余
-                #      · 与 HA 形态同向（HA 要求「在均线这一侧」，本闸要求「离得够远」）→ 不矛盾
-                #      · 只剔掉 HA 通过但贴均线的 14%，不是限制过死
-                dev_pct = abs(px - z) / z * 100.0 if z else 0.0
-                # 2026-11-10 B 档：门槛自适应 = max(固定下限, mult × ATR(20) 占价格的百分比)
-                #   为什么要自适应：BTC 和 DOGE 的 0.5% 完全不是一个东西。
-                #   ATR(20) 是「平常一根 K 线走多远」，用它的倍数当尺子，跨币可比。
-                _dthr = min_dev_pct
-                if dev_atr_mult > 0:
-                    _a20 = atr_n[i] if atr_n is not None and i < len(atr_n) else None
-                    _apct = (_a20 / px * 100.0) if _a20 else 0.0
-                    _dthr = max(_dthr, dev_atr_mult * _apct)
+                #    这条统计挂在旧触发口径上，不能直接套到新口径；但若加反手后胜率下滑，
+                #    第一个要翻回来查的就是这段。
                 _g = _GATE_STATE.get(sym)
                 if _g is not None:
-                    _g["dev"] = round(dev_pct, 3)
-                    _g["dev_thr"] = round(_dthr, 3)
-                if _dthr > 0 and dev_pct < _dthr:
-                    if _g is not None:
-                        _g["why"] = f"离均线仅{dev_pct:.2f}%（需{_dthr:.2f}%）"
-                    continue
+                    # 面板仍显示「离均线多远」这个真实值，只是不再用它拦截
+                    _g["dev"] = round(abs(px - z) / z * 100.0, 3) if z else None
+                    _g["dev_thr"] = 0.0       # 门槛 0 = 不设限，面板那列恒通过
 
                 # ⑤ 止损 = 三条并列取近 + 两档修正
                 #    逻辑只在 _stop_ref() 里写一份，面板第⑤道闸也调它 ——
@@ -789,10 +928,12 @@ class S15CeZlsma(Base):
                 # 真实结论由 /api/gates 用持仓表 + 信号表的 skip_reason 覆盖。
                 _GATE_STATE[sym]["ok"] = True
                 _GATE_STATE[sym]["why"] = "全闸通过"
+                # 标记本时段已入场，同一个时段后续的 K 线不再重复开仓
+                _LEG_ENTERED[_leg_key] = leg_ts_now
                 out.append(Signal(
                     strategy=self.sid, symbol=sym, side=side,
-                    reason=(f"CE{'多' if side == 'long' else '空'}翻向+"
-                            f"{'阳' if side == 'long' else '阴'}线"
+                    reason=(f"ZLSMA{'站上' if side == 'long' else '跌破'}时段+"
+                            f"{'阳' if side == 'long' else '阴'}线关键K"
                             f"{'站上' if side == 'long' else '跌破'}ZLSMA "
                             f"ATR={atr_pct:.2f}%"
                             + (f" BBW分位={bp:.0f}%" if bp is not None else "")),
@@ -801,6 +942,8 @@ class S15CeZlsma(Base):
                     max_hold_sec=self.max_hold,
                     fresh=0, strength=abs(c - z) / atr,
                     fee_rate=fee_rate, slip_pct=slip_pct,
+                    # 反手：这只币原本有仓，且方向与本时段相反（同向的上面已经 continue 掉了）
+                    reverse=bool(_pos_side and _pos_side != side),
                 ))
             except Exception as exc:  # noqa: BLE001
                 log.warning("S15 %s 计算失败: %s", sym, exc)
@@ -814,7 +957,7 @@ class S15CeZlsma(Base):
             —— 本方法负责（每 0.5 秒判一次）——
             ① 平一半：  现价 ≥ half_at_r(1.2R) → 平掉 50%
                          （_half_take_profit）
-            ② 兜底全平：已平半 且 现价 ≥ full_at_r(2.0R) → 平剩余
+            ② 兜底全平：已平半 且 现价 ≥ full_at_r(2.5R) → 平剩余
                          （_full_target）—— 防止一直不穿均线时没有出口
             ③ 右侧止盈：已平半 且 HA 反向 + HA收穿 ZLSMA50
                          + 那根原始K线本身是反向关键K线（_right_exit）
@@ -875,7 +1018,7 @@ class S15CeZlsma(Base):
             if half:
                 return half
 
-            # ② 兜底全平（full_at_r = 2.0R）→ ③ 右侧止盈
+            # ② 兜底全平（full_at_r = 2.5R）→ ③ 右侧止盈
             #    顺序与回测 sim() 一致：先 2R，再右侧
             full = self._full_target(ctx, pos)
             if full:
@@ -910,10 +1053,10 @@ class S15CeZlsma(Base):
         return self._touch_pos_state(pos, entry, risk, cur_r)
 
     def _full_target(self, ctx, pos):
-        """② 兜底全平（2026-11-10 B 档）：已平半 且 现价R ≥ full_at_r(2.0) → 平剩余半仓。
+        """② 兜底全平：已平半 且 现价R ≥ full_at_r(2.5，2026-11-12 由 2.0 上调) → 平剩余半仓。
 
         为什么需要它：③ 右侧止盈要等「一根够力道的反向K线」。如果价格慢慢阴跌回均线
-        附近，却始终不出这样一根K线，仓位就会一直挂着 —— 2R 全平是那条保底线。
+        附近，却始终不出这样一根K线，仓位就会一直挂着 —— 2.5R 全平是那条保底线。
         回测出场归因：它占 12.2%（34 笔），是第四大出口。
 
         full_at_r = 0 即关闭。

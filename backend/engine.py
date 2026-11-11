@@ -182,7 +182,7 @@ async def manage_positions(ctx, strategies):
             # 回测（20币/60天/cap5%/1.8半/移动1.5-1.2）：
             #   去掉豁免 12h → +94.2R 最长 12.0h
             #   保留豁免 12h → +86.7R 最长 42.5h   （只差 0.8R，买掉 30 小时尾巴）
-            # 「让利润奔跑」靠 ② 2.0R 兜底 + ③ 右侧止盈来做，不靠免死金牌。
+            # 「让利润奔跑」靠 ② 2.5R 兜底 + ③ 右侧止盈来做，不靠免死金牌。
             # （移动止盈已于 2026-11-10 整条删除，这里不再提它。）
             reason = "达到最长持仓时限"
         # ④ 硬止损 —— 判定抽成纯函数 _hard_stop_reason()，便于单测
@@ -371,6 +371,23 @@ async def scan_loop():
                         db.log_signal(sig.strategy, sig.symbol, sig.side, sig.reason,
                                       False, f"杂讯过滤:{qwhy}")
                         continue
+                    # ── 反手（2026-11-11 晚 浩哥定「反转后做反向单」）──────────
+                    # 本时段方向与在管仓位相反时，evaluate 会把信号标 reverse=True。
+                    # 这里必须先平掉旧仓：risk.allow_entry 有一条硬闸
+                    # 「同币已有仓位(禁止对锁/加仓)」，不先平就永远开不出去。
+                    # ⚠ 只在「确认根」之后才有信号，所以不会拿假穿越去反手。
+                    if getattr(sig, "reverse", False):
+                        _old = db.open_positions(strategy=sig.strategy, symbol=sig.symbol)
+                        if _old:
+                            _px0 = factors.mark_price_of(sig.symbol) or sig.stop_price
+                            _rtag = f"反手：时段转{'多' if sig.side == 'long' else '空'}"
+                            _rev_ok = await executor.close_position(_old[0], _px0, _rtag)
+                            if not _rev_ok:
+                                db.log_signal(sig.strategy, sig.symbol, sig.side,
+                                              sig.reason, False, "反手：旧仓平仓失败")
+                                continue
+                            db.log("info", f"{_rtag} {sig.symbol} "
+                                           f"{_old[0].get('side')} → {sig.side}")
                     allowed, why, mult = risk.allow_entry(sig, scfg, equity_cache, cfg_global)
                     # 影子模式：不管开没开仓，都记录三套因子规则的判定 + 虚拟跟踪
                     try:

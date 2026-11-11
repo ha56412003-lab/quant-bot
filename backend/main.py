@@ -635,7 +635,7 @@ async def api_positions():
                       sign / risk_abs)) if (peak_r_mem is not None and risk_abs > 0) else None
 
         # ── B 档出场可视化参数（2026-11-10）────────────────────────────
-        # 现役出场只有四条：硬止损 / 1.2R 平半 / 2.0R 兜底全平 / 右侧止盈。
+        # 现役出场只有四条：硬止损 / 1.2R 平半 / 2.5R 兜底全平 / 右侧止盈。
         # 前三条是「价位触发」，前端用 R 轴刻度画；第四条是「K线形态触发」，
         # 策略在 0.5s 循环里现算现用、不落库，所以图上不画灯、只留规则图例。
         # ⚠ 原来这里给「镜像出场三闸 + 快速失败」喂 exit_*/qf_* 实时字段，
@@ -656,7 +656,7 @@ async def api_positions():
                     "stop_dist_pct": stop_dist,
                     "peak_r_mem": float(peak_r_mem) if peak_r_mem is not None else None,
                     "drawdown_r": drawdown_r,
-                    # B 档出场刻度：1.2R 平半 / 2.0R 兜底全平（值从配置读，前端不写死）
+                    # 出场刻度：1.2R 平半 / 2.5R 兜底全平（值从配置读，前端不写死）
                     "half_at_r": _half_r, "full_at_r": _full_r,
                     "half_done": _half_done,
                     # 占用保证金按【当前价】计算，与币安口径一致（仓位价值随价格浮动）

@@ -331,6 +331,7 @@ _STRAT_PARAM_BOUNDS = {
     "max_same_bar_side":  (1, 20),       # 0=禁止所有开仓
     "fee_rate":           (0.0, 0.01),   # 1% 封顶（币安 taker 0.05%）
     "slip_pct":           (0.0, 5.0),    # 0=无滑点
+    "reverse_enabled":    None,          # bool：反手开关（默认 false，回测已证伪）
 }
 
 # 必须是整数的键（其余按 float 走）。int 在这里不是小事：
