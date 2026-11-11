@@ -1,17 +1,27 @@
-"""轮换观战 key（QB_VIEW_KEY）。
+"""轮换观战 key（QB_VIEW_KEY）—— 不重启服务，改完立即生效。
 
-浩哥 2026-11-11 选 A：观战链接永久有效，需要时手动换 key 让它失效。
+## 浩哥的要求（2026-11-11 原话）
+
+「切换观战 KEY 需要重启服务 这个不太行 需要改掉 后端服务器 不能关」
+
+## 为什么现在不用重启
+
+原来 key 存在服务器 `.env` 里，而 `.env` 只在进程启动时读一次 → 必须 restart。
+现在改用 `backend/livekeys.py` 热加载：key 存在服务器
+`/opt/quantbot/data/livekeys`，后端每次请求比对文件修改时间（st_mtime_ns），
+改完文件下一个请求就生效 —— 引擎一秒都不会停。
 
 这个脚本做的事：
   1. 生成一个新的 64 位十六进制观战 key
-  2. 写进服务器 /opt/quantbot/.env 的 QB_VIEW_KEY
+  2. 原子写进服务器 /opt/quantbot/data/livekeys
   3. 更新本地 E:\\quant-bot\\.env.local 第 2 行
-  4. 重启服务器 quantbot
-  5. 验证：新 key 能读、旧 key 立刻 401
+  4. 【不重启任何服务】
+  5. 验证：新 key 立刻 200、旧 key 立刻 401
 
 ★ 换完之后：
    · 所有旧的观战链接立刻失效（朋友点开会看到「观战链接可能已失效」）
    · 你自己的「量化看板」不受影响（那是操作 token，另一把钥匙）
+   · 持仓监控一秒都没断
    · 你需要重新生成链接发给朋友（双击桌面「生成观战链接」图标）
 
 用法：
@@ -69,6 +79,7 @@ SSH = shutil.which("ssh") or "ssh"
 SSH_KEY = os.path.expanduser("~/.ssh/qb_hk")
 HOST = "root@103.148.245.170"
 REMOTE = "/opt/quantbot"
+LIVEKEYS = f"{REMOTE}/data/livekeys"
 LOCAL_ENV = r"E:\quant-bot\.env.local"
 HISTORY = r"E:\quant-bot\.view_key_history.txt"
 
@@ -86,7 +97,11 @@ def ssh(script, timeout=180):
 
 
 def remote_get(name):
-    rc, out = ssh(f'grep "^{name}=" {REMOTE}/.env | head -1 | cut -d= -f2-')
+    """读服务器上当前生效的凭据：先看热加载文件，没有则回退 .env。"""
+    rc, out = ssh(
+        f'if [ -f {LIVEKEYS} ] && grep -q "^{name}=" {LIVEKEYS}; then '
+        f'grep "^{name}=" {LIVEKEYS} | head -1 | cut -d= -f2-; '
+        f'else grep "^{name}=" {REMOTE}/.env | head -1 | cut -d= -f2-; fi')
     return out.strip() if rc == 0 else ""
 
 
@@ -100,6 +115,11 @@ def show_status():
         return 1
     print(f"  长度   : {len(vk)} 位")
     print(f"  前 4 位: {vk[:4]}***")
+
+    _, out = ssh(f'[ -f {LIVEKEYS} ] && echo LIVEKEYS || echo ENV')
+    where = "热加载文件 data/livekeys（改完立即生效，不重启）" if "LIVEKEYS" in out \
+        else ".env（旧方案，改了要重启 —— 跑一次真换会自动迁移到 livekeys）"
+    print(f"  存放于 : {where}")
 
     # 本地是否一致
     try:
@@ -131,11 +151,12 @@ def show_status():
     else:
         print("  上次换 : 无记录（这把是 2026-11-11 首次建立的）")
 
-    # 实测
-    rc, out = ssh(
-        f'cd {REMOTE} && VK=$(grep "^QB_VIEW_KEY=" .env | cut -d= -f2-) && '
-        f'echo "  新读测试: $(curl -s -o /dev/null -w %{{http_code}} --noproxy "*" '
-        f'-H "x-view-key: $VK" --max-time 8 http://127.0.0.1:8899/api/status)"')
+    # 实测（读的是当前真正生效的那把 key：先 livekeys 再 .env）
+    _, out = ssh(
+        f'cd {REMOTE} && K=$(grep "^QB_VIEW_KEY=" {LIVEKEYS} 2>/dev/null | cut -d= -f2-); '
+        f'[ -z "$K" ] && K=$(grep "^QB_VIEW_KEY=" .env | cut -d= -f2-); '
+        f'echo "  实测读 status: $(curl -s -o /dev/null -w %{{http_code}} --noproxy "*" '
+        f'-H "x-view-key: $K" --max-time 8 http://127.0.0.1:8899/api/status)"')
     print(out.strip().splitlines()[-1] if out.strip() else "  实测: 失败")
     return 0
 
@@ -145,7 +166,6 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry", action="store_true", help="只预演")
     ap.add_argument("--show", action="store_true", help="只看当前状态")
-    ap.add_argument("--no-restart", action="store_true", help="只改文件不重启")
     args = ap.parse_args()
 
     if args.show:
@@ -174,31 +194,40 @@ def main():
 
     if args.dry:
         print("\n  [dry] 会做的事：")
-        print("    1. 备份 .env 为 .env.bak_vk_<时间戳>")
-        print("    2. 新 key 写进 QB_VIEW_KEY")
+        print(f"    1. 备份 {LIVEKEYS} 为 .bak_vk_<时间戳>（有的话）")
+        print(f"    2. 原子写入新 key 到 {LIVEKEYS}（首次会从 .env 迁移其它凭据）")
         print(f"    3. 更新本地 {LOCAL_ENV} 第 2 行")
-        print("    4. 重启 quantbot")
+        print("    4. 【不重启任何服务】")
         print("    5. 验证：新 key 200 / 旧 key 401")
         print("\n  [!] 换完之后所有旧观战链接立刻失效，需要重新发给朋友。")
         return 0
 
-    # ① 服务器
+    # ① 服务器：写热加载文件（不重启）
     script = f"""
 set -e
 cd {REMOTE}
-STAMP=$(date +%s)
-cp .env .env.bak_vk_$STAMP
-echo "  backup: .env.bak_vk_$STAMP"
-sed -i "/^QB_VIEW_KEY=/d" .env
-echo "QB_VIEW_KEY={new_vk}" >> .env
-echo "  env 行数: $(wc -l < .env)"
+mkdir -p data
+if [ -f {LIVEKEYS} ]; then
+  cp {LIVEKEYS} {LIVEKEYS}.bak_vk_$(date +%s)
+  echo "  backup: data/livekeys.bak_vk_*"
+fi
+touch {LIVEKEYS}
+# 首次迁移：把 .env 里的操作 token 也搬进来，之后一个文件管全部凭据
+if ! grep -q "^QB_API_TOKEN=" {LIVEKEYS} 2>/dev/null; then
+  T=$(grep "^QB_API_TOKEN=" .env | head -1 | cut -d= -f2-)
+  [ -n "$T" ] && echo "QB_API_TOKEN=$T" >> {LIVEKEYS}
+fi
+sed -i '/^QB_VIEW_KEY=/d' {LIVEKEYS}
+echo "QB_VIEW_KEY={new_vk}" >> {LIVEKEYS}
+chmod 600 {LIVEKEYS}
+echo "  写入完成，共 $(grep -c '=' {LIVEKEYS}) 个键"
 """
     rc, out = ssh(script)
     if rc != 0:
-        print("  [X] 改服务器 .env 失败：" + out.strip()[:300])
-        print("  → 没重启，旧 key 仍然有效，服务不受影响。")
+        print("  [!] 写服务器 livekeys 失败：" + out.strip()[:300])
+        print("  → 服务没动，旧 key 仍然有效。")
         return 1
-    print("  [OK] 服务器 .env 已更新")
+    print("  [OK] 服务器 data/livekeys 已更新（服务未重启）")
 
     # ② 本地 .env.local 第 2 行
     try:
@@ -210,24 +239,19 @@ echo "  env 行数: $(wc -l < .env)"
     except Exception as e:                                     # noqa: BLE001
         print(f"  [!] 本地更新失败：{e}")
 
-    # ③ 重启
-    if not args.no_restart:
-        rc, out = ssh("systemctl restart quantbot && sleep 7 && systemctl is-active quantbot")
-        state = out.strip().splitlines()[-1] if out.strip() else "?"
-        if state != "active":
-            print(f"  [X] 重启后状态 {state}，立刻检查：")
-            print(f"    ssh -i {SSH_KEY} {HOST} 'journalctl -u quantbot -n 40'")
-            return 1
-        print("  [OK] 服务已重启：active")
+    # ③ 等一个 mtime 粒度（正常下一个请求就生效；0.3 秒是保险）
+    #    ★ 这里【不重启服务】—— 浩哥 2026-11-11 硬要求
+    time.sleep(0.3)
 
-    # ④ 验证
-    print("\n  验证：")
+    # ④ 验证（全程不重启）
+    print("\n  验证（服务全程没重启）：")
     verify = f"""
 cd {REMOTE}
 NEW={new_vk}
 OLD={old_vk or "NONE"}
-VK=$(grep "^QB_VIEW_KEY=" .env | cut -d= -f2-)
-TK=$(grep "^QB_API_TOKEN=" .env | cut -d= -f2-)
+TK=$(grep "^QB_API_TOKEN=" {LIVEKEYS} 2>/dev/null | head -1 | cut -d= -f2-)
+if [ -z "$TK" ]; then TK=$(grep "^QB_API_TOKEN=" .env | head -1 | cut -d= -f2-); fi
+echo "  服务运行时长         : $(ps -o etimes= -p $(systemctl show quantbot -p MainPID --value) 2>/dev/null | tr -d ' ') 秒（没重启的话应该 > 60）"
 echo "  新观战 key 读 status : $(curl -s -o /dev/null -w "%{{http_code}}" --noproxy "*" --max-time 8 -H "x-view-key: $NEW" http://127.0.0.1:8899/api/status)"
 if [ "$OLD" != "NONE" ]; then
   echo "  旧观战 key 读 status : $(curl -s -o /dev/null -w "%{{http_code}}" --noproxy "*" --max-time 8 -H "x-view-key: $OLD" http://127.0.0.1:8899/api/status)"
@@ -255,13 +279,13 @@ echo "  无凭据     读 status : $(curl -s -o /dev/null -w "%{{http_code}}" --
 
     print()
     if ok:
-        print("  [OK] 换完了。")
-        print("    · 所有旧观战链接现在都是 401，朋友点开会提示「链接已失效」")
+        print("  [OK] 换完了 —— 服务一次都没重启。")
+        print("    · 所有旧观战链接现在都是 401，朋友点开会提示「链接可能已失效」")
         print("    · 你自己的「量化看板」不受影响")
         print("    · 重新发链接：双击桌面「生成观战链接」图标")
         return 0
-    print("  [!] 验证没全过，请看上面状态码。回滚：")
-    print(f"    ssh -i {SSH_KEY} {HOST} 'cd {REMOTE} && cp .env.bak_vk_* .env && systemctl restart quantbot'")
+    print("  [!] 验证没全过，请看上面状态码。回滚（同样不用重启）：")
+    print(f"    ssh -i {SSH_KEY} {HOST} \"cd {REMOTE} && cp data/livekeys.bak_vk_* data/livekeys\"")
     return 1
 
 

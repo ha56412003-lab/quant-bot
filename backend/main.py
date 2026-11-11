@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import (binance, config, daily_target, db, engine, executor, factors,
-               netwatch, pool, quality, radar, risk, shadow, strategies, ws)
+               livekeys, netwatch, pool, quality, radar, risk, shadow, strategies, ws)
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -245,12 +245,17 @@ def _token_ok(tok: str) -> bool:
         return tok in (config.API_TOKEN, config.API_TOKEN_PREV)
       当 API_TOKEN_PREV 留空时，空 token "" 会命中 ""，等于「无凭据也能写」。
       测试脚本抓出来了。现在显式拒绝空值。
+
+    ★ 2026-11-11 第二次改：改走 livekeys 热加载，换 token 不用重启服务。
+      文件 data/livekeys 里没有对应键时自动回退到 config 里的环境变量值。
     """
-    if not tok or not config.API_TOKEN:
+    cur = livekeys.api_token()
+    if not tok or not cur:
         return False
-    if tok == config.API_TOKEN:
+    if tok == cur:
         return True
-    return bool(config.API_TOKEN_PREV) and tok == config.API_TOKEN_PREV
+    prev = livekeys.api_token_prev()
+    return bool(prev) and tok == prev
 
 
 @app.middleware("http")
@@ -308,7 +313,8 @@ async def _api_guard(request: Request, call_next):
                 return JSONResponse({"detail": "cross-site origin rejected"}, status_code=403)
 
         # ③ 写操作 token（配置了才校验；支持轮换宽限期 QB_API_TOKEN_PREV）
-        if config.API_TOKEN and not _token_ok(_take_token(request)):
+        #    ★ 走 livekeys 热加载：换 token 立即生效，不用重启服务。
+        if livekeys.api_token() and not _token_ok(_take_token(request)):
             return JSONResponse({"detail": "invalid api token"}, status_code=401)
 
     # ★ ④ 读操作鉴权（2026-11-11）
@@ -316,10 +322,12 @@ async def _api_guard(request: Request, call_next):
     #   x-api-token（完整权限）或 x-view-key（只读观战），否则 401。
     #   ★ 静态资源（/assets/*）与首页 HTML 不拦 —— 否则页面本身都打不开。
     #   ★ QB_VIEW_KEY 留空时整段跳过 = 旧行为，不会把操作者锁在门外。
-    elif config.VIEW_KEY and path.startswith("/api/"):
-        if config.API_TOKEN and _token_ok(_take_token(request)):
+    #   ★ 走 livekeys 热加载：换观战 key 立即生效，不用重启服务（浩哥硬要求）。
+    elif livekeys.view_key() and path.startswith("/api/"):
+        vk = livekeys.view_key()
+        if livekeys.api_token() and _token_ok(_take_token(request)):
             pass                                          # 操作者，放行
-        elif (request.headers.get("x-view-key") or "").strip() == config.VIEW_KEY:
+        elif (request.headers.get("x-view-key") or "").strip() == vk:
             pass                                          # 观战者，放行
         else:
             log.warning("拒绝未授权的读请求: %s %s", request.method, path)
