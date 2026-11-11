@@ -77,3 +77,4 @@ strategies.yaml.bak_*
 *.disabled_*
 .bak_1111_security/
 .view_key_history.txt
+.vk_rotate.log
