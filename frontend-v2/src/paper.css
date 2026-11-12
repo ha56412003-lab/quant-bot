@@ -451,13 +451,13 @@ html[data-theme="paper"] .spider-root .stage .ssm .val {
    v2.css 里给这几个容器单独写了玫红滚动条，且带 box-shadow 粉色光晕：
      .scroll-y::-webkit-scrollbar-thumb                rgba(236,79,174,.4)
      .pnl > div:last-child::-webkit-scrollbar-thumb    rgba(236,79,174,.75) + 光晕
-     .stage > div:nth-child(3)::-webkit-scrollbar-thumb 同上
+     .stage > .pos-table::-webkit-scrollbar-thumb 同上
      .side > div::-webkit-scrollbar-thumb              同上
    类选择器优先级高于我原来写的全局 ::-webkit-scrollbar，必须逐个点名覆盖。
    ============================================================ */
 html[data-theme="paper"] .scroll-y::-webkit-scrollbar-thumb,
 html[data-theme="paper"] .pnl > div:last-child::-webkit-scrollbar-thumb,
-html[data-theme="paper"] .stage > div:nth-child(3)::-webkit-scrollbar-thumb,
+html[data-theme="paper"] .stage > .pos-table::-webkit-scrollbar-thumb,
 html[data-theme="paper"] .side > div::-webkit-scrollbar-thumb {
   background: rgba(21, 21, 21, .28) !important;
   border: 2px solid transparent !important;
@@ -465,14 +465,14 @@ html[data-theme="paper"] .side > div::-webkit-scrollbar-thumb {
 }
 html[data-theme="paper"] .scroll-y::-webkit-scrollbar-thumb:hover,
 html[data-theme="paper"] .pnl > div:last-child::-webkit-scrollbar-thumb:hover,
-html[data-theme="paper"] .stage > div:nth-child(3)::-webkit-scrollbar-thumb:hover,
+html[data-theme="paper"] .stage > .pos-table::-webkit-scrollbar-thumb:hover,
 html[data-theme="paper"] .side > div::-webkit-scrollbar-thumb:hover {
   background: rgba(21, 21, 21, .48) !important;
 }
 
 /* 滚动槽：深色底 → 浅灰 */
 html[data-theme="paper"] .pnl > div:last-child::-webkit-scrollbar-track,
-html[data-theme="paper"] .stage > div:nth-child(3)::-webkit-scrollbar-track,
+html[data-theme="paper"] .stage > .pos-table::-webkit-scrollbar-track,
 html[data-theme="paper"] .side > div::-webkit-scrollbar-track {
   background: rgba(21, 21, 21, .06) !important;
   border-radius: 6px;

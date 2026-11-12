@@ -202,8 +202,9 @@ export default function Dashboard({ status }) {
 
           {/* 「持仓操作区 0 单」整行已取消；一键全平收成小胶囊，浮在状态带右侧，仅持仓时出现 */}
           {/* 只读观战模式（?ro=1）下不渲染任何平仓入口 —— 后端也会 401，双保险 */}
+          {/* ★ class="close-all-wrap" 不能省：v2.css 靠 class 定位，用 nth-child 会因条件渲染错位 */}
           {pos.length > 0 && !READ_ONLY && (
-            <div style={{ position: 'absolute', top: 3, right: 8, zIndex: 6 }}>
+            <div className="close-all-wrap" style={{ position: 'absolute', top: 3, right: 8, zIndex: 6 }}>
               <Popconfirm title={'确定全平 ' + pos.length + ' 单？'} onConfirm={closeAll}
                 okText={closingAll ? '正在平…' : '确定'}
                 okButtonProps={{ loading: closingAll, disabled: closingAll }}>
@@ -224,7 +225,7 @@ export default function Dashboard({ status }) {
               持仓行高 49px，满 6 个时 6×49+4×36+34=472 > 420 → 冒出一条滚动条。
               改成按内容自适应：表格有多少行就多高，父级 .stage 是 flex column，
               下面还有空间（stage 718 = 表 420 + 雷达 176），撑开也挤不坏。 */}
-          <div style={{ flex: '0 0 auto' }}>
+          <div className="pos-table" style={{ flex: '0 0 auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5, tableLayout: 'fixed' }}>
               <colgroup>
                 <col style={{ width: '5.5%' }} />

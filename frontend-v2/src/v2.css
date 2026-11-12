@@ -305,7 +305,7 @@ body::before {
 }
 
 /* 中部左侧表格区强制滚动 */
-.stage > div:nth-child(3) {
+.stage > .pos-table {
   flex: 1 1 auto !important;
   min-height: 0 !important;
   overflow: auto !important;
@@ -316,24 +316,24 @@ body::before {
 
 /* ═══ 面板内滚动条：加粗、洋红，一眼能看见 ═══ */
 .pnl > div:last-child,
-.stage > div:nth-child(3),
+.stage > .pos-table,
 .side > div {
   overflow-y: auto !important;
 }
 .pnl > div:last-child::-webkit-scrollbar,
-.stage > div:nth-child(3)::-webkit-scrollbar,
+.stage > .pos-table::-webkit-scrollbar,
 .side > div::-webkit-scrollbar {
   width: 11px;
   height: 11px;
 }
 .pnl > div:last-child::-webkit-scrollbar-track,
-.stage > div:nth-child(3)::-webkit-scrollbar-track,
+.stage > .pos-table::-webkit-scrollbar-track,
 .side > div::-webkit-scrollbar-track {
   background: rgba(0,0,0,.45);
   border-radius: 6px;
 }
 .pnl > div:last-child::-webkit-scrollbar-thumb,
-.stage > div:nth-child(3)::-webkit-scrollbar-thumb,
+.stage > .pos-table::-webkit-scrollbar-thumb,
 .side > div::-webkit-scrollbar-thumb {
   background: rgba(236, 79, 174, 0.75);
   border-radius: 6px;
@@ -341,7 +341,7 @@ body::before {
   box-shadow: 0 0 6px rgba(236,79,174,.5);
 }
 .pnl > div:last-child::-webkit-scrollbar-thumb:hover,
-.stage > div:nth-child(3)::-webkit-scrollbar-thumb:hover,
+.stage > .pos-table::-webkit-scrollbar-thumb:hover,
 .side > div::-webkit-scrollbar-thumb:hover {
   background: #ff7fcb;
 }
@@ -418,7 +418,7 @@ html, body, #root {
 .spider-root .side > div:first-child { height: 300px; }
 .spider-root .side > div:nth-child(2) { height: 260px; }
 /* 左侧表格区自然高度，超出才滚 */
-.spider-root .stage > div:nth-child(3) {
+.spider-root .stage > .pos-table {
   max-height: 560px;
   overflow: auto !important;
 }
@@ -431,7 +431,7 @@ html, body, #root {
   display: flex !important;
   flex-direction: column !important;
 }
-.spider-root .stage > div:nth-child(3) {
+.spider-root .stage > .pos-table {
   flex: 1 1 auto !important;
   min-height: 0 !important;
   max-height: none !important;
@@ -1451,18 +1451,21 @@ html, body, #root {
   border-bottom: 1px solid rgba(69, 230, 245, 0.22) !important;
 }
 
-/* ═══ 标题栏固定高度（ticker 插入后 nth-child 错位导致被拉伸到 329px）═══ */
-.spider-root .stage > div:nth-child(2) {
+/* ═══ 用 class 定位，不用 nth-child ═══
+   坑：「一键全平」容器 `{pos.length > 0 && !READ_ONLY && …}` 是 .stage 的直接子元素，
+       观战模式（?ro=1）和空仓时都不渲染 → 后面元素序号全部前移一位，
+       表格从 nth-child(3) 掉到 nth-child(2)，被 height:34px 锁死 → 只露表头、持仓列表消失。 */
+.spider-root .stage > .close-all-wrap {
   flex: 0 0 auto !important;
-  height: 34px !important;
-  min-height: 34px !important;
-  max-height: 34px !important;
-  overflow: hidden !important;
 }
-/* 表格区改为占满剩余 */
-.spider-root .stage > div:nth-child(3) {
-  flex: 1 1 auto !important;
+/* 表格区：按内容自适应高度（固定补足 10 行 = 394px），超出才滚
+   ★ 用 flex: 0 0 auto 而不是 1 1 auto：下面 .stats 也是 flex:1 1 auto，
+     两者都抢占会被 flex 平分，把表格压扁。 */
+.spider-root .stage > .pos-table {
+  flex: 0 0 auto !important;
+  height: auto !important;
   min-height: 0 !important;
+  max-height: none !important;
   overflow: auto !important;
 }
 
@@ -1628,7 +1631,7 @@ html, body, #root {
    → 冒出一条纵向滚动条。
    现在：容器不再锁高，行高统一压到 36px（10 行 × 36 + 表头 34 = 394），
    表格本身固定补足 10 行，所以高度恒定为 394px，装多少仓都不会溢出。 */
-.spider-root .stage > div:nth-child(3) {
+.spider-root .stage > .pos-table {
   flex: 0 0 auto !important;
   height: auto !important;
   min-height: 0 !important;
@@ -1862,13 +1865,13 @@ html, body, #root {
 }
 
 /* ══════ 滚动条收细：不再像粉色竖条 ══════ */
-.spider-root .stage > div:nth-child(3)::-webkit-scrollbar,
+.spider-root .stage > .pos-table::-webkit-scrollbar,
 .spider-root .pnl > div:last-child::-webkit-scrollbar,
 .spider-root .side > div::-webkit-scrollbar {
   width: 5px !important;
   height: 5px !important;
 }
-.spider-root .stage > div:nth-child(3)::-webkit-scrollbar-thumb,
+.spider-root .stage > .pos-table::-webkit-scrollbar-thumb,
 .spider-root .pnl > div:last-child::-webkit-scrollbar-thumb,
 .spider-root .side > div::-webkit-scrollbar-thumb {
   background: rgba(236, 79, 174, .35) !important;
@@ -1876,18 +1879,18 @@ html, body, #root {
   box-shadow: none !important;
   border: none !important;
 }
-.spider-root .stage > div:nth-child(3)::-webkit-scrollbar-thumb:hover,
+.spider-root .stage > .pos-table::-webkit-scrollbar-thumb:hover,
 .spider-root .pnl > div:last-child::-webkit-scrollbar-thumb:hover,
 .spider-root .side > div::-webkit-scrollbar-thumb:hover {
   background: rgba(236, 79, 174, .6) !important;
 }
-.spider-root .stage > div:nth-child(3)::-webkit-scrollbar-track,
+.spider-root .stage > .pos-table::-webkit-scrollbar-track,
 .spider-root .pnl > div:last-child::-webkit-scrollbar-track,
 .spider-root .side > div::-webkit-scrollbar-track {
   background: transparent !important;
 }
 /* 表格容器：内容装得下就不出现滚动条 */
-.spider-root .stage > div:nth-child(3) {
+.spider-root .stage > .pos-table {
   overflow-y: auto !important;
 }
 
