@@ -28,8 +28,8 @@ DB_PATH = os.environ.get("QB_DB_PATH", str(ROOT / "quantbot.db"))
 
 # ── 版本号：全系统唯一真源 ────────────────────────────────────────────
 # 只改这一处；/api/status 会带给前端顶栏，文档与代码就不会再对不上。
-# 版本含义见 F:\obsidian笔记库\QUANT-BOT_VS15-1.2版本\VS15-1.2定版.md
-APP_VERSION = "VS15-1.2"
+# 版本含义见 F:\obsidian笔记库\QUANT-BOT_VS15-1.3版本\VS15-1.3定版.md
+APP_VERSION = "VS15-1.3"
 
 _lock = threading.Lock()
 _env_lock = threading.Lock()

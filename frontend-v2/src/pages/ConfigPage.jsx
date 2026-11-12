@@ -387,7 +387,7 @@ function AuditLog() {
 }
 
 function SystemVersion() {
-  // 系统版本（VS15-1.2）：2026-11-12 浩哥定「版本号不放首页，写到配置页」。
+  // 系统版本（VS15-1.3）：2026-11-12 浩哥定「版本号不放首页，写到配置页」。
   // 数据源 /api/status.version，唯一真源 = backend/config.py::APP_VERSION ——
   // 前端不写死，以后升版本只改后端一处，页面和文档就不会对不上。
   const [st, setSt] = useState(null)
