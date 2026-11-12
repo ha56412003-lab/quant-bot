@@ -1077,7 +1077,10 @@ async def api_strategies():
                             "base": scfg.get("base") or iid,
                             "stats": stats.get(iid),
                             "factors": deps_of(scfg.get("base") or iid),
-                            "meta": meta.get(scfg.get("base") or iid, {})}
+                            "meta": meta.get(scfg.get("base") or iid, {}),
+                            # ★ 定版默认值：前端「恢复默认」按钮只认这个字段，
+                            #   不许自己写死数字（以后改定版值只改 config 一处）。
+                            "defaults": config.strat_param_defaults(iid)}
                            for iid, scfg in cfg.get("strategies", {}).items()]}
 
 

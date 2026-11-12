@@ -370,9 +370,16 @@ _STRAT_PARAM_BOUNDS = {
     "min_stop_dist_pct":  (0.0, 50.0),   # 下限，0=不设
     "max_risk_pct":       (0.1, 50.0),   # 上限，0=永不成交
     "dual_stop_min_pct":  (0.0, 50.0),   # 两档阈值，0=关闭两档
-    "stop_key":           None,
+    "stop_key": None,
+    # ★ 同上：界面有框（止损算法「再往外让一点」），这里漏登记 → 存不进去。
+    "stop_key_atr_buf": (0.0, 5.0),
     # ── 进场闸 ──────────────────────────────────────────────────
-    "bbw_pct_min":        (0.0, 100.0),  # 分位数，天然 0~100
+    "bbw_pct_min": (0.0, 100.0),
+    # ★ 2026-11-12 夜：豁免三键补登记。之前界面给了输入框、strategies.py 也在读，
+    #   但这里漏了 → 网页上填完点保存直接报「不是已知策略参数」，改不进去。
+    "bbw_exempt_mult": (0.0, 10.0),
+    "bbw_exempt_closepos": (0.0, 1.0),
+    "bbw_exempt_bodyfrac": (0.0, 1.0),  # 分位数，天然 0~100
     "min_atr_pct":        (0.0, 50.0),   # 0=不启用
     # 偏离闸的两个键（min_dev_pct / dev_atr_mult）已于 VS15-1.2 删除 —— 闸门本身早就没了，
     # 留着它们只会出现「界面上能改、代码不读」的死键，比没有更糟。
@@ -400,6 +407,41 @@ _STRAT_PARAM_BOUNDS = {
 _STRAT_PARAM_INT_KEYS = frozenset({
     "ce_len", "zlsma_len", "swing_lookback", "eff_win_signal", "max_same_bar_side",
 })
+
+# ★★★ 定版参数默认值（「一键恢复默认」恢复的就是这张表）
+#
+# 来源：2026-11-12 深夜晚逐项核对并跑过数据的定版值，逐条抄自 strategies.yaml 的
+#      S15_CE_ZLSMA.params。不是拍脑袋填的，改动任何一项都必须同时改 yaml 和这里。
+#
+# 铁律：
+#   ① 这张表只做「回到已知好状态」的参照，不参与运行时计算 —— 运行时永远读 yaml；
+#   ② 前端不许自己写死这些数字，必须从 /api/strategies 的 defaults 字段读，
+#      否则以后改定版值要改两处、必然漏一处；
+#   ③ tests/test_new_gates.py 的 H 组守卫会检查「yaml 定版值 == 这张表」，
+#      任何一边单独改都会红。
+_STRAT_PARAM_DEFAULTS = {
+    "S15_CE_ZLSMA": {
+    "ce_len": 1, "ce_mult": 2.0, "zlsma_len": 50, "swing_lookback": 8,
+    "use_ha": True, "use_close": True, "kline_interval": "15m",
+    "key_bar": True, "key_mult": 1.0, "key_closepos": 0.66, "key_bodyfrac": 0.5,
+    "bbw_pct_min": 70.0,
+    "bbw_exempt_mult": 1.0, "bbw_exempt_closepos": 0.8, "bbw_exempt_bodyfrac": 0.8,
+    "stop_key": True, "stop_key_atr_buf": 0.2,
+    "min_stop_dist_pct": 0.6, "max_risk_pct": 5.0, "dual_stop_min_pct": 0.5,
+    "min_atr_pct": 0.0,
+    "eff_min_signal": 0.30, "eff_win_signal": 48,
+    "be_at_r": 1.5, "half_at_r": 1.2, "full_at_r": 2.5,
+    "right_exit": True, "right_exit_strict": True, "reverse_enabled": False,
+    "max_same_bar_side": 2, "fee_rate": 0.0005, "slip_pct": 0.0,
+    },
+}
+
+
+def strat_param_defaults(sid):
+    """某策略的定版默认参数副本（给前端「恢复默认」用）。"""
+    return dict(_STRAT_PARAM_DEFAULTS.get(sid) or {})
+
+
 
 
 def _validate_params(sid, params):

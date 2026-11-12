@@ -1,6 +1,6 @@
 import React from 'react'
-import { Card, Table, Switch, InputNumber, Button, Tag, Typography, Space, message, Tooltip } from 'antd'
-import { ReloadOutlined, SaveOutlined } from '@ant-design/icons'
+import { Card, Table, Switch, InputNumber, Button, Tag, Typography, Space, message, Tooltip, Modal } from 'antd'
+import { ReloadOutlined, SaveOutlined, RollbackOutlined } from '@ant-design/icons'
 
 const { Text } = Typography
 
@@ -114,6 +114,26 @@ const STOP_ALGO = [
     type: 'num', step: 0.1, min: 0 },
 ]
 
+// 赚到几个 R 就动手 —— 出场三档（2026-11-12 浩哥要求加到界面）
+// ★ 这三个数决定「什么时候落袋」，是全部出场逻辑的骨架。
+//   改了这三个数，等于改了整个策略的盈亏结构，比改入场参数影响更大。
+const EXIT_R = [
+  { k: 'be_at_r', label: '保本移损',
+    hint: '赚到几个 R 就把止损挪到成本价 —— 从此这一单最差是白干，不会再亏。'
+        + 'R = 买入价到止损价的距离，也就是这一单本来打算亏多少。1.5 = 赚到 1.5 倍那个距离',
+    type: 'num', step: 0.1, min: 0 },
+  { k: 'half_at_r', label: '平掉一半',
+    hint: '赚到几个 R 先平一半落袋，剩一半继续跑。'
+        + '★ 必须小于「全部平仓」那个数，否则全平先触发、半平永远轮不到',
+    type: 'num', step: 0.1, min: 0 },
+  { k: 'full_at_r', label: '全部平仓',
+    hint: '赚到几个 R 剩下的全部平掉，不等它回头。'
+        + '★ 必须大于「平掉一半」那个数',
+    type: 'num', step: 0.1, min: 0 },
+]
+
+const fmtVal = (v) => (typeof v === 'boolean' ? (v ? '开' : '关') : v)
+
 function ParamCell({ def, value, onChange }) {
   if (def.type === 'bool') {
     return (
@@ -151,6 +171,58 @@ export default function GateTunerPanel({ row, onParamsSave }) {
   const dirty = dirtyKeys.length > 0
 
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }))
+
+  // ★ 定版默认值从后端读（row.defaults），前端不写死任何数字。
+  //   以后改定版值只改 config.py 的 _STRAT_PARAM_DEFAULTS 一处。
+  const DEFAULTS = React.useMemo(() => ({ ...(row?.defaults || {}) }), [row?.defaults])
+
+  // 当前值跟定版值不一样的键（只算页面上真的有的键，页面没有的不动）
+  const diffFromDefaults = React.useMemo(() => {
+    const out = {}
+    Object.keys(DEFAULTS).forEach((k) => {
+      if (draft[k] !== undefined && draft[k] !== DEFAULTS[k]) out[k] = DEFAULTS[k]
+    })
+    return out
+  }, [draft, DEFAULTS])
+
+  const resetToDefaults = () => {
+    const keys = Object.keys(diffFromDefaults)
+    if (!keys.length) {
+      message.info('当前所有参数已经是核对过的定版值，不用恢复')
+      return
+    }
+    const lines = keys.map((k) => `${k}：${fmtVal(draft[k])} → ${fmtVal(DEFAULTS[k])}`)
+    Modal.confirm({
+      title: `恢复定版默认（${keys.length} 项）`,
+      width: 520,
+      content: (
+        <div style={{ fontSize: 12, lineHeight: 1.7 }}>
+          <div style={{ marginBottom: 8, color: '#c4182c' }}>
+            这是把参数整体退回「核对过的那一版」，会覆盖你现在所有的改动。
+          </div>
+          <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11.5,
+                        background: '#fafafa', padding: '8px 10px', borderRadius: 4,
+                        maxHeight: 260, overflow: 'auto' }}>
+            {lines.map((s) => <div key={s}>{s}</div>)}
+          </div>
+        </div>
+      ),
+      okText: '确认恢复并保存',
+      cancelText: '先不恢复',
+      onOk: async () => {
+        setSaving(true)
+        try {
+          await onParamsSave(row.id, { ...diffFromDefaults })
+          setDraft((d) => ({ ...d, ...diffFromDefaults }))
+          message.success('已恢复 ' + keys.length + ' 项定版值，下一轮扫描生效，不用重启')
+        } catch (e) {
+          message.error('恢复失败：' + e.message)
+        } finally {
+          setSaving(false)
+        }
+      },
+    })
+  }
 
   const save = async () => {
     if (!dirty) return
@@ -218,7 +290,17 @@ export default function GateTunerPanel({ row, onParamsSave }) {
                         <Tag color="default" style={{ fontSize: 10.5, margin: 0 }}>后台未启用</Tag>
                       </Tooltip>
                     ) : (
-                      <ParamCell def={def} value={draft[def.k]} onChange={(v) => set(def.k, v)} />
+                      <>
+                        <ParamCell def={def} value={draft[def.k]} onChange={(v) => set(def.k, v)} />
+                        {DEFAULTS[def.k] !== undefined && draft[def.k] !== DEFAULTS[def.k] && (
+                          <Tooltip title={'定版值是 ' + fmtVal(DEFAULTS[def.k])
+                            + '。点右上角「恢复默认」可以整体退回定版值'}>
+                            <Text style={{ fontSize: 10, color: '#d46b08', whiteSpace: 'nowrap' }}>
+                              默认{fmtVal(DEFAULTS[def.k])}
+                            </Text>
+                          </Tooltip>
+                        )}
+                      </>
                     )}
                   </span>
                 ))}
@@ -249,6 +331,13 @@ export default function GateTunerPanel({ row, onParamsSave }) {
       extra={
         <Space size={8}>
           {dirty && <Tag color="orange" style={{ fontSize: 11 }}>未保存 {dirtyKeys.length} 项</Tag>}
+          <Tooltip title="把所有参数退回 2026-11-12 核对过的定版值（会覆盖当前所有改动）">
+            <Button size="small" danger icon={<RollbackOutlined />}
+                    disabled={saving || !Object.keys(diffFromDefaults).length}
+                    onClick={resetToDefaults}>
+              恢复默认{Object.keys(diffFromDefaults).length ? ` (${Object.keys(diffFromDefaults).length})` : ''}
+            </Button>
+          </Tooltip>
           <Button size="small" icon={<ReloadOutlined />} disabled={!dirty || saving}
                   onClick={() => setDraft({ ...live })}>
             撤销
@@ -296,14 +385,76 @@ export default function GateTunerPanel({ row, onParamsSave }) {
             ),
           },
           {
-            title: '当前值', width: 96, align: 'center',
+            title: '当前值', width: 118, align: 'center',
             render: (_, r) => (
               draft[r.k] === undefined ? (
                 <Tooltip title="后台配置里还没有这个键。先上线对应代码，这里才会出现输入框">
                   <Tag color="default" style={{ fontSize: 10.5, margin: 0 }}>未启用</Tag>
                 </Tooltip>
               ) : (
-                <ParamCell def={r} value={draft[r.k]} onChange={(v) => set(r.k, v)} />
+                <div>
+                  <ParamCell def={r} value={draft[r.k]} onChange={(v) => set(r.k, v)} />
+                  {DEFAULTS[r.k] !== undefined && draft[r.k] !== DEFAULTS[r.k] && (
+                    <div style={{ marginTop: 2 }}>
+                      <Tooltip title={'定版值是 ' + fmtVal(DEFAULTS[r.k])}>
+                        <Text style={{ fontSize: 10, color: '#d46b08' }}>
+                          默认{fmtVal(DEFAULTS[r.k])}
+                        </Text>
+                      </Tooltip>
+                    </div>
+                  )}
+                </div>
+              )
+            ),
+          },
+        ]}
+      />
+
+      <div className="gate-tuner-exit-head" style={{ marginTop: 14, marginBottom: 6 }}>
+        <Text strong style={{ fontSize: 12.5 }}>赚到多少就落袋 · 出场三档</Text>
+        <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
+          这三个数决定什么时候收手，比入场参数影响更大 —— 改之前先想清楚
+        </Text>
+      </div>
+
+      <Table
+        className="gate-tuner-exit"
+        rowKey="k"
+        dataSource={EXIT_R.map((x) => ({ ...x, key: x.k }))}
+        pagination={false}
+        size="small"
+        bordered
+        columns={[
+          { title: '档位', dataIndex: 'label', width: 128, render: (v) => (
+            <span style={{ fontSize: 12, fontWeight: 600 }}>{v}</span>
+          ) },
+          {
+            title: '这是干什么的', dataIndex: 'hint',
+            render: (v) => (
+              <Text type="secondary" style={{ fontSize: 11.5, whiteSpace: 'normal',
+                                              display: 'block', lineHeight: 1.5 }}>{v}</Text>
+            ),
+          },
+          {
+            title: '当前值', width: 118, align: 'center',
+            render: (_, r) => (
+              draft[r.k] === undefined ? (
+                <Tooltip title="后台配置里还没有这个键。先上线对应代码，这里才会出现输入框">
+                  <Tag color="default" style={{ fontSize: 10.5, margin: 0 }}>未启用</Tag>
+                </Tooltip>
+              ) : (
+                <div>
+                  <ParamCell def={r} value={draft[r.k]} onChange={(v) => set(r.k, v)} />
+                  {DEFAULTS[r.k] !== undefined && draft[r.k] !== DEFAULTS[r.k] && (
+                    <div style={{ marginTop: 2 }}>
+                      <Tooltip title={'定版值是 ' + fmtVal(DEFAULTS[r.k])}>
+                        <Text style={{ fontSize: 10, color: '#d46b08' }}>
+                          默认{fmtVal(DEFAULTS[r.k])}
+                        </Text>
+                      </Tooltip>
+                    </div>
+                  )}
+                </div>
               )
             ),
           },

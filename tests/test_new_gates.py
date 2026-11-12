@@ -680,11 +680,73 @@ def test_bbw_exempt():
         f"实际 bbw_exempt={g.get('bbw_exempt')!r}")
 
 
+def test_param_defaults():
+    """H 组：参数白名单 + 定版默认值表的守卫（2026-11-12 夜）。
+
+    起因：浩哥问「策略库所有参数都能手动改么」，一查发现 4 个键界面有输入框、
+    strategies.py 也在读，但 config._STRAT_PARAM_BOUNDS 没登记 →
+    网页上填完点保存直接报「不是已知策略参数」，改不进去。
+
+    这组测试守两件事：
+      H1-H4  这 4 个键现在必须能通过校验
+      H5     默认值表里的每个键都必须在白名单里（否则「恢复默认」一按就整批被拒）
+      H6     默认值必须全部落在白名单允许范围内
+      H7     定版关键值不许被悄悄改动（防止以后误改默认值把系统带偏）
+    """
+    from backend import config as C
+
+    # ── H1~H4：这 4 个曾经存不进去的键 ──
+    for k, v in (("stop_key_atr_buf", 0.2), ("bbw_exempt_mult", 1.0),
+                 ("bbw_exempt_closepos", 0.8), ("bbw_exempt_bodyfrac", 0.8)):
+        try:
+            clean = C._validate_params("S15_CE_ZLSMA", {k: v})
+            chk(clean.get(k) == v, f"H 白名单已登记 {k}（界面填 {v} 能存进去）",
+                f"实际返回 {clean}")
+        except Exception as e:
+            chk(False, f"H 白名单已登记 {k}", f"仍被拒：{e}")
+
+    # ── H5：默认值表的键必须全在白名单里 ──
+    d = C.strat_param_defaults("S15_CE_ZLSMA")
+    chk(len(d) >= 30, "H5 定版默认值表非空（≥30 项）", f"实际 {len(d)} 项")
+    missing = [k for k in d if k not in C._STRAT_PARAM_BOUNDS]
+    chk(not missing, "H5b 默认值表里的每个键都在白名单里（否则「恢复默认」会整批被拒）",
+        f"漏登记：{missing}")
+
+    # ── H6：默认值必须全在允许范围内，且能一次整批通过校验 ──
+    try:
+        clean = C._validate_params("S15_CE_ZLSMA", dict(d))
+        chk(len(clean) == len(d), "H6 整张默认值表能一次性通过校验（恢复默认的实际通路）",
+            f"提交 {len(d)} 项，通过 {len(clean)} 项")
+    except Exception as e:
+        chk(False, "H6 整张默认值表能一次性通过校验（恢复默认的实际通路）", f"被拒：{e}")
+
+    # ── H7：定版关键值不许被悄悄改动 ──
+    LOCKED = {
+        "key_mult": 1.0, "key_closepos": 0.66, "key_bodyfrac": 0.5,
+        "bbw_pct_min": 70.0,
+        "bbw_exempt_mult": 1.0, "bbw_exempt_closepos": 0.8, "bbw_exempt_bodyfrac": 0.8,
+        "stop_key_atr_buf": 0.2,
+        "min_stop_dist_pct": 0.6, "max_risk_pct": 5.0, "dual_stop_min_pct": 0.5,
+        "be_at_r": 1.5, "half_at_r": 1.2, "full_at_r": 2.5,
+        "ce_len": 1, "ce_mult": 2.0, "zlsma_len": 50, "swing_lookback": 8,
+        "eff_min_signal": 0.30, "eff_win_signal": 48,
+    }
+    wrong = {k: (d.get(k), v) for k, v in LOCKED.items() if d.get(k) != v}
+    chk(not wrong, "H7 20 个定版关键值没被改过（实际值, 应为）",
+        f"不符：{wrong}")
+
+    # ── H8：出场三档必须满足 half < full（否则全平先触发、半平永远不执行）──
+    chk(d.get("half_at_r", 0) < d.get("full_at_r", 0),
+        "H8 定版值满足 半平(1.2) < 全平(2.5)",
+        f"实际 {d.get('half_at_r')} / {d.get('full_at_r')}")
+
+
 def main():
     test_entry_dev()
     test_config()
     test_key_bar()
     test_bbw_exempt()
+    test_param_defaults()
     test_exit_chain()
     test_reverse()
     print("\n" + "=" * 78)
