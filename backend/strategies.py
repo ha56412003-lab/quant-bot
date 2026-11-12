@@ -733,11 +733,14 @@ class S15CeZlsma(Base):
 
                 # ── 进场闸门诊断（纯内存，零额外流量）──────────────────────
                 # 三步的判断本来就要做，这里只是把结果留下给页面看。
-                # 顺序：CE 翻转 → HA 形态 → BBW 分位，全过才开仓。
+                # 顺序：① 时段确认（ZLSMA50 实体穿越划出的多空段）→ ② HA 形态
+                #       → ③ 关键K线 → ④ BBW 分位 → ⑤ 止损距离 → ⑥ 趋势效率，全过才开仓。
                 _bp = bbw_pct[i]
                 _ha_ok = (c > z and c > o) if d_now == 1 else (c < z and c < o)
                 _thr = bbw_pct_min if bbw_pct_min > 0 else 70.0
-                _ce_ok = (d_now != 0)
+                # 变量曾名 _ce_ok，容易让人以为判的是 CE 翻转 —— 实际判的是
+                # _zlsma_legs 切出来的多空时段（状态，不是翻转事件）。改名对齐语义。
+                _leg_ok = (d_now != 0)
                 # ⚠ 2026-11-06 修：原来写成 `_bp is None or _bp >= _thr`，
                 # 数据缺失时诊断表显示"这道过了"，而下面 ④ 的实际开仓判断是
                 # `bp is None → continue`（拒绝）。两处相反，诊断会骗人。
@@ -746,7 +749,7 @@ class S15CeZlsma(Base):
                     _bbw_ok = _bp is not None and _bp >= _thr
                 else:
                     _bbw_ok = True          # 策略层关掉 BBW 门槛，不参与判断
-                if not _ce_ok:
+                if not _leg_ok:
                     _why = "时段未确认"
                 elif not _ha_ok:
                     _why = "HA形态不对"
@@ -766,7 +769,9 @@ class S15CeZlsma(Base):
                              if eff_win_sig > 0 else None)
                 _GATE_STATE[sym] = {
                     "ts": bar_ts, "dir": "多" if d_now == 1 else "空",
-                    "ce": _ce_ok, "ha": _ha_ok, "bbw": _bp, "bbw_thr": _thr,
+                    # ★ 键名 "ce" 是前端契约（ActivityTabs 直接读、main.py 统计 ce_n），
+                    #   不能动；值已是 ZLSMA 时段判定结果，名字纯属历史包袱。
+                    "ce": _leg_ok, "ha": _ha_ok, "bbw": _bp, "bbw_thr": _thr,
                     # ②b 关键K线 / ⑥ 进场 EFF（面板必须能看到，否则「没开仓」
                     # 永远只能看到前三道，看不出是卡在关键K线还是趋势效率）
                     "key": (bool(_is_key_bar(ks, i, atr_n,
