@@ -386,6 +386,50 @@ function AuditLog() {
   )
 }
 
+function SystemVersion() {
+  // 系统版本（VS15-1.2）：2026-11-12 浩哥定「版本号不放首页，写到配置页」。
+  // 数据源 /api/status.version，唯一真源 = backend/config.py::APP_VERSION ——
+  // 前端不写死，以后升版本只改后端一处，页面和文档就不会对不上。
+  const [st, setSt] = useState(null)
+  useEffect(() => {
+    const load = () => api.status().then(setSt).catch(() => {})
+    load()
+    const id = setInterval(load, 30000)     // 版本不会天天变，30 秒刷一次够用
+    return () => clearInterval(id)
+  }, [])
+  const ver = st?.version || ''
+  return (
+    <Card size="small" title="系统版本" extra={
+      <span style={{ fontSize: 12, color: 'var(--mute, #7d8590)' }}>
+        唯一真源 backend/config.py::APP_VERSION · 升版本只改这一处
+      </span>
+    }>
+      <Descriptions size="small" column={3} bordered labelStyle={{ width: 110 }}>
+        <Descriptions.Item label="策略版本">
+          {ver ? <Tag color="blue" style={{ fontWeight: 700, letterSpacing: '.3px' }}>{ver}</Tag>
+               : <span style={{ color: 'var(--mute, #7d8590)' }}>--</span>}
+        </Descriptions.Item>
+        <Descriptions.Item label="运行模式">
+          {st?.mode === 'live'
+            ? <Tag color="red">实盘</Tag>
+            : <Tag color="gold">模拟盘 paper</Tag>}
+        </Descriptions.Item>
+        <Descriptions.Item label="环境">
+          {st?.env_label ? <Tag>{st.env_label}</Tag>
+                          : <span style={{ color: '#0f7a3d' }}>正式盘</span>}
+        </Descriptions.Item>
+        <Descriptions.Item label="数据库">{st?.db_name || '--'}</Descriptions.Item>
+        <Descriptions.Item label="监控标的">
+          {st?.monitor_n != null ? `${st.monitor_n} 个` : '--'}
+        </Descriptions.Item>
+        <Descriptions.Item label="账户净值">
+          {st?.equity != null ? fmtUsd(st.equity) : '--'}
+        </Descriptions.Item>
+      </Descriptions>
+    </Card>
+  )
+}
+
 function OpsPause() {
   // 手动暂停运营（VS15-1.1）：系统更新前先把「开新仓」关上，已开仓位不受影响
   const [st, setSt] = useState(null)
@@ -484,6 +528,7 @@ function OpsPause() {
 export default function ConfigPage() {
   return (
     <Row gutter={[16, 16]}>
+      <Col span={24}><SystemVersion /></Col>
       <Col span={24}><OpsPause /></Col>
       <Col span={24}><Credentials /></Col>
       <Col span={24}><ExecutorExchange /></Col>
