@@ -2,7 +2,7 @@
 
 背景（2026-11-08 浩哥定）：
     出场、下单、行情全部走 binance._get，那一层原本没有 try —— 断网、代理
-    (127.0.0.1:7897) 挂掉、币安封 IP，会一路抛到上层；各模块各自 try 掉，
+    (开发机 127.0.0.1:7897) 挂掉、币安封 IP，会一路抛到上层；各模块各自 try 掉，
     结果是「系统看起来正常在跑，其实什么都拿不到，仓位也没人管」。
     浩哥要的是：自动重连 3 次；3 次都不成功 → 页面弹窗 + 飞书推送。
 
@@ -24,6 +24,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import platform
 import sqlite3
 import time
 
@@ -110,28 +112,39 @@ def _write_alert(kind, severity, message, detail):
 
 # ── 飞书推送（复用 daily_target 那套凭证）──────────────────────────
 
-def _feishu_targets():
-    """从 Hermes .env 读 app 凭证与接收人（只读，失败返回 None）。"""
-    try:
-        env = {}
-        with open(r"E:\Hermes\.env", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, v = line.split("=", 1)
-                    env[k.strip()] = v.strip()
-        aid, sec = env.get("FEISHU_APP_ID"), env.get("FEISHU_APP_SECRET")
-        if not aid or not sec:
-            return None
-        users = [x.strip() for x in env.get("FEISHU_ALLOWED_USERS", "").split(",")
-                 if x.strip()]
-        ids = [u for u in users if u.startswith("ou_")]
-        if not ids:
-            return None
-        return aid, sec, ids
-    except Exception as exc:  # noqa: BLE001
-        log.debug("netwatch 读飞书配置失败: %s", exc)
+def feishu_targets():
+    """飞书推送目标 —— 2026-11-12 浩哥定：**本地不再用，告警只从服务器端发**。
+
+    返回 (app_id, app_secret, [open_id...]) 或 None。三道门，任何一道不过就不推：
+      ① Windows 一律不推 —— 本地开发 / 验收实例再也不会把测试告警推到手机上
+      ② 必须显式开启 —— 服务器 .env 里写 QB_ALERT_PUSH=1
+      ③ 凭据齐全 —— FEISHU_APP_ID / FEISHU_APP_SECRET / FEISHU_ALLOWED_USERS
+    凭据来源 = os.environ：backend.config._load_env() 启动时已把项目 .env 灌进环境变量，
+    所以服务器只要把这三个键写进 /opt/quantbot/.env 就行，不用改代码。
+    （旧实现硬编码读 E:\\Hermes\\.env —— Windows 路径，服务器上永远读不到，
+      导致线上告警一直是哑的；这是 2026-11-12 查出来的真实事故隐患。）
+    """
+    # 用 platform.system() 而不是 os.name / sys.platform：后两者会被类型检查器
+    # 按目标平台窄化，误报「后面的代码永远走不到」。
+    if platform.system().lower().startswith("win"):
+        return None                      # ① 本地（Windows）不发
+    flag = str(os.environ.get("QB_ALERT_PUSH", "")).strip().lower()
+    if flag not in ("1", "true", "yes", "on"):
+        return None                      # ② 服务器没显式开，也不发
+    aid = os.environ.get("FEISHU_APP_ID", "").strip()
+    sec = os.environ.get("FEISHU_APP_SECRET", "").strip()
+    if not aid or not sec:
         return None
+    users = [x.strip() for x in os.environ.get("FEISHU_ALLOWED_USERS", "").split(",")
+             if x.strip()]
+    ids = [u for u in users if u.startswith("ou_")]
+    if not ids:
+        return None
+    return aid, sec, ids
+
+
+# 老名字保留：netwatch 内部历史调用点仍写 _feishu_targets
+_feishu_targets = feishu_targets
 
 
 async def _feishu_send(text):
@@ -250,7 +263,7 @@ def report_failure(where, exc):
            f"{FAIL_WINDOW_SEC} 秒内连续 {FAIL_THRESHOLD} 次请求失败（每次已重试 "
            f"{RETRY_TIMES} 次）\n"
            f"原因：{detail}\n"
-           f"⚠️ 持仓出场判断已失效，请检查网络 / 代理 7897 / 币安 IP 封禁")
+           f"⚠️ 持仓出场判断已失效，请检查服务器网络 / 币安 IP 封禁")
 
     _write_alert("net_down", "critical", "交易系统网络中断", detail)
     if not _cooled("net_down"):

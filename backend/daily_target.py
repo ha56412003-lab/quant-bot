@@ -18,7 +18,7 @@ import os
 import time
 import urllib.request
 
-from . import config, db
+from . import config, db, netwatch
 
 log = logging.getLogger(__name__)
 
@@ -141,35 +141,17 @@ def blocked() -> bool:
 
 
 # ── 飞书推送 ────────────────────────────────────────────────
-
-def _feishu_targets():
-    """从 Hermes .env 读 app 凭证与接收人（只读，失败则返回 None）。"""
-    try:
-        env = {}
-        with open(r"E:\Hermes\.env", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, v = line.split("=", 1)
-                    env[k.strip()] = v.strip()
-        aid, sec = env.get("FEISHU_APP_ID"), env.get("FEISHU_APP_SECRET")
-        if not aid or not sec:
-            return None
-        users = [x.strip() for x in env.get("FEISHU_ALLOWED_USERS", "").split(",") if x.strip()]
-        ids = [u for u in users if u.startswith("ou_")]
-        if not ids:
-            return None
-        return aid, sec, ids
-    except Exception as exc:  # noqa: BLE001
-        log.debug("feishu env read failed: %s", exc)
-        return None
+# 2026-11-12 浩哥定：本地不再用，告警 / 日目标提醒**只从服务器端发**。
+# 判定逻辑统一在 netwatch.feishu_targets()：Windows 不发 + 必须 QB_ALERT_PUSH=1
+# + 凭据从环境变量（项目 .env 启动时已灌进 os.environ）读。
+# 旧实现这里硬编码读 E:\Hermes\.env —— 服务器上读不到，导致线上日目标提醒一直是哑的。
 
 
 def _push_sync(text: str) -> bool:
     """真正干活的同步实现（urllib 阻塞，最长 10s × 接收人数）。"""
-    t = _feishu_targets()
+    t = netwatch.feishu_targets()
     if not t:
-        log.warning("飞书未配置，跳过推送")
+        log.warning("日目标提醒未启用（本地不发 / 服务器需 QB_ALERT_PUSH=1 + 飞书凭据），跳过推送")
         return False
     aid, sec, ids = t
     try:
