@@ -78,7 +78,7 @@ def make_ks(n=220, price=100.0):
 
 
 def patch_ind(zl=100.0, ha_open=100.0, ha_close=100.0, dir_now=1, dir_prev=-1,
-              bbw=80.0, atr=1.0, n=220, low_raw=None, high_raw=None,
+              atr=1.0, n=220, low_raw=None, high_raw=None,
               long_stop=None, short_stop=None):
     """固定指标。i = len(ks)-2 = 218，所以 dir[218] 当前、dir[217] 上一根。
 
@@ -96,8 +96,6 @@ def patch_ind(zl=100.0, ha_open=100.0, ha_close=100.0, dir_now=1, dir_prev=-1,
         "low": [ha_close] * n,
         "dir": d,
         "atr": [atr] * n,
-        "bbw": [10.0] * n,
-        "bbw_pct": [bbw] * n,
         "low_raw": [low_raw if low_raw is not None else ha_close * 0.98] * n,
         "high_raw": [high_raw if high_raw is not None else ha_close * 1.02] * n,
     }
@@ -131,7 +129,7 @@ def make_strategy(**over):
         "kline_interval": "15m",
         "ce_len": 1, "ce_mult": 2.0, "zlsma_len": 50,
         "use_close": True, "use_ha": True,
-        "swing_lookback": 20, "min_atr_pct": 0, "bbw_pct_min": 70.0,
+        "swing_lookback": 20, "min_atr_pct": 0,
         "max_risk_pct": 30.0, "fee_rate": 0.0005, "slip_pct": 0.0,
         "half_at_r": 1.2,
         # ★ VS15-1.2：这两个闸的代码默认值已对齐定版（True）。
@@ -306,7 +304,6 @@ def test_key_bar():
     # max_risk_pct 放到 10：这组是造出来的大 K 线，止损天然偏远，
     # 用 5% 会被「止损太远」提前挡掉，测不到要测的闸。
     BASE = dict(key_bar=True, key_mult=0.7, key_closepos=0.66, key_bodyfrac=0.5,
-                bbw_pct_min=70.0,
                 eff_min_signal=0.0, swing_lookback=8, max_risk_pct=10.0,
                 # D8a~d 验的是「三条候选取最近」的纯逻辑，先把 ATR 缓冲关掉；
                 # 缓冲本身由 D8e 单独验（0.2 ATR 会把关键K线止损推得更远）。
@@ -438,12 +435,12 @@ def test_exit_chain():
         S._S15_RIGHT_STATE.clear()
 
     async def run(px, pos, side="long", zl=101.0, ha_open=100.5, ha_close=99.0,
-                  dir_now=-1, dir_prev=1, bbw=80.0, ks=None, **over):
+                  dir_now=-1, dir_prev=1, ks=None, **over):
         clear()
         st = make_strategy(**dict(EXIT_BASE, **over))
         ks = ks if ks is not None else make_ks_kb(base=100.0, n=220, big_at=None)
         orig = patch_ind(zl=zl, ha_open=ha_open, ha_close=ha_close,
-                         dir_now=dir_now, dir_prev=dir_prev, bbw=bbw)
+                         dir_now=dir_now, dir_prev=dir_prev)
         try:
             return await st.check_exit(FakeCtx(px, ks), pos)
         finally:
