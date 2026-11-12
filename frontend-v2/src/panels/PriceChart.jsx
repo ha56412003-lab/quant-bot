@@ -82,7 +82,6 @@ export default function PriceChart({ universe }) {
       lang === 'en' ? 'en-US' : 'zh-CN',
       { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }))
     const ohlc = ks.map((k) => [k.open, k.close, k.low, k.high])
-    const vols = ks.map((k) => k.volume)
     const minTs = ks.length ? ks[0].ts : 0
     const marks = (data.marks || []).filter((m) => m.ts >= minTs).map((m) => {
       const idx = ks.findIndex((k, i) => k.ts <= m.ts && (i === ks.length - 1 || ks[i + 1].ts > m.ts))
@@ -97,32 +96,79 @@ export default function PriceChart({ universe }) {
         symbolSize: 11,
       }
     })
+    // ── 图面改成「策略视角」（2026-11-12 夜）─────────────────────────
+    // 原来：K 线 + 成交量副图。成交量对这套策略没有任何判据作用
+    //       （六道闸里没有一条看量），白占 14% 高度。
+    // 现在：K 线 + ZLSMA50（方向线）+ Chandelier Exit 上下两条止损通道线。
+    //       这三条线全部来自后端 strategies._ce_zlsma，跟引擎判定同源。
+    const ind = data.ind || {}
+    const line = (arr, i) => (arr && arr[i] !== null && arr[i] !== undefined ? arr[i] : null)
+    const zlsma = ks.map((_, i) => line(ind.zlsma, i))
+    const ceLong = ks.map((_, i) => line(ind.ce_long, i))
+    const ceShort = ks.map((_, i) => line(ind.ce_short, i))
+    const hasInd = zlsma.some((v) => v !== null)
+
     return {
-      grid: [{ left: 70, right: 16, top: 24, height: '62%' },
-             { left: 70, right: 16, top: '78%', height: '14%' }],
-      tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
-      xAxis: [{ type: 'category', data: cat, gridIndex: 0 },
-              { type: 'category', data: cat, gridIndex: 1, axisLabel: { show: false } }],
-      yAxis: [{ scale: true, gridIndex: 0, splitLine: { lineStyle: { color: '#1d2633' } } },
-              { gridIndex: 1, axisLabel: { show: false }, splitLine: { show: false } }],
+      grid: [{ left: 70, right: 16, top: 28, bottom: 30 }],
+      legend: hasInd ? {
+        top: 2, left: 70, itemWidth: 14, itemHeight: 8, itemGap: 14,
+        textStyle: { fontSize: 10, color: '#7d8b9c' },
+        data: ['ZLSMA50', t('dash.ceLong'), t('dash.ceShort')],
+      } : undefined,
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'cross' },
+        // 悬停时把三条线的数值一起列出来 —— 看图就能对上「引擎此刻在哪个方向、
+        // 止损离现价多远」，不用再切页面去查
+        formatter: (ps) => {
+          if (!ps || !ps.length) return ''
+          const i = ps[0].dataIndex
+          const k = ks[i]
+          if (!k) return ''
+          const px = (v) => (v === null || v === undefined ? '--' : Number(v).toFixed(4))
+          const d = ind.dir && ind.dir[i]
+          const dirTxt = d === 1 ? '多' : d === -1 ? '空' : '--'
+          const rows = [
+            `<b>${cat[i]}</b>`,
+            `开 ${px(k.open)}　高 ${px(k.high)}`,
+            `低 ${px(k.low)}　收 ${px(k.close)}`,
+            `<span style="color:#45e6f5">ZLSMA50 ${px(zlsma[i])}</span>`,
+            `<span style="color:#ff5a6e">${t('dash.ceShort')} ${px(ceShort[i])}</span>`,
+            `<span style="color:#3fd18b">${t('dash.ceLong')} ${px(ceLong[i])}</span>`,
+            `方向 ${dirTxt}`,
+          ]
+          return rows.join('<br/>')
+        },
+      },
+      xAxis: [{ type: 'category', data: cat, gridIndex: 0, boundaryGap: true,
+                axisLabel: { fontSize: 10 } }],
+      yAxis: [{ scale: true, gridIndex: 0, splitLine: { lineStyle: { color: '#1d2633' } },
+                axisLabel: { fontSize: 10 } }],
       series: [
         { name: symbol, type: 'candlestick', data: ohlc, xAxisIndex: 0, yAxisIndex: 0,
           itemStyle: { color: '#ff5a6e', color0: '#3fd18b',
                        borderColor: '#ff5a6e', borderColor0: '#3fd18b' },
           markPoint: { data: marks, label: { fontSize: 9, color: '#fff' } } },
-        { name: t('dash.volume'), type: 'bar', data: vols, xAxisIndex: 1, yAxisIndex: 1,
-          itemStyle: {
-            // 成交量跟随该根 K 线涨跌着色（红涨绿跌）
-            color: (params) => {
-              const k = ks[params.dataIndex]
-              if (!k) return '#3a4553'
-              return k.close >= k.open
-                ? 'rgba(255, 90, 110, 0.8)'
-                : 'rgba(63, 209, 139, 0.8)'
-            },
-          } },
+        // ① 方向线：多空分界。策略的「时段确认」判的就是价格站在这条线的哪边
+        { name: 'ZLSMA50', type: 'line', data: zlsma, xAxisIndex: 0, yAxisIndex: 0,
+          showSymbol: false, smooth: false, connectNulls: false,
+          lineStyle: { width: 1.8, color: '#45e6f5' }, itemStyle: { color: '#45e6f5' },
+          z: 5 },
+        // ② 空头止损通道（画在上方）：空单被这条线往上打穿就是止损
+        { name: t('dash.ceShort'), type: 'line', data: ceShort, xAxisIndex: 0, yAxisIndex: 0,
+          showSymbol: false, connectNulls: false,
+          lineStyle: { width: 1.1, color: 'rgba(255,90,110,0.72)', type: 'dashed' },
+          itemStyle: { color: '#ff5a6e' }, z: 4 },
+        // ③ 多头止损通道（画在下方）
+        { name: t('dash.ceLong'), type: 'line', data: ceLong, xAxisIndex: 0, yAxisIndex: 0,
+          showSymbol: false, connectNulls: false,
+          lineStyle: { width: 1.1, color: 'rgba(63,209,139,0.72)', type: 'dashed' },
+          itemStyle: { color: '#3fd18b' }, z: 4 },
       ],
-      dataZoom: [{ type: 'inside', xAxisIndex: [0, 1], start: 55, end: 100 }],
+      // 起点 33%：ZLSMA50 需要 98 根预热，300 根里第 98 根是 32.7% ——
+      // 从这里往右每一根都有线，左边那段（缺指标）不显示，既没有断头，
+      // 又比一味往右拉能看到更多历史和开平仓标记（62% 会把前天的标记藏掉）。
+      dataZoom: [{ type: 'inside', xAxisIndex: [0], start: 33, end: 100 }],
     }
   }, [data, symbol, lang, t])
 

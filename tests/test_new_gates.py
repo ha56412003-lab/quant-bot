@@ -741,12 +741,96 @@ def test_param_defaults():
         f"实际 {d.get('half_at_r')} / {d.get('full_at_r')}")
 
 
+def test_param_relations():
+    """I 组：参数关系校验 + 右侧止盈拆参（2026-11-12 夜）"""
+    from backend import config as C
+    SID = "S15_CE_ZLSMA"
+    base = dict(C.strat_param_defaults(SID))
+
+    # ── I1：正常情况（豁免门槛 > 普通门槛）必须放行 ──
+    ok = dict(base); ok.update({"key_closepos": 0.6, "bbw_exempt_closepos": 0.7})
+    try:
+        got = C._validate_params(SID, ok)
+        passed = isinstance(got, dict) and "bbw_exempt_closepos" in got
+    except Exception as e:
+        passed = False
+        got = f"{type(e).__name__}: {e}"
+    chk(passed, "I1 豁免门槛(0.7) > 普通门槛(0.6)：放行", f"被拒 {got}")
+
+    # ── I2：豁免门槛低于普通门槛必须拒绝（三个维度各测一次）──
+    cases = [
+        ("I2a", {"key_closepos": 0.80, "bbw_exempt_closepos": 0.70}, "closepos"),
+        ("I2b", {"key_bodyfrac": 0.90, "bbw_exempt_bodyfrac": 0.50}, "bodyfrac"),
+        ("I2c", {"key_mult": 2.0, "bbw_exempt_mult": 1.0}, "mult"),
+    ]
+    for tag, kv, _field in cases:
+        bad = dict(base); bad.update(kv)
+        rejected = False
+        try:
+            r = C._validate_params(SID, bad)
+            rejected = r is None or (isinstance(r, dict) and not r)
+        except (ValueError, Exception):
+            rejected = True
+        chk(rejected, f"{tag} 豁免门槛低于普通门槛 {kv} → 必须拒绝", "竟然放行了")
+
+    # ── I3：豁免刻意关闭（mult=0）时不校验 ──
+    off = dict(base); off.update({"bbw_exempt_mult": 0.0, "key_closepos": 0.9,
+                                  "bbw_exempt_closepos": 0.5})
+    try:
+        r = C._validate_params(SID, off)
+        passed = r is not None
+    except Exception:
+        passed = False
+    chk(passed, "I3 豁免关闭(mult=0) 时不校验门槛（故意的，不该拦）", "被误拦")
+
+    # ── I4：key_bar 关闭时不校验（普通档本来就不生效）──
+    nobar = dict(base); nobar.update({"key_bar": False, "key_closepos": 0.9,
+                                      "bbw_exempt_closepos": 0.5})
+    try:
+        r = C._validate_params(SID, nobar)
+        passed = r is not None
+    except Exception:
+        passed = False
+    chk(passed, "I4 key_bar 关闭时不校验（普通档没生效，无从比较）", "被误拦")
+
+    # ── I5：右侧止盈三键在白名单里 ──
+    for k in ("right_key_mult", "right_key_closepos", "right_key_bodyfrac"):
+        chk(k in C._STRAT_PARAM_BOUNDS, f"I5 {k} 已登记白名单（否则存不进去）")
+
+    # ── I6：右侧止盈三键在定版表里，且值对 ──
+    df = C.strat_param_defaults(SID)
+    for k, want in (("right_key_mult", 1.0), ("right_key_closepos", 0.66),
+                    ("right_key_bodyfrac", 0.5)):
+        chk(df.get(k) == want, f"I6 定版值 {k} = {want}", f"实际 {df.get(k)}")
+
+    # ── I7：代码里右侧止盈真的在用新参数（不是还偷偷用老的）──
+    import io as _io
+    import os as _os
+    _root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    src = _io.open(_os.path.join(_root, "backend", "strategies.py"), encoding="utf-8").read()
+    seg = src[src.find("right_key_mult"):src.find("right_key_mult") + 420] if "right_key_mult" in src else ""
+    chk("right_key_mult" in src and "right_key_closepos" in src,
+        "I7 右侧止盈代码已改用 right_key_* 三键")
+    chk("right_key_bodyfrac" in src, "I7b 实体占比也用上了新参数")
+    # 反向检查：那段 if strict 里不该再出现入场的老键
+    i0 = src.find("if strict:")
+    blk = src[i0:i0 + 700] if i0 >= 0 else ""
+    chk('self._p("key_closepos"' not in blk,
+        "I7c 右侧止盈段已不再直接读入场的 key_closepos", "还残留旧耦合")
+
+    # ── I8：同根限流值与并发数匹配（2→3 已改）──
+    yml = C.load_strategies()["strategies"][SID]["params"]
+    chk(int(yml.get("max_same_bar_side", 0)) == 3,
+        "I8 max_same_bar_side 已改成 3（配合并发 4）", f"实际 {yml.get('max_same_bar_side')}")
+
+
 def main():
     test_entry_dev()
     test_config()
     test_key_bar()
     test_bbw_exempt()
     test_param_defaults()
+    test_param_relations()
     test_exit_chain()
     test_reverse()
     print("\n" + "=" * 78)

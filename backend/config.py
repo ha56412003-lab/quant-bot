@@ -373,6 +373,13 @@ _STRAT_PARAM_BOUNDS = {
     "stop_key": None,
     # ★ 同上：界面有框（止损算法「再往外让一点」），这里漏登记 → 存不进去。
     "stop_key_atr_buf": (0.0, 5.0),
+    # ★ 2026-11-12 夜拆出来的「右侧止盈」独立三键。原来右侧止盈直接复用入场
+    #   的 key_mult / key_closepos / key_bodyfrac —— 调入场会连带改出场，
+    #   而这两件事的风险方向完全不同（入场放宽=多开单；出场放宽=早止盈）。
+    #   拆开后各调各的，互不影响。
+    "right_key_mult": (0.0, 10.0),
+    "right_key_closepos": (0.0, 1.0),
+    "right_key_bodyfrac": (0.0, 1.0),
     # ── 进场闸 ──────────────────────────────────────────────────
     "bbw_pct_min": (0.0, 100.0),
     # ★ 2026-11-12 夜：豁免三键补登记。之前界面给了输入框、strategies.py 也在读，
@@ -432,6 +439,8 @@ _STRAT_PARAM_DEFAULTS = {
     "eff_min_signal": 0.30, "eff_win_signal": 48,
     "be_at_r": 1.5, "half_at_r": 1.2, "full_at_r": 2.5,
     "right_exit": True, "right_exit_strict": True, "reverse_enabled": False,
+    # 右侧止盈用的关键K线门槛（独立于入场，取历史定版值 1.0/0.66/0.5）
+    "right_key_mult": 1.0, "right_key_closepos": 0.66, "right_key_bodyfrac": 0.5,
     "max_same_bar_side": 2, "fee_rate": 0.0005, "slip_pct": 0.0,
     },
 }
@@ -530,6 +539,30 @@ def _validate_params(sid, params):
                 bad.append(
                     f"half_at_r({h:g}) 必须小于 full_at_r({f:g})："
                     f"否则全平先触发，半平永远不会执行")
+        except (TypeError, ValueError):
+            pass
+        # ── 豁免门槛必须「不低于」普通门槛 ──────────────────────────
+        # 为什么不加这条会出事：代码顺序是「先判普通档过③ → 再判豁免档免BBW」。
+        # 如果豁免档的门槛比普通档还低（例如 key_closepos=0.75 但
+        # bbw_exempt_closepos=0.7），收盘位 0.72 的 K 线在③闸就被拦掉了，
+        # **永远走不到豁免判定** —— 豁免功能静默失效，不报错、日志也没有。
+        # 只在两个前提同时成立时才判：
+        #   ① key_bar 开着（否则普通档本来就不生效，无从比较）
+        #   ② bbw_exempt_mult > 0（否则豁免是刻意关闭的，不该拦）
+        try:
+            if bool(merged.get("key_bar", True)) and float(merged.get("bbw_exempt_mult") or 0) > 0:
+                for _ex, _base, _label in (
+                    ("bbw_exempt_mult", "key_mult", "力度"),
+                    ("bbw_exempt_closepos", "key_closepos", "收盘位置"),
+                    ("bbw_exempt_bodyfrac", "key_bodyfrac", "实体占比"),
+                ):
+                    _a = float(merged.get(_ex) or 0.0)
+                    _b = float(merged.get(_base) or 0.0)
+                    if _a < _b - 1e-9:
+                        bad.append(
+                            f"{_ex}({_a:g}) 不能小于 {_base}({_b:g})："
+                            f"豁免{_label}门槛低于普通门槛，这条豁免永远走不到"
+                            f"（普通档会先把 K 线拦掉），等于静默关闭")
         except (TypeError, ValueError):
             pass
 

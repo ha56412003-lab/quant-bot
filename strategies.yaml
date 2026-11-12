@@ -161,6 +161,12 @@ strategies:
       full_at_r: 2.5
       # 右侧止盈（2026-11-10 新方案）：平半后 HA 反向 + HA收穿 ZLSMA50
       #   + 那根反向原始K线本身是反向关键K线（strict）
+      # ★ 右侧止盈专用的关键K线门槛（2026-11-12 夜拆分，不再复用入场 key_*）
+      #   拆分原因：原来右侧止盈复用入场三键 → 调入场会连带改出场，
+      #   而入场放宽=多开单、出场放宽=早止盈，风险方向相反，必须分开。
+      right_key_mult: 1.0
+      right_key_closepos: 0.66
+      right_key_bodyfrac: 0.5
       right_exit: true
       right_exit_strict: true
       # 进场 EFF 闸（2026-11-10 从池子挪到进场闸）
@@ -208,7 +214,7 @@ strategies:
       #   目标是压住单次灾难（那波能少亏 472U）；≤4 长期收益更高但拦不住 6 连发。
       #   「同向并发限笔」（任意时刻同向持仓 ≤N）实测全线更差（−2.41 ~ −23.64R），
       #   因为它会拦住不同时点的正常信号 —— 那条路已排除，别再试。
-      max_same_bar_side: 2
+      max_same_bar_side: 3
       fee_rate: 0.0005
       slip_pct: 0.0
       # 反手开关（2026-11-11 深夜 浩哥定：关）

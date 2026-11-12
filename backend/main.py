@@ -1472,14 +1472,45 @@ async def api_mode(payload: dict):
 
 
 @app.get("/api/klines")
-async def api_klines(symbol: str = "BTCUSDT", interval: str = "15m", limit: int = 200):
+async def api_klines(symbol: str = "BTCUSDT", interval: str = "15m", limit: int = 300):
     ks = await binance.klines(symbol, interval, limit)
     marks = []
     for t in db.recent_trades(300):
         if t["symbol"] == symbol:
             marks.append({"ts": t["ts"], "price": t["price"], "kind": t["kind"],
                           "side": t["side"], "strategy": t["strategy"]})
-    return {"klines": ks, "marks": marks}
+
+    # ── 附上「我们自己的两个指标」（2026-11-12 夜）──────────────────────
+    # 图上原来只有 K 线 + 成交量，看不出策略到底在看什么。现在把 S15 真正
+    # 用的两条线一起发下去，图面 = 策略视角：
+    #   ① ZLSMA50 —— 方向线（多空分界）
+    #   ② Chandelier Exit —— 上下两条止损通道线
+    # ★ 一律调生产函数 strategies._ce_zlsma，绝不在这里重写公式。
+    #   重写就会跟实盘判定漂移，图上看到的和引擎用的就不是一回事了。
+    # ★ 参数也从 strategies.yaml 现读，保证「你把参数改了、图立刻跟着变」。
+    ind = None
+    try:
+        scfg = (config.load_strategies().get("strategies") or {}).get("S15_CE_ZLSMA") or {}
+        p = scfg.get("params") or {}
+        out = strategies._ce_zlsma(
+            ks,
+            int(p.get("ce_len", 1)),
+            float(p.get("ce_mult", 2.0)),
+            int(p.get("zlsma_len", 50)),
+            bool(p.get("use_close", True)),
+            bool(p.get("use_ha", True)),
+        )
+        ind = {
+            "zlsma": out["zlsma"],
+            "ce_long": out["long_stop"],     # 多头止损线（画在图下方）
+            "ce_short": out["short_stop"],   # 空头止损线（画在图上方）
+            "dir": out["dir"],
+            "atr": out["atr"],
+        }
+    except Exception as exc:  # noqa: BLE001 — 图挂了也不能拖垮整个接口
+        log.warning("klines 指标计算失败 %s %s: %s", symbol, interval, exc)
+
+    return {"klines": ks, "marks": marks, "ind": ind}
 
 
 @app.get("/api/logs")

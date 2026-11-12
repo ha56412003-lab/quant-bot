@@ -132,6 +132,25 @@ const EXIT_R = [
     type: 'num', step: 0.1, min: 0 },
 ]
 
+// 右侧止盈要求「反向K线」也得够硬 —— 2026-11-12 夜从入场三键里拆出来独立
+// ★ 为什么要拆：以前它俩共用一个旋钮，把入场放宽（key_closepos 0.66→0.6）
+//   会顺带把止盈也放宽 → 更容易触发止盈 → 利润被提前截断。方向相反的两件事。
+const RIGHT_EXIT = [
+  { k: 'right_key_mult', label: '力度',
+    hint: '右侧止盈要求反向K线的实体至少是平均波动的几倍。'
+        + '这个数越大，止盈越难触发、拿得越久；越小越容易兑现。'
+        + '★ 只影响「什么时候止盈」，不影响开仓',
+    type: 'num', step: 0.1, min: 0 },
+  { k: 'right_key_closepos', label: '收盘位置',
+    hint: '反向K线的收盘要落在当根K线的多极端处（0=最差，1=最好）。'
+        + '★ 只影响止盈，不影响开仓',
+    type: 'num', step: 0.02, min: 0, max: 1 },
+  { k: 'right_key_bodyfrac', label: '实体占比',
+    hint: '反向K线实体占整根（含上下影线）的比例，越大越干脆。'
+        + '★ 只影响止盈，不影响开仓',
+    type: 'num', step: 0.05, min: 0, max: 1 },
+]
+
 const fmtVal = (v) => (typeof v === 'boolean' ? (v ? '开' : '关') : v)
 
 function ParamCell({ def, value, onChange }) {
@@ -176,14 +195,29 @@ export default function GateTunerPanel({ row, onParamsSave }) {
   //   以后改定版值只改 config.py 的 _STRAT_PARAM_DEFAULTS 一处。
   const DEFAULTS = React.useMemo(() => ({ ...(row?.defaults || {}) }), [row?.defaults])
 
-  // 当前值跟定版值不一样的键（只算页面上真的有的键，页面没有的不动）
+  // 页面上真正有输入框的键。★ 必须限定范围：
+  //   draft 里其实是全部 35 个参数（含一堆页面没给框的），如果只按「跟定版值不同」
+  //   就收进 diff，那么「恢复默认」会把用户用改文件方式调过的参数也一起改回去 ——
+  //   按钮叫「恢复默认」，用户预期是恢复**这个面板上**的，不是偷偷动别处。
+  const UI_KEYS = React.useMemo(() => {
+    const s = new Set()
+    GATES.forEach((g) => (g.fields || []).forEach((f) => s.add(f.k)))
+    STOP_ALGO.forEach((f) => s.add(f.k))
+    EXIT_R.forEach((f) => s.add(f.k))
+    RIGHT_EXIT.forEach((f) => s.add(f.k))
+    return s
+  }, [])
+
+  // 当前值跟定版值不一样的键（只在页面有的键里比）
   const diffFromDefaults = React.useMemo(() => {
     const out = {}
-    Object.keys(DEFAULTS).forEach((k) => {
-      if (draft[k] !== undefined && draft[k] !== DEFAULTS[k]) out[k] = DEFAULTS[k]
+    UI_KEYS.forEach((k) => {
+      if (draft[k] !== undefined && DEFAULTS[k] !== undefined && draft[k] !== DEFAULTS[k]) {
+        out[k] = DEFAULTS[k]
+      }
     })
     return out
-  }, [draft, DEFAULTS])
+  }, [draft, DEFAULTS, UI_KEYS])
 
   const resetToDefaults = () => {
     const keys = Object.keys(diffFromDefaults)
@@ -426,6 +460,57 @@ export default function GateTunerPanel({ row, onParamsSave }) {
         bordered
         columns={[
           { title: '档位', dataIndex: 'label', width: 128, render: (v) => (
+            <span style={{ fontSize: 12, fontWeight: 600 }}>{v}</span>
+          ) },
+          {
+            title: '这是干什么的', dataIndex: 'hint',
+            render: (v) => (
+              <Text type="secondary" style={{ fontSize: 11.5, whiteSpace: 'normal',
+                                              display: 'block', lineHeight: 1.5 }}>{v}</Text>
+            ),
+          },
+          {
+            title: '当前值', width: 118, align: 'center',
+            render: (_, r) => (
+              draft[r.k] === undefined ? (
+                <Tooltip title="后台配置里还没有这个键。先上线对应代码，这里才会出现输入框">
+                  <Tag color="default" style={{ fontSize: 10.5, margin: 0 }}>未启用</Tag>
+                </Tooltip>
+              ) : (
+                <div>
+                  <ParamCell def={r} value={draft[r.k]} onChange={(v) => set(r.k, v)} />
+                  {DEFAULTS[r.k] !== undefined && draft[r.k] !== DEFAULTS[r.k] && (
+                    <div style={{ marginTop: 2 }}>
+                      <Tooltip title={'定版值是 ' + fmtVal(DEFAULTS[r.k])}>
+                        <Text style={{ fontSize: 10, color: '#d46b08' }}>
+                          默认{fmtVal(DEFAULTS[r.k])}
+                        </Text>
+                      </Tooltip>
+                    </div>
+                  )}
+                </div>
+              )
+            ),
+          },
+        ]}
+      />
+
+      <div className="gate-tuner-rexit-head" style={{ marginTop: 14, marginBottom: 6 }}>
+        <Text strong style={{ fontSize: 12.5 }}>右侧止盈要的证据有多硬</Text>
+        <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
+          只影响「什么时候止盈离场」，和开仓完全不搭界
+        </Text>
+      </div>
+
+      <Table
+        className="gate-tuner-rexit"
+        rowKey="k"
+        dataSource={RIGHT_EXIT.map((x) => ({ ...x, key: x.k }))}
+        pagination={false}
+        size="small"
+        bordered
+        columns={[
+          { title: '门槛', dataIndex: 'label', width: 108, render: (v) => (
             <span style={{ fontSize: 12, fontWeight: 600 }}>{v}</span>
           ) },
           {

@@ -1185,10 +1185,15 @@ class S15CeZlsma(Base):
             stt["bar_ts"] = bar_ts
             return None
         if strict:
+            # ★ 2026-11-12 夜：改用「右侧止盈」自己的三键，不再复用入场的 key_*。
+            #   为什么必须拆：入场放宽（例如 key_closepos 0.66→0.6）会顺带把
+            #   右侧止盈也放宽 → 更容易触发止盈 → 利润被提前截断。这两件事的
+            #   风险方向相反，共用一个旋钮必然改错边。
+            #   ★ 兜底值与 config._STRAT_PARAM_DEFAULTS 保持一致（1.0/0.66/0.5）。
             ok_kb = _is_key_bar(ks, i, atr_n, rev,
-                                float(self._p("key_mult", 1.0)),
-                                float(self._p("key_closepos", 0.66)),
-                                float(self._p("key_bodyfrac", 0.5)))
+                                float(self._p("right_key_mult", 1.0)),
+                                float(self._p("right_key_closepos", 0.66)),
+                                float(self._p("right_key_bodyfrac", 0.5)))
             if not ok_kb:
                 stt["bar_ts"] = bar_ts
                 return None
