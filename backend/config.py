@@ -342,8 +342,8 @@ def set_strategy_enabled(sid, enabled):
 #   · 0 在这几个键上是「关闭该闸」的**合法语义**，所以下限取 0：
 #     min_atr_pct / dual_stop_min_pct /
 #     min_stop_dist_pct / slip_pct / be_at_r / half_at_r / full_at_r。
-#   · 比例类（key_closepos / key_bodyfrac / eff_min_signal）
-#     天然 0~1，超出去不是「更严」而是恒真/恒假。
+#   · 比例类（key_closepos / key_bodyfrac / eff_min_signal / bbw_pct_min）
+#     天然 0~1 或 0~100，超出去不是「更严」而是恒真/恒假。
 # ══════════════════════════════════════════════════════════════════
 
 # 币安 U 本位合约支持的 K 线周期（分钟数）。写死枚举而不是范围：
@@ -372,8 +372,7 @@ _STRAT_PARAM_BOUNDS = {
     "dual_stop_min_pct":  (0.0, 50.0),   # 两档阈值，0=关闭两档
     "stop_key":           None,
     # ── 进场闸 ──────────────────────────────────────────────────
-    # ★ 2026-11-12：bbw_pct_min 校验已删（第④道 BBW 闸物理删除，键不再存在）。
-    #   留着它会出现「界面上能改、代码不读」的死键 —— 和偏离闸那两个键一样的坑。
+    "bbw_pct_min":        (0.0, 100.0),  # 分位数，天然 0~100
     "min_atr_pct":        (0.0, 50.0),   # 0=不启用
     # 偏离闸的两个键（min_dev_pct / dev_atr_mult）已于 VS15-1.2 删除 —— 闸门本身早就没了，
     # 留着它们只会出现「界面上能改、代码不读」的死键，比没有更糟。

@@ -206,9 +206,41 @@ def _heikin_ashi(ks):
     return ho, hh, hl, hc
 
 
-# ★ 2026-11-12：_bollinger_width() 与 _pct_rank() 两个函数已删除。
-#   它们只服务第④道 BBW 闸（前者算布林带宽，后者把它转成百分位），
-#   闸删除后成为死代码，按浩哥指令一并清除。
+def _bollinger_width(src, length=20, mult=2.0):
+    """布林带宽度 % = (上轨 - 下轨) / 中轨 × 100。
+
+    宽度小 = 价格挤在一起（震荡/变盘前）；宽度大 = 价格分散（有行情）。
+    """
+    n = len(src)
+    out: list = [None] * n
+    for i in range(length - 1, n):
+        seg = src[i - length + 1:i + 1]
+        if any(v is None for v in seg):
+            continue
+        ma = sum(seg) / length
+        if ma == 0:
+            continue
+        sd = (sum((v - ma) ** 2 for v in seg) / length) ** 0.5
+        out[i] = (2 * mult * sd) / ma * 100.0
+    return out
+
+
+def _pct_rank(series, lookback=100):
+    """当前值在过去 lookback 根里的百分位（0~100）。
+
+    用相对分位而不是绝对值，是因为不同币的波动率差好几倍，绝对阈值没法通用。
+    """
+    n = len(series)
+    out: list = [None] * n
+    for i in range(n):
+        if series[i] is None:
+            continue
+        lo = max(0, i - lookback + 1)
+        vals = [v for v in series[lo:i + 1] if v is not None]
+        if len(vals) < 20:          # 样本太少，分位没有意义
+            continue
+        out[i] = sum(1 for v in vals if v <= series[i]) / len(vals) * 100.0
+    return out
 
 
 def _ce_zlsma(ks, ce_len=1, ce_mult=2.0, z_len=50, use_close=True, use_ha=True):
@@ -263,17 +295,20 @@ def _ce_zlsma(ks, ce_len=1, ce_mult=2.0, z_len=50, use_close=True, use_ha=True):
             dirs[i] = -1
         else:
             dirs[i] = dirs[i - 1]
+    bbw = _bollinger_width(close, 20, 2.0)
+    bbw_pct = _pct_rank(bbw, 100)
     return dict(zlsma=zlsma, atr=atr, dir=dirs, close=close, open=openp,
                 long_stop=long_stop, short_stop=short_stop,
-                low_raw=low_raw, high_raw=high_raw)
+                low_raw=low_raw, high_raw=high_raw,
+                bbw=bbw, bbw_pct=bbw_pct)
 
 
 _LAST_BAR = {}   # (sid, symbol) -> 已评估过的K线时间戳，防止高频扫描重复出信号
 
 # 进场闸门诊断：每根 15m K 线评估完把每道闸的即时状态存在这里。
-#    只写内存、不额外拉 K 线（扫描本来就在算 CE/HA/关键K线，算完原本是丢掉的）。
+# 只写内存、不额外拉 K 线（扫描本来就在算 CE/HA/BBW，算完原本是丢掉的）。
 # 页面用它回答「今天是没机会，还是门槛卡死了」。
-_GATE_STATE = {}   # symbol -> {ts, dir, ce, ha, key, eff, risk, stop_src, ok, why}
+_GATE_STATE = {}   # symbol -> {ts, dir, ce, ha, bbw, bbw_thr, atr_pct, ok, why}
 
 
 # ── S15 趋势反转出场的 bar 边界缓存 ──────────────────────────────────────
@@ -319,22 +354,18 @@ def _atr_n(ks, n=20):
     return out
 
 
-def _is_key_bar(ks, i, atr_n, want, mult=1.0, closepos=0.8, bodyfrac=0.8):
+def _is_key_bar(ks, i, atr_n, want, mult=1.0, closepos=0.66, bodyfrac=0.5):
     """关键K线（大阳线 / 大阴线）—— 三条同时满足，全部用原始 K 线：
 
       ① 力度：实体 > mult × ATR(20)        「比平常波动明显大」← mult 唯一控制项
-      ② 掌控力：收盘位置 > closepos        「收在最边上 20%」
-      ③ 决断力：实体占全幅 > bodyfrac      「上下影线加起来不超过 20%」
-
-    ★ 2026-11-12：默认值由 0.66 / 0.50 提到 0.80 / 0.80 —— 原来这是「普通门槛」，
-      闸里还有第④道 BBW 做二次确认；BBW 删除后只剩这一档，默认值必须同步，
-      否则任何一处没传参会静默退回旧口径（VS15-1.2 踩过这个坑）。
+      ② 掌控力：收盘位置 > closepos        「收在最高/最低的 1/3 区」
+      ③ 决断力：实体占全幅 > bodyfrac      「实体比影线长，不是十字星」
 
     收盘位置是核心：收盘价 = 多空最终达成的共识，收在极值说明对手毫无反击。
 
     实测（40 币 · 24 万根 15m）：三条全满足通过率 mult=1.0 → 9.34%，
     0.8 → 15.00%，0.7 → 18.83%，0.6 → 23.30%；普通 K 线实体中位仅 0.25%，
-    关键K线实体中位 0.73%(0.7×) ~ 0.96%(1.0×)。它是五道闸里最窄的一道。
+    关键K线实体中位 0.73%(0.7×) ~ 0.96%(1.0×)。它是七道闸里最窄的一道。
     """
     o = float(ks[i]["open"])
     c = float(ks[i]["close"])
@@ -465,12 +496,14 @@ class S15CeZlsma(Base):
         "name": "CE+ZLSMA 趋势跟随", "type": "趋势跟随 / 短线", "direction": "双向",
         "logic": "Chandelier Exit 用 ATR 画一条只朝有利方向移动的止损线来判定大方向，"
                  "方向翻转那一刻就是信号；ZLSMA(50) 零延迟均线用来确认趋势站没站稳；"
+                 "布林带宽度分位衡量波动是否扩张，只在市场真的在动的时候才出手。"
                  "入场用真实收盘价算钱，用 HA 合成价判方向，用原始 K 线判力度。",
-        "entry": "五道闸全过才开仓：① 时段确认 —— ZLSMA50 实体穿越切多空时段（CE 翻转不再是触发器）"
+        "entry": "六道闸全过才开仓：① 时段确认 —— ZLSMA50 实体穿越切多空时段（CE 翻转不再是触发器）"
                  " ② HA 形态 —— HA 收盘站在均线同一侧、方向一致"
-                 " ③ 关键K线 —— 原始 K 线实体 ≥ 1.0×ATR20，收盘落在极值最边上 20%，实体占比 ≥ 80%"
-                 " ④ 止损距离 —— 含 0.2×ATR20 缓冲后必须落在 0.60% ~ 5.00%"
-                 " ⑤ 趋势效率 —— 进场前 48 根单边度 ≥ 0.30（单边才做）",
+                 " ③ 关键K线 —— 原始 K 线实体 ≥ 1.0×ATR20，收盘落在极值 1/3 区，实体占比 ≥ 50%"
+                 " ④ BBW 分位 —— 布林带宽度近 100 根分位 ≥ 70（波动扩张才做）"
+                 " ⑤ 止损距离 —— 含 0.2×ATR20 缓冲后必须落在 0.60% ~ 5.00%"
+                 " ⑥ 趋势效率 —— 进场前 48 根单边度 ≥ 0.30（单边才做）",
         "exit": "五个出口按顺序判，先命中先执行：① 硬止损 = 8 根摆动 / CE 通道 / 关键K线端点外扩 0.2×ATR20，"
                 "三条取最近；距离 < 0.50% 时只保留 CE 通道（⑤c 两档）"
                 " ② 峰顶到 1.5R → 止损抬到入场价（保本）"
@@ -478,19 +511,22 @@ class S15CeZlsma(Base):
                 " ④ 平半后到 2.5R 全平（兜底）"
                 " ⑤ 平半后出现反向关键K线且 HA 收穿 ZLSMA50 → 平剩余（右侧止盈）。"
                 "已删除：时间止损、快速失败、移动止盈、镜像出场、收盘价止损、偏离闸。",
-        "factors": "15m K线（自算 CE(1×1.5) / ZLSMA50 / ATR / 关键K线三判据）",
-        "risk": "费率口径敏感：市价往返 0.10%，止损只有 0.50% 时仓位放大到"
+        "factors": "15m K线（自算 CE(1×1.5) / ZLSMA50 / ATR / 布林带宽度分位）",
+        "risk": "震荡市 CE 会频繁翻转，所以入场加了 BBW 分位闸（近 100 根布林带宽度分位 > 70%），"
+                "把开仓限在波动扩张期。费率口径敏感：市价往返 0.10%，止损只有 0.50% 时仓位放大到"
                 "3 倍本金，手续费=单笔风险的 20%；止损 1.0% 时 10%，2% 时 5%。"
                 "所以监控池进池线 0.50%、出池线 0.30%（出池线必须更低，否则池子来回抖）。",
         "name_en": "CE + ZLSMA Trend Follow",
         "logic_en": "Chandelier Exit ratchets an ATR stop that defines the regime; a flip is the signal. "
-                    "ZLSMA(50) confirms price is on the right side. Directions use HA prices, "
+                    "ZLSMA(50) confirms price is on the right side; Bollinger-band width percentile "
+                    "gates entries to expanding-volatility regimes. Directions use HA prices, "
                     "money uses real closes, bar strength uses raw candles.",
-        "entry_en": "All five gates: (1) phase = ZLSMA50 body cross defines the long/short phase "
+        "entry_en": "All six gates: (1) phase = ZLSMA50 body cross defines the long/short phase "
                     "(a CE flip is no longer the trigger) (2) HA close on the same side of ZLSMA50 "
-                    "(3) the raw candle is a key bar (body >= 1.0x ATR20, close in the outermost "
-                    "20%, body >= 80% of range) (4) stop distance including the 0.2x ATR20 pad "
-                    "within 0.60% ~ 5.00% (5) trend efficiency of the previous 48 bars >= 0.30.",
+                    "(3) the raw candle is a key bar (body >= 1.0x ATR20, close in the extreme "
+                    "third, body >= 50% of range) (4) BBW percentile over the last 100 bars >= 70% "
+                    "(5) stop distance including the 0.2x ATR20 pad within 0.60% ~ 5.00% "
+                    "(6) trend efficiency of the previous 48 bars >= 0.30.",
         "exit_en": "Five exits, first hit wins: (1) hard stop = nearest of 8-bar swing / CE channel / "
                    "key-bar extreme padded by 0.2x ATR20; below 0.50% only the CE channel is kept "
                    "(2) peak reaches 1.5R -> stop moves to entry (breakeven) (3) take half at 1.2R "
@@ -498,8 +534,9 @@ class S15CeZlsma(Base):
                    "reverse key bar whose HA close crosses back through ZLSMA50 closes the rest. "
                    "Removed: time stop, quick-fail, trailing stop, mirror exit, close-price stop, "
                    "deviation gate.",
-        "factors_en": "15m klines (self-computed CE 1x1.5 / ZLSMA50 / ATR / key-bar criteria)",
-        "risk_en": "Fee-sensitive: a "
+        "factors_en": "15m klines (self-computed CE 1x1.5 / ZLSMA50 / ATR / Bollinger width percentile)",
+        "risk_en": "CE flips constantly in chop, so entries add a BBW percentile gate (>70% over last "
+                   "100 bars) restricting them to expanding-volatility regimes. Fee-sensitive: a "
                    "0.10% taker round-trip costs 20% of per-trade risk when the stop is only 0.50% "
                    "wide (position = 3x equity), 10% at 1.0%, 5% at 2%. Hence the pool requires "
                    "stop distance >= 0.50% and drops coins below 0.30%.",
@@ -574,22 +611,23 @@ class S15CeZlsma(Base):
         return stop, stop_src, dist
 
     async def evaluate(self, ctx) -> list:
-        """入场：时段确认 + HA 形态 + 关键K线 + 止损距离 + 趋势效率（五道闸）。
+        """入场：时段确认 + HA 形态 + 关键K线力度 + BBW 分位 + 止损距离 + 趋势效率（六道闸）。
 
-        2026-11-12 之后真实顺序（与前端「五道闸」面板逐列一一对应）：
+        VS15-1.2 对齐后的真实顺序（与前端「六道闸」面板逐列一一对应）：
           ① 时段确认   ZLSMA50 实体穿越切多空时段；CE 翻转不再是触发器
           ② HA 形态    HA 收盘站在 ZLSMA 同一侧且方向一致
-          ③ 关键K线    原始 K 线实体 ≥ key_mult×ATR20，收盘落在极值最边上 20%，实体占比 ≥ 80%
-          ④ 止损距离   含 ATR 缓冲后必须落在 0.60% ~ 5.00%
-          ⑤ 趋势效率   进场前 48 根单边度 EFF ≥ 0.30
+          ③ 关键K线    原始 K 线实体 ≥ key_mult×ATR20，收盘落在极值 1/3 区，实体占比 ≥ 50%
+          ④ BBW 分位   布林带宽度近 100 根分位 ≥ 70（波动扩张才做）
+          ⑤ 止损距离   含 ATR 缓冲后必须落在 0.60% ~ 5.00%
+          ⑥ 趋势效率   进场前 48 根单边度 EFF ≥ 0.30
 
         设计要点：
           · 时段是「状态」不是「事件」—— CE 翻转那种事件口径每根都会重刷信号。
+          · 布林带宽度只衡量「价格分散程度」，是唯一没被证伪的趋势过滤器
+            （ADX、ADX上升、效率比全部失效）。
           · 止损 = 三条并列取近：8 根摆动 / CE 通道 / 关键K线极值（外扩 0.2×ATR20）。
           · ATR 门槛（min_atr_pct）已挪到监控池层，S15 里保持 0 = 不启用。
           · 偏离闸已于 2026-11-11 物理删除，VS15-1.2 把两个配置键也一并删掉了。
-          · 第④道 BBW 闸已于 2026-11-12 物理删除（含 _bollinger_width / _pct_rank 两个函数），
-            关键K线的两级结构合并为一级 0.80/0.80。
         """
         ce_len = int(self._p("ce_len", 1))
         ce_mult = float(self._p("ce_mult", 2.0))
@@ -598,23 +636,15 @@ class S15CeZlsma(Base):
         use_ha = bool(self._p("use_ha", True))
         swing_lb = int(self._p("swing_lookback", 8))
         min_atr_pct = float(self._p("min_atr_pct", 0.0))
-        # ★ 2026-11-12 浩哥指令：BBW 门槛连同「关键K线普通门槛」一起取消，
-        #   只保留单一标准（原「顶级」档 1.0/0.8/0.8）。第④道 BBW 已整段物理删除，
-        #   bbw_pct_min / bbw_exempt_mult / bbw_exempt_closepos / bbw_exempt_bodyfrac
-        #   四个配置键一并删除：config.py 不再校验、yaml 无此键、面板不显示、代码不判定。
-        #   ★ 实测记录（60天，前40币）：删 BBW 后 +34.07R，删除前 +109.79R（差 3.2 倍）。
-        #     数据在 F:\obsidian笔记库\QUANT-BOT_VS15-1.2版本\删除BBW-2026-11-12.md
+        bbw_pct_min = float(self._p("bbw_pct_min", 70.0))
         max_risk_pct = float(self._p("max_risk_pct", 5.0))
         # 偏离闸已于 2026-11-11 晚物理删除；VS15-1.2 连 min_dev_pct / dev_atr_mult
         # 两个配置键一起删掉 —— config.py 不再校验、yaml 不再有这两个键、面板不再显示。
         # ②b 关键K线闸（2026-11-10 浩哥定义）：HA 判方向，原始 K 线判力度
         key_bar = bool(self._p("key_bar", True))
         key_mult = float(self._p("key_mult", 1.0))
-        # ★ 2026-11-12：原「普通门槛 0.66/0.50 + BBW 确认」的两级结构取消，
-        #   只剩单一标准（= 原「顶级」档 0.80/0.80）。兜底默认值同步改成 0.8/0.8，
-        #   否则 yaml 缺键时会静默退回旧口径 —— 这是 VS15-1.2 踩过的坑。
-        key_closepos = float(self._p("key_closepos", 0.8))
-        key_bodyfrac = float(self._p("key_bodyfrac", 0.8))
+        key_closepos = float(self._p("key_closepos", 0.66))
+        key_bodyfrac = float(self._p("key_bodyfrac", 0.5))
         # ⑤b 关键K线止损：那根大阳线的低点 / 大阴线的高点
         stop_key = bool(self._p("stop_key", True))
         # ⑤c 两档止损（2026-11-10 定档 · 浩哥）：
@@ -656,8 +686,9 @@ class S15CeZlsma(Base):
                     continue
 
                 ind = _ce_zlsma(ks, ce_len, ce_mult, z_len, use_close, use_ha)
-                # ★ 2026-11-12：bbw / bbw_pct 两个局部变量已删（第④道闸不存在了，
-                #   这两个值不再参与任何判定）。ind 里仍保留数值，供回测/诊断脚本对照。
+                # _ce_zlsma 已内部算好 bbw / bbw_pct，这里不再重复计算
+                bbw = ind["bbw"]
+                bbw_pct = ind["bbw_pct"]
                 # 关键K线 / 关键K线止损 都要 ATR(20)，每个币只算一次
                 atr_n = (_atr_n(ks, 20)
                          if (key_bar or stop_key) else None)
@@ -703,16 +734,28 @@ class S15CeZlsma(Base):
                 # ── 进场闸门诊断（纯内存，零额外流量）──────────────────────
                 # 三步的判断本来就要做，这里只是把结果留下给页面看。
                 # 顺序：① 时段确认（ZLSMA50 实体穿越划出的多空段）→ ② HA 形态
-                #       → ③ 关键K线 → ④ 止损距离 → ⑤ 趋势效率，全过才开仓。
-                # ★ 2026-11-12：原第④道 BBW 已物理删除，六道闸 → 五道闸。
+                #       → ③ 关键K线 → ④ BBW 分位 → ⑤ 止损距离 → ⑥ 趋势效率，全过才开仓。
+                _bp = bbw_pct[i]
                 _ha_ok = (c > z and c > o) if d_now == 1 else (c < z and c < o)
+                _thr = bbw_pct_min if bbw_pct_min > 0 else 70.0
                 # 变量曾名 _ce_ok，容易让人以为判的是 CE 翻转 —— 实际判的是
                 # _zlsma_legs 切出来的多空时段（状态，不是翻转事件）。改名对齐语义。
                 _leg_ok = (d_now != 0)
+                # ⚠ 2026-11-06 修：原来写成 `_bp is None or _bp >= _thr`，
+                # 数据缺失时诊断表显示"这道过了"，而下面 ④ 的实际开仓判断是
+                # `bp is None → continue`（拒绝）。两处相反，诊断会骗人。
+                # 现在与开仓逻辑对齐：门槛开着时，None 一律算不通过。
+                if bbw_pct_min > 0:
+                    _bbw_ok = _bp is not None and _bp >= _thr
+                else:
+                    _bbw_ok = True          # 策略层关掉 BBW 门槛，不参与判断
                 if not _leg_ok:
                     _why = "时段未确认"
                 elif not _ha_ok:
                     _why = "HA形态不对"
+                elif not _bbw_ok:
+                    _why = ("BBW数据缺失" if _bp is None
+                            else f"BBW差{_thr - _bp:.0f}点")
                 else:
                     _why = "应开仓"
                 # ⑤ 止损距离（面板参考值）—— 不管前面几道闸过没过，每个池内币都算一遍。
@@ -728,7 +771,7 @@ class S15CeZlsma(Base):
                     "ts": bar_ts, "dir": "多" if d_now == 1 else "空",
                     # ★ 键名 "ce" 是前端契约（ActivityTabs 直接读、main.py 统计 ce_n），
                     #   不能动；值已是 ZLSMA 时段判定结果，名字纯属历史包袱。
-                    "ce": _leg_ok, "ha": _ha_ok,
+                    "ce": _leg_ok, "ha": _ha_ok, "bbw": _bp, "bbw_thr": _thr,
                     # ②b 关键K线 / ⑥ 进场 EFF（面板必须能看到，否则「没开仓」
                     # 永远只能看到前三道，看不出是卡在关键K线还是趋势效率）
                     "key": (bool(_is_key_bar(ks, i, atr_n,
@@ -772,9 +815,8 @@ class S15CeZlsma(Base):
                     continue
 
                 # ③ 关键 K 线（HA 阳线站上均线 / 阴线跌破均线）
-                #    2026-11-06 核对后调整：HA 形态必须在关键K线之前判断。
-                #    顺序 CE → HA → KEY → RISK → EFF，与面板列序一致
-                #    （BBW 已于 2026-11-12 删除，原顺序里它在 KEY 与 RISK 之间）。
+                #    2026-11-06 核对后调整：HA 形态必须在 BBW 之前判断。
+                #    顺序定为 CE → HA → KEY → BBW → DEV → RISK → EFF，与面板列序一致。
                 #    两种顺序不影响开不开仓（都是 continue），但会影响诊断显示「卡在哪道」。
                 key_long = c > z and c > o
                 key_short = c < z and c < o
@@ -808,14 +850,44 @@ class S15CeZlsma(Base):
                                           else f"趋势效率{_e:.2f}")
                         continue
 
-                # ★ 2026-11-12 第④道 BBW 闸整段删除（浩哥指令）。
-                #   删除理由记录在案，供日后复盘：实测（60天，前40币）
-                #     · 有 BBW（普通 0.66/0.50 + 顶级免检）  1,674 笔 / 均R +0.065 / +109.79R
-                #     · 无 BBW（只有顶级 1.0/0.80/0.80）     2,627 笔 / 均R +0.013 / +34.07R
-                #     · 无 BBW（普通 1.0/0.66/0.50）         2,659 笔 / 均R +0.015 / +39.85R
-                #   即：BBW 一关，每笔赚钱能力掉到 1/5；提高关键K线门槛补不回来（均R 0.015→0.013）。
-                #   浩哥已明确要求删除，此处照办；若要恢复，从 backups/20261112_nobbw/ 取回旧文件。
+                # ④ 布林带宽度分位门槛 —— 2026-11-06 定：必须留在策略层，且必须 15 分钟
+                bp = bbw_pct[i]
+                if bbw_pct_min > 0 and (bp is None or bp < bbw_pct_min):
+                    # ★ 2026-11-12 新增「顶级关键K线豁免 BBW」（浩哥拍板 1.0/0.8/0.8）
+                    #   为什么需要这道后门：BBW 是【滞后确认】—— 它看过去 N 根的整体振幅，
+                    #   而突破的第一根不可能已经放大。实测 LIT 11-12：14:30 已是光头光脚大阴线
+                    #   （力度 1.077×ATR / 收盘位置 1.000 / 实体占比 1.000），BBW 分位却只有 3，
+                    #   一路爬到 86 才放行 → 晚进 2.75 小时、进场价差 2.2%、止损被推远 27%，
+                    #   同样一段行情换来的 R 少 36%。晚进不是「少赚」，是把风险回报比搞坏了。
+                    #   而「力度 > 1.0×ATR + 收盘位置 > 0.8 + 实体占比 > 0.8」本身就是爆发证据，
+                    #   且不滞后 —— 用不滞后的事实替代滞后的确认。
+                    #   ★ 实测（双样本 + 后 40 独立验证，60 天）：
+                    #     前40 +109.79R（基线 +88.98）｜后40 +54.91R（基线 +29.57）｜80币 +164.70R（基线 +118.55）
+                    #     回撤 −100.08（基线 −89.38，恶化 12%）← 已知代价，靠坑位限制兜住
+                    #   ★ 被实测否决的相邻档（别再来回试）：
+                    #     0.9/0.9 → 后40 仅 +25.31R（比基线还低，过拟合）❌
+                    #     1.5/0.8 → 救不了 LIT 14:30（力度 1.077 < 1.5）❌
+                    #     buf 0.5 → 即使叠加本豁免仍只有 +85.75R（比基线差）❌
+                    #   bbw_exempt_mult = 0 即关闭本豁免。
+                    _ex_mult = float(self._p("bbw_exempt_mult", 1.0))
+                    if _ex_mult > 0:
+                        _ex_cp = float(self._p("bbw_exempt_closepos", 0.8))
+                        _ex_bf = float(self._p("bbw_exempt_bodyfrac", 0.8))
+                        if not _is_key_bar(ks, i, atr_n, want, _ex_mult, _ex_cp, _ex_bf):
+                            _g0 = _GATE_STATE.get(sym)
+                            if _g0 is not None:
+                                _g0["why"] = "BBW分位"
+                            continue
+                    else:
+                        _g0 = _GATE_STATE.get(sym)
+                        if _g0 is not None:
+                            _g0["why"] = "BBW分位"
+                        continue
 
+                # 委托价用「真实收盘价」，不用 HA 合成价。
+                # 2026-11-06 定案（方案 B）：指标域用 HA 判方向，委托域用真实价算钱。
+                # 实测证据：LIT 那笔 HA 收盘 3.4170，真实收盘 3.4530（差 +2.11%），
+                # 导致实际盈亏比从 1.20 掉到 0.73、单笔风险从 0.5% 放大到 0.82%。
                 px = float(ks[i]["close"])
                 if px <= 0 or not math.isfinite(px):
                     continue
@@ -895,7 +967,8 @@ class S15CeZlsma(Base):
                     reason=(f"ZLSMA{'站上' if side == 'long' else '跌破'}时段+"
                             f"{'阳' if side == 'long' else '阴'}线关键K"
                             f"{'站上' if side == 'long' else '跌破'}ZLSMA "
-                            f"ATR={atr_pct:.2f}%"),
+                            f"ATR={atr_pct:.2f}%"
+                            + (f" BBW分位={bp:.0f}%" if bp is not None else "")),
                     stop_price=round(stop, 8),
                     stop_src=stop_src,
                     max_hold_sec=self.max_hold,
@@ -1074,7 +1147,7 @@ class S15CeZlsma(Base):
         pk = await self._bar_pack(ctx, sym)
         if pk is None:
             return None
-        z_now, ha_close, ha_open, _dir_now, _dir_prev, bar_ts, ks, i, atr_n = pk
+        z_now, ha_close, ha_open, _dir_now, _dir_prev, _bp, bar_ts, ks, i, atr_n = pk
         if z_now is None or ha_close is None or ha_open is None:
             return None
 
@@ -1104,14 +1177,10 @@ class S15CeZlsma(Base):
             stt["bar_ts"] = bar_ts
             return None
         if strict:
-            # ★ 2026-11-12：兜底默认值 0.66/0.50 → 0.80/0.80，与入场那处对齐。
-            #   ⚠ 注意：右侧止盈判「反向关键K线」用的是同一组参数，所以门槛提高
-            #   会同时让出场变严（反向关键K线更难成立 → 右侧止盈触发更晚）。
-            #   这是同一组参数的连带效果，不是两个独立开关。
             ok_kb = _is_key_bar(ks, i, atr_n, rev,
                                 float(self._p("key_mult", 1.0)),
-                                float(self._p("key_closepos", 0.8)),
-                                float(self._p("key_bodyfrac", 0.8)))
+                                float(self._p("key_closepos", 0.66)),
+                                float(self._p("key_bodyfrac", 0.5)))
             if not ok_kb:
                 stt["bar_ts"] = bar_ts
                 return None
@@ -1122,8 +1191,8 @@ class S15CeZlsma(Base):
     async def _bar_pack(self, ctx, sym):
         """出场用「bar 级」指标包，按 cur_bar 缓存（一根 K 线只拉一次数据）。
 
-        返回 9 元组（★ 2026-11-12：bbw_pct 一格已删）：
-            (z_now, ha_close, ha_open, dir_now, dir_prev,
+        返回 10 元组：
+            (z_now, ha_close, ha_open, dir_now, dir_prev, bp_now,
              bar_ts, ks, i, atr_n)
         数据还没追到当前窗口时返回 None（不写缓存，下个 tick 再来）。
 
@@ -1152,7 +1221,7 @@ class S15CeZlsma(Base):
         ck = (sym, kline_iv)
         hit = _S15_ZL_CACHE.get(ck)
         # 11 项：(cur_bar, z_now, ha_close, bar_ts, dir_now, dir_prev, ha_open,
-        #         ks, i, atr_n)
+        #         bp_now, ks, i, atr_n)
         if hit and hit[0] == cur_bar and len(hit) >= 11:
             return (hit[1], hit[2], hit[6], hit[4], hit[5], hit[7],
                     hit[3], hit[8], hit[9], hit[10])
@@ -1173,13 +1242,12 @@ class S15CeZlsma(Base):
         if i < 2 or ind["zlsma"][i] is None:
             return None
         atr_n = _atr_n(ks, 20)
-        # ★ 2026-11-12：bbw_pct 那一格已删（元组从 10 格降到 9 格）
         _S15_ZL_CACHE[ck] = (
             cur_bar, ind["zlsma"][i], ind["close"][i], ks[i].get("ts", i),
             ind["dir"][i], ind["dir"][i - 1], ind["open"][i],
-            ks, i, atr_n)
+            ind["bbw_pct"][i], ks, i, atr_n)
         h = _S15_ZL_CACHE[ck]
-        return (h[1], h[2], h[6], h[4], h[5], h[3], h[7], h[8], h[9])
+        return (h[1], h[2], h[6], h[4], h[5], h[7], h[3], h[8], h[9], h[10])
 
     async def _half_take_profit(self, ctx, pos):
         """浮盈达 half_at_r（B 档 1.2R，从 yaml 读）且没平过一半 → 平掉 50%，剩一半放开跑。

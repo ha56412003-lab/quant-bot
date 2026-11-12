@@ -949,7 +949,7 @@ async def api_gates():
         if sym in held:
             verdict = "已开仓"
         elif sym not in mon:
-            # 池外：策略扫不到它，上面的 ce/ha 是它上一次还在池里时的残留值。
+            # 池外：策略扫不到它，上面的 ce/ha/bbw 是它上一次还在池里时的残留值。
             # 必须明说「池外」，否则看起来像在排队等成交。
             q = qdata.get(sym) or {}
             eff = q.get("eff")
@@ -982,11 +982,10 @@ async def api_gates():
                      "eff_thr": eff_sig,                   # 逐行给门槛，前端才能画 0.73/0.30
                      "pool_eff": (qdata.get(sym) or {}).get("eff"),
                      "why": verdict})
-    # 有戏的排前面：在池 > 全闸通过 > 时段方向 > HA 成立 > 关键K线 > 止损合适
-    # ★ 2026-11-12：原来最后一档按 BBW 分位降序排（BBW 删了），改成按关键K线优先。
+    # 有戏的排前面：在池 > 全闸通过 > 时段方向 > HA 成立 > 止损合适 > BBW 高
     rows.sort(key=lambda r: (not r.get("in_monitor"), not r.get("ok"), not r.get("ce"),
-                             not r.get("ha"), not bool(r.get("key")),
-                             not r.get("risk_ok")))
+                             not r.get("ha"), not r.get("risk_ok"),
+                             -(r.get("bbw") or 0)))
     return {
         "ts": bar,
         "rows": rows,
@@ -994,13 +993,16 @@ async def api_gates():
         "passed": sum(1 for r in rows if r.get("ok")),
         "ce_n": sum(1 for r in rows if r.get("ce")),
         "ha_n": sum(1 for r in rows if r.get("ha")),
-        # ★ 2026-11-12：bbw_n 已删（第④道 BBW 闸物理删除，六道闸→五道闸）
+        "bbw_n": sum(1 for r in rows
+                     if r.get("bbw") is not None
+                     and r["bbw"] >= (r.get("bbw_thr") or 70)),
         "risk_n": sum(1 for r in rows if r.get("risk_ok")),
         # ②b 关键K线、⑥ 进场 EFF（门槛从配置读，不在前端写死）
         "key_n": sum(1 for r in rows if r.get("key")),
         "eff_n": sum(1 for r in rows
                      if r.get("eff") is not None and r["eff"] >= eff_sig),
         "eff_thr": eff_sig,
+        "bbw_thr": next((r.get("bbw_thr") for r in rows if r.get("bbw_thr")), 70),
     }
 
 

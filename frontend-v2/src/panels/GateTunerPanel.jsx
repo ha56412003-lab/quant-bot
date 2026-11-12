@@ -5,17 +5,16 @@ import { ReloadOutlined, SaveOutlined } from '@ant-design/icons'
 const { Text } = Typography
 
 /**
- * S15 五道闸手动调参
+ * S15 六道闸手动调参
  * ─────────────────────────────────────────────────────────────
  * 位置：策略库页面 S15 策略表格下方
  * 数据源：全部从 row.params（后端 strategies.yaml 实时值）读，前端不写死任何门槛
  * 保存：走 onParamsSave(row.id, patch) → api.strategyConfig → strategies.yaml
  *       ★ 网页改参数即时生效，不用重启（config.load_strategies() 每轮重读，TICK_SEC=60）
  *
- * ★ 闸门顺序与「光闸面板」(ActivityTabs) 的 5 列严格一致：
- *     时段 → HA → 关键K → 止损距离 → EFF
+ * ★ 闸门顺序与「光闸面板」(ActivityTabs) 的 6 列严格一致：
+ *     时段 → HA → 关键K → BBW → 止损距离 → EFF
  *   偏离闸在 VS15-1.1 已从后端物理删除，VS15-1.2 把面板这一行也删了（不再留灰显占位）。
- *   BBW 闸在 2026-11-12 按浩哥指令连代码带配置键一起物理删除（六道闸 → 五道闸）。
  *
  * ★ 文案原则（2026-11-12 浩哥要求「这些都看不懂啥意思」）：
  *   一律大白话 —— 先说「这道闸在问什么问题」，再说数值是什么意思。
@@ -41,21 +40,36 @@ const GATES = [
   {
     no: '③', id: 'key', name: '关键K线力度',
     q: '这根 K 线有没有劲？',
-    desc: '三个条件同时满足才算「有劲」，这是现在唯一的标准（2026-11-12 取消了原来的宽松档）：\n'
+    desc: '三个条件同时满足才算「有劲」：\n'
         + '① 身子够大：K 线实体至少等于平时一根的平均波动幅度\n'
-        + '② 收得够边：收盘价落在最高／最低的最边上一成里\n'
-        + '③ 不是长影线：实体占整根八成以上（上下影线加起来不超过两成）\n'
-        + '这是五道闸里最窄的一道，绝大部分信号都卡在这里。',
+        + '② 收得够边：收盘价落在最高／最低的那一小块，不是冲出去又拉回来\n'
+        + '③ 不是长影线：实体占整根（连影线）的一半以上\n'
+        + '这是六道闸里最窄的一道，八成以上的信号都卡在这里。',
     params: [
       { k: 'key_bar', label: '启用', hint: '关掉 = 这道闸不查了', type: 'bool' },
       { k: 'key_mult', label: '身子倍数', hint: 'K线身子要比平时大几倍。1.0 = 跟平时差不多大就行；调大更严格、开仓更少', type: 'num', step: 0.1, min: 0 },
-      { k: 'key_bodyfrac', label: '身子占比', hint: '实体占整根的比例。0.8 = 身子得占八成以上，上下影线加起来不能超过两成', type: 'num', step: 0.01, min: 0, max: 1 },
-      { k: 'key_closepos', label: '收在哪', hint: '收盘要落在最边上多少。0.8 = 收在最靠边的那两成里（做多收在高处、做空收在低处）', type: 'num', step: 0.01, min: 0, max: 1 },
+      { k: 'key_bodyfrac', label: '身子占比', hint: '实体占整根的比例。0.5 = 身子得占一半以上，影线不能太长', type: 'num', step: 0.01, min: 0, max: 1 },
+      { k: 'key_closepos', label: '收在哪', hint: '收盘要落在最边上多少。0.66 = 收在最靠边的那三分之一里（做多收在高处、做空收在低处）', type: 'num', step: 0.01, min: 0, max: 1 },
     ],
   },
-  // ★ 2026-11-12：第④道 BBW 整块已删除（浩哥指令）。六道闸 → 五道闸。
   {
-    no: '④', id: 'risk', name: '止损距离',
+    no: '④', id: 'bbw', name: 'BBW 布林带宽',
+    q: '行情热不热闹？',
+    desc: '要求「行情正在放大，不是在缩着磨蹭」。\n'
+        + '布林带是价格波动的上下通道，通道越宽说明波动越大。拿现在的宽度跟过去 100 根比，要排进最宽的那一部分才做。'
+        + '\n行情缩着不动的时候开仓，最容易两头挨打。'
+        + '\n\n★ 顶级K线免检（2026-11-12 加）：如果一根K线本身就是「身子够猛 + 收在最边上 + 几乎没影线」，'
+        + '说明爆发已经开始，这时候再等布林带变宽就晚了 —— 实测会晚 2~3 小时进场、同样的行情少赚三成。'
+        + '这种K线直接放行，不等这道闸。下面三个数就是「什么样算顶级」。',
+    params: [
+      { k: 'bbw_pct_min', label: '要多宽', hint: '排进前面百分之几。70 = 要比过去 100 根里 70% 的时候都宽。0 = 不管这道闸', type: 'num', step: 1, min: 0, max: 100 },
+      { k: 'bbw_exempt_mult', label: '免检·身子', hint: 'K线身子比平时大几倍就免检。1.0 = 跟平时一样大就行；0 = 关闭免检（恢复老规矩，所有单都要等布林带变宽）', type: 'num', step: 0.1, min: 0 },
+      { k: 'bbw_exempt_closepos', label: '免检·收盘位', hint: '收盘要落在最边上多少才免检。0.8 = 收在最靠边的那两成里（做多收在高处、做空收在低处）', type: 'num', step: 0.01, min: 0, max: 1 },
+      { k: 'bbw_exempt_bodyfrac', label: '免检·实体占比', hint: '实体占整根多少才免检。0.8 = 上下影线加起来不能超过两成', type: 'num', step: 0.01, min: 0, max: 1 },
+    ],
+  },
+  {
+    no: '⑤', id: 'risk', name: '止损距离',
     q: '这一单的止损，是不是太近或者太远？',
     desc: '1R = 买入价到止损价的距离，也就是这一单最多亏多少钱。这道闸要求它别太近、也别太远。\n'
         + '· 太近（不到 0.6%）：随便一点小抖动就被扫出去，而且手续费占掉一大块\n'
@@ -68,7 +82,7 @@ const GATES = [
     ],
   },
   {
-    no: '⑤', id: 'eff', name: '趋势效率 EFF',
+    no: '⑥', id: 'eff', name: '趋势效率 EFF',
     q: '现在是在走趋势，还是在原地震荡？',
     desc: '看最近 48 根 K 线：净挪动了多远 ÷ 一路上拐来拐去加起来的距离。\n'
         + '· 一条直线涨过去，这个数接近 1（纯趋势）\n'
@@ -81,7 +95,7 @@ const GATES = [
   },
 ]
 
-// 止损价格怎么定 —— 不占五道闸的位置，但直接决定第④道闸那个百分比
+// 止损价格怎么定 —— 不占六道闸的位置，但直接决定第⑤道闸那个百分比
 const STOP_ALGO = [
   { k: 'stop_key', label: '关键K线端点',
     hint: '止损就放在信号那根 K 线的最低点（做多）／最高点（做空）。跌破它，说明这根 K 线的力量已经被否掉了',
@@ -155,7 +169,7 @@ export default function GateTunerPanel({ row, onParamsSave }) {
 
   if (!row) {
     return (
-      <Card size="small" title="S15 五道闸手动调参">
+      <Card size="small" title="S15 六道闸手动调参">
         <Text type="secondary">没找到 S15 策略，无法调参。</Text>
       </Card>
     )
@@ -225,7 +239,7 @@ export default function GateTunerPanel({ row, onParamsSave }) {
       style={{ marginTop: 12 }}
       title={
         <Space size={8} wrap>
-          <span>S15 五道闸手动调参</span>
+          <span>S15 六道闸手动调参</span>
           <Tag color="blue" style={{ fontSize: 11 }}>{row.id}</Tag>
           <Text type="secondary" style={{ fontSize: 11, fontWeight: 400 }}>
             鼠标停在任何参数名上，会弹出这个参数怎么读
@@ -259,7 +273,7 @@ export default function GateTunerPanel({ row, onParamsSave }) {
       <div className="gate-tuner-algo-head" style={{ marginTop: 14, marginBottom: 6 }}>
         <Text strong style={{ fontSize: 12.5 }}>止损价是怎么算出来的</Text>
         <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
-          不占五道闸的位置，但它决定第④道闸那个百分比，所以放这里一起调
+          不占六道闸的位置，但它决定第⑤道闸那个百分比，所以放这里一起调
         </Text>
       </div>
 

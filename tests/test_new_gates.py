@@ -78,7 +78,7 @@ def make_ks(n=220, price=100.0):
 
 
 def patch_ind(zl=100.0, ha_open=100.0, ha_close=100.0, dir_now=1, dir_prev=-1,
-              atr=1.0, n=220, low_raw=None, high_raw=None,
+              bbw=80.0, atr=1.0, n=220, low_raw=None, high_raw=None,
               long_stop=None, short_stop=None):
     """固定指标。i = len(ks)-2 = 218，所以 dir[218] 当前、dir[217] 上一根。
 
@@ -96,6 +96,8 @@ def patch_ind(zl=100.0, ha_open=100.0, ha_close=100.0, dir_now=1, dir_prev=-1,
         "low": [ha_close] * n,
         "dir": d,
         "atr": [atr] * n,
+        "bbw": [10.0] * n,
+        "bbw_pct": [bbw] * n,
         "low_raw": [low_raw if low_raw is not None else ha_close * 0.98] * n,
         "high_raw": [high_raw if high_raw is not None else ha_close * 1.02] * n,
     }
@@ -129,7 +131,7 @@ def make_strategy(**over):
         "kline_interval": "15m",
         "ce_len": 1, "ce_mult": 2.0, "zlsma_len": 50,
         "use_close": True, "use_ha": True,
-        "swing_lookback": 20, "min_atr_pct": 0,
+        "swing_lookback": 20, "min_atr_pct": 0, "bbw_pct_min": 70.0,
         "max_risk_pct": 30.0, "fee_rate": 0.0005, "slip_pct": 0.0,
         "half_at_r": 1.2,
         # ★ VS15-1.2：这两个闸的代码默认值已对齐定版（True）。
@@ -215,11 +217,8 @@ def test_config():
     # 2026-11-11 晚 浩哥定：恢复指标原版 1.0（此前 B 档为追单量调到 0.7）
     chk(p.get("key_mult") == 1.0, "C7 key_mult = 1.0（指标原版，已恢复）",
         f"实际 {p.get('key_mult')}")
-    # ★ 2026-11-12：普通门槛 0.66/0.50 取消，只剩单一标准 0.80/0.80（原「顶级」档）
-    chk(p.get("key_closepos") == 0.8, "C8 key_closepos = 0.80（单一标准，原 0.66 已废除）",
-        f"实际 {p.get('key_closepos')}")
-    chk(p.get("key_bodyfrac") == 0.8, "C9 key_bodyfrac = 0.80（单一标准，原 0.50 已废除）",
-        f"实际 {p.get('key_bodyfrac')}")
+    chk(p.get("key_closepos") == 0.66, "C8 key_closepos = 0.66", f"实际 {p.get('key_closepos')}")
+    chk(p.get("key_bodyfrac") == 0.5, "C9 key_bodyfrac = 0.5", f"实际 {p.get('key_bodyfrac')}")
     chk(p.get("stop_key") is True, "C10 stop_key = true（止损含关键K线低/高点）",
         f"实际 {p.get('stop_key')}")
     # 出场四条
@@ -249,11 +248,9 @@ def test_config():
     chk(p.get("eff_min_signal") == 0.30, "C22 eff_min_signal = 0.30（EFF 挪到进场）",
         f"实际 {p.get('eff_min_signal')}")
     chk(p.get("eff_win_signal") == 48, "C23 eff_win_signal = 48", f"实际 {p.get('eff_win_signal')}")
-    # ④ BBW —— 2026-11-12 浩哥指令：整道闸连配置键物理删除，此处改为「键必须不存在」
-    chk("bbw_pct_min" not in p and "bbw_exempt_mult" not in p
-        and "bbw_exempt_closepos" not in p and "bbw_exempt_bodyfrac" not in p,
-        "C24 BBW 四个配置键已全部删除（六道闸→五道闸，不留死键）",
-        f"实际残留 {[k for k in p if 'bbw' in k]}")
+    # ③ BBW（最硬的一道墙）
+    chk(p.get("bbw_pct_min") == 70.0, "C24 bbw_pct_min = 70.0（松到 60 胜率立刻掉 5pp）",
+        f"实际 {p.get('bbw_pct_min')}")
     # 监控池
     mon = cfg["pools"]["monitor"]
     chk(mon.get("size") == 50, "C25 池子 size = 50（11-11 定档：50 档 +55.88R > 40 档 +45.93R）",
@@ -304,6 +301,7 @@ def test_key_bar():
     # max_risk_pct 放到 10：这组是造出来的大 K 线，止损天然偏远，
     # 用 5% 会被「止损太远」提前挡掉，测不到要测的闸。
     BASE = dict(key_bar=True, key_mult=0.7, key_closepos=0.66, key_bodyfrac=0.5,
+                bbw_pct_min=70.0,
                 eff_min_signal=0.0, swing_lookback=8, max_risk_pct=10.0,
                 # D8a~d 验的是「三条候选取最近」的纯逻辑，先把 ATR 缓冲关掉；
                 # 缓冲本身由 D8e 单独验（0.2 ATR 会把关键K线止损推得更远）。
@@ -435,12 +433,12 @@ def test_exit_chain():
         S._S15_RIGHT_STATE.clear()
 
     async def run(px, pos, side="long", zl=101.0, ha_open=100.5, ha_close=99.0,
-                  dir_now=-1, dir_prev=1, ks=None, **over):
+                  dir_now=-1, dir_prev=1, bbw=80.0, ks=None, **over):
         clear()
         st = make_strategy(**dict(EXIT_BASE, **over))
         ks = ks if ks is not None else make_ks_kb(base=100.0, n=220, big_at=None)
         orig = patch_ind(zl=zl, ha_open=ha_open, ha_close=ha_close,
-                         dir_now=dir_now, dir_prev=dir_prev)
+                         dir_now=dir_now, dir_prev=dir_prev, bbw=bbw)
         try:
             return await st.check_exit(FakeCtx(px, ks), pos)
         finally:

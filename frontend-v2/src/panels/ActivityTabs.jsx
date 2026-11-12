@@ -177,7 +177,16 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
       render: (v) => (v == null ? <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
         : v ? <span style={{ color: '#35e08a', fontWeight: 700, fontSize: 13 }}>✓</span>
             : <span style={{ color: '#7c8296' }}>✗</span>) },
-    // ★ 2026-11-12：BBW 列已删（第④道 BBW 闸物理删除，六道闸→五道闸）。
+    { title: t('gate.col.bbw'), dataIndex: 'bbw', width: 48, align: 'right',
+      render: (v, r) => {
+        if (v == null) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
+        const thr = r.bbw_thr || 70
+        const pass = v >= thr
+        // 2026-11-10：格子里那个 9px 的「/70」看不清，删掉；阈值挪到鼠标悬停。
+        return <span title={`阈值 ${thr}`} style={{ color: pass ? 'var(--green, #52c41a)' : 'var(--mute, #8c8c8c)', fontSize: 12 }}>
+          {v.toFixed(0)}%
+        </span>
+      } },
     // ⑤ 止损距离（上下限）—— 这道是「越近越好」到某个点，太近太远都不做。
     //   以前被它拦掉的币在面板上显示「全过·待成交」，等一晚上也不开仓，误导。
     { title: t('gate.col.risk'), dataIndex: 'risk', width: 52, align: 'right',
@@ -311,8 +320,8 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
           }}>
             <span style={{ opacity: .92 }}>{t('gate.bar')} {gateBar}</span>
             {/* ★ VS15-1.2：⑦ 偏离闸已连代码带配置键一起删除，页头统计里不再有它。 */}
-            {/* ★ 2026-11-12：bbw_n 已删（BBW 闸物理删除，五道闸） */}
             {[['gate.col.ce', 'ce_n'], ['gate.col.ha', 'ha_n'], ['gate.col.key', 'key_n'],
+              ['gate.col.bbw', 'bbw_n'],
               ['gate.col.risk', 'risk_n'], ['gate.col.eff', 'eff_n']].map(([k, f]) => (
               <span key={k} style={{ whiteSpace: 'nowrap' }}>
                 {t(k)} {g[f] || 0}/{gateRows.length}

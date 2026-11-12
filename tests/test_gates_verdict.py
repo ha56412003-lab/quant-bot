@@ -51,7 +51,7 @@ def _setup(held_syms=(), signals=None, in_pool=True, eff=0.55):
     S._GATE_STATE.clear()
     S._GATE_STATE[SYM] = {
         "ts": BAR, "dir": "空", "ce": True, "ha": True,
-        "dev": 1.885, "dev_thr": 0.5,
+        "bbw": 90.0, "bbw_thr": 70.0, "dev": 1.885, "dev_thr": 0.5,
         "atr_pct": 3.077, "ok": True, "why": "全闸通过",
     }
     Q.monitor_list = lambda: [SYM] if in_pool else []
@@ -118,7 +118,7 @@ def main():
     S._GATE_STATE.clear()
     S._GATE_STATE[SYM] = {
         "ts": BAR, "dir": "多", "ce": False, "ha": True,
-        "dev": None, "dev_thr": 0.5,
+        "bbw": 3.0, "bbw_thr": 70.0, "dev": None, "dev_thr": 0.5,
         "atr_pct": 1.2, "ok": False, "why": "CE没翻转",
     }
     D.open_positions = lambda *a, **k: []
