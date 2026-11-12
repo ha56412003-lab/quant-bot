@@ -308,7 +308,7 @@ _LAST_BAR = {}   # (sid, symbol) -> 已评估过的K线时间戳，防止高频�
 # 进场闸门诊断：每根 15m K 线评估完把每道闸的即时状态存在这里。
 # 只写内存、不额外拉 K 线（扫描本来就在算 CE/HA/BBW，算完原本是丢掉的）。
 # 页面用它回答「今天是没机会，还是门槛卡死了」。
-_GATE_STATE = {}   # symbol -> {ts, dir, ce, ha, bbw, bbw_thr, atr_pct, ok, why}
+_GATE_STATE = {}   # symbol -> {ts, dir, ce, ha, key, eff, risk, stop_src, ok, why}
 
 
 # ── S15 趋势反转出场的 bar 边界缓存 ──────────────────────────────────────
@@ -636,15 +636,23 @@ class S15CeZlsma(Base):
         use_ha = bool(self._p("use_ha", True))
         swing_lb = int(self._p("swing_lookback", 8))
         min_atr_pct = float(self._p("min_atr_pct", 0.0))
-        bbw_pct_min = float(self._p("bbw_pct_min", 70.0))
+        # ★ 2026-11-12 浩哥指令：BBW 门槛连同「关键K线普通门槛」一起取消，
+        #   只保留单一标准（原「顶级」档 1.0/0.8/0.8）。第④道 BBW 已整段物理删除，
+        #   bbw_pct_min / bbw_exempt_mult / bbw_exempt_closepos / bbw_exempt_bodyfrac
+        #   四个配置键一并删除：config.py 不再校验、yaml 无此键、面板不显示、代码不判定。
+        #   ★ 实测记录（60天，前40币）：删 BBW 后 +34.07R，删除前 +109.79R（差 3.2 倍）。
+        #     数据在 F:\obsidian笔记库\QUANT-BOT_VS15-1.2版本\删除BBW-2026-11-12.md
         max_risk_pct = float(self._p("max_risk_pct", 5.0))
         # 偏离闸已于 2026-11-11 晚物理删除；VS15-1.2 连 min_dev_pct / dev_atr_mult
         # 两个配置键一起删掉 —— config.py 不再校验、yaml 不再有这两个键、面板不再显示。
         # ②b 关键K线闸（2026-11-10 浩哥定义）：HA 判方向，原始 K 线判力度
         key_bar = bool(self._p("key_bar", True))
         key_mult = float(self._p("key_mult", 1.0))
-        key_closepos = float(self._p("key_closepos", 0.66))
-        key_bodyfrac = float(self._p("key_bodyfrac", 0.5))
+        # ★ 2026-11-12：原「普通门槛 0.66/0.50 + BBW 确认」的两级结构取消，
+        #   只剩单一标准（= 原「顶级」档 0.80/0.80）。兜底默认值同步改成 0.8/0.8，
+        #   否则 yaml 缺键时会静默退回旧口径 —— 这是 VS15-1.2 踩过的坑。
+        key_closepos = float(self._p("key_closepos", 0.8))
+        key_bodyfrac = float(self._p("key_bodyfrac", 0.8))
         # ⑤b 关键K线止损：那根大阳线的低点 / 大阴线的高点
         stop_key = bool(self._p("stop_key", True))
         # ⑤c 两档止损（2026-11-10 定档 · 浩哥）：
@@ -686,9 +694,8 @@ class S15CeZlsma(Base):
                     continue
 
                 ind = _ce_zlsma(ks, ce_len, ce_mult, z_len, use_close, use_ha)
-                # _ce_zlsma 已内部算好 bbw / bbw_pct，这里不再重复计算
-                bbw = ind["bbw"]
-                bbw_pct = ind["bbw_pct"]
+                # ★ 2026-11-12：bbw / bbw_pct 两个局部变量已删（第④道闸不存在了，
+                #   这两个值不再参与任何判定）。ind 里仍保留数值，供回测/诊断脚本对照。
                 # 关键K线 / 关键K线止损 都要 ATR(20)，每个币只算一次
                 atr_n = (_atr_n(ks, 20)
                          if (key_bar or stop_key) else None)
@@ -734,28 +741,16 @@ class S15CeZlsma(Base):
                 # ── 进场闸门诊断（纯内存，零额外流量）──────────────────────
                 # 三步的判断本来就要做，这里只是把结果留下给页面看。
                 # 顺序：① 时段确认（ZLSMA50 实体穿越划出的多空段）→ ② HA 形态
-                #       → ③ 关键K线 → ④ BBW 分位 → ⑤ 止损距离 → ⑥ 趋势效率，全过才开仓。
-                _bp = bbw_pct[i]
+                #       → ③ 关键K线 → ④ 止损距离 → ⑤ 趋势效率，全过才开仓。
+                # ★ 2026-11-12：原第④道 BBW 已物理删除，六道闸 → 五道闸。
                 _ha_ok = (c > z and c > o) if d_now == 1 else (c < z and c < o)
-                _thr = bbw_pct_min if bbw_pct_min > 0 else 70.0
                 # 变量曾名 _ce_ok，容易让人以为判的是 CE 翻转 —— 实际判的是
                 # _zlsma_legs 切出来的多空时段（状态，不是翻转事件）。改名对齐语义。
                 _leg_ok = (d_now != 0)
-                # ⚠ 2026-11-06 修：原来写成 `_bp is None or _bp >= _thr`，
-                # 数据缺失时诊断表显示"这道过了"，而下面 ④ 的实际开仓判断是
-                # `bp is None → continue`（拒绝）。两处相反，诊断会骗人。
-                # 现在与开仓逻辑对齐：门槛开着时，None 一律算不通过。
-                if bbw_pct_min > 0:
-                    _bbw_ok = _bp is not None and _bp >= _thr
-                else:
-                    _bbw_ok = True          # 策略层关掉 BBW 门槛，不参与判断
                 if not _leg_ok:
                     _why = "时段未确认"
                 elif not _ha_ok:
                     _why = "HA形态不对"
-                elif not _bbw_ok:
-                    _why = ("BBW数据缺失" if _bp is None
-                            else f"BBW差{_thr - _bp:.0f}点")
                 else:
                     _why = "应开仓"
                 # ⑤ 止损距离（面板参考值）—— 不管前面几道闸过没过，每个池内币都算一遍。
@@ -771,7 +766,7 @@ class S15CeZlsma(Base):
                     "ts": bar_ts, "dir": "多" if d_now == 1 else "空",
                     # ★ 键名 "ce" 是前端契约（ActivityTabs 直接读、main.py 统计 ce_n），
                     #   不能动；值已是 ZLSMA 时段判定结果，名字纯属历史包袱。
-                    "ce": _leg_ok, "ha": _ha_ok, "bbw": _bp, "bbw_thr": _thr,
+                    "ce": _leg_ok, "ha": _ha_ok,
                     # ②b 关键K线 / ⑥ 进场 EFF（面板必须能看到，否则「没开仓」
                     # 永远只能看到前三道，看不出是卡在关键K线还是趋势效率）
                     "key": (bool(_is_key_bar(ks, i, atr_n,
@@ -850,44 +845,14 @@ class S15CeZlsma(Base):
                                           else f"趋势效率{_e:.2f}")
                         continue
 
-                # ④ 布林带宽度分位门槛 —— 2026-11-06 定：必须留在策略层，且必须 15 分钟
-                bp = bbw_pct[i]
-                if bbw_pct_min > 0 and (bp is None or bp < bbw_pct_min):
-                    # ★ 2026-11-12 新增「顶级关键K线豁免 BBW」（浩哥拍板 1.0/0.8/0.8）
-                    #   为什么需要这道后门：BBW 是【滞后确认】—— 它看过去 N 根的整体振幅，
-                    #   而突破的第一根不可能已经放大。实测 LIT 11-12：14:30 已是光头光脚大阴线
-                    #   （力度 1.077×ATR / 收盘位置 1.000 / 实体占比 1.000），BBW 分位却只有 3，
-                    #   一路爬到 86 才放行 → 晚进 2.75 小时、进场价差 2.2%、止损被推远 27%，
-                    #   同样一段行情换来的 R 少 36%。晚进不是「少赚」，是把风险回报比搞坏了。
-                    #   而「力度 > 1.0×ATR + 收盘位置 > 0.8 + 实体占比 > 0.8」本身就是爆发证据，
-                    #   且不滞后 —— 用不滞后的事实替代滞后的确认。
-                    #   ★ 实测（双样本 + 后 40 独立验证，60 天）：
-                    #     前40 +109.79R（基线 +88.98）｜后40 +54.91R（基线 +29.57）｜80币 +164.70R（基线 +118.55）
-                    #     回撤 −100.08（基线 −89.38，恶化 12%）← 已知代价，靠坑位限制兜住
-                    #   ★ 被实测否决的相邻档（别再来回试）：
-                    #     0.9/0.9 → 后40 仅 +25.31R（比基线还低，过拟合）❌
-                    #     1.5/0.8 → 救不了 LIT 14:30（力度 1.077 < 1.5）❌
-                    #     buf 0.5 → 即使叠加本豁免仍只有 +85.75R（比基线差）❌
-                    #   bbw_exempt_mult = 0 即关闭本豁免。
-                    _ex_mult = float(self._p("bbw_exempt_mult", 1.0))
-                    if _ex_mult > 0:
-                        _ex_cp = float(self._p("bbw_exempt_closepos", 0.8))
-                        _ex_bf = float(self._p("bbw_exempt_bodyfrac", 0.8))
-                        if not _is_key_bar(ks, i, atr_n, want, _ex_mult, _ex_cp, _ex_bf):
-                            _g0 = _GATE_STATE.get(sym)
-                            if _g0 is not None:
-                                _g0["why"] = "BBW分位"
-                            continue
-                    else:
-                        _g0 = _GATE_STATE.get(sym)
-                        if _g0 is not None:
-                            _g0["why"] = "BBW分位"
-                        continue
+                # ★ 2026-11-12 第④道 BBW 闸整段删除（浩哥指令）。
+                #   删除理由记录在案，供日后复盘：实测（60天，前40币）
+                #     · 有 BBW（普通 0.66/0.50 + 顶级免检）  1,674 笔 / 均R +0.065 / +109.79R
+                #     · 无 BBW（只有顶级 1.0/0.80/0.80）     2,627 笔 / 均R +0.013 / +34.07R
+                #     · 无 BBW（普通 1.0/0.66/0.50）         2,659 笔 / 均R +0.015 / +39.85R
+                #   即：BBW 一关，每笔赚钱能力掉到 1/5；提高关键K线门槛补不回来（均R 0.015→0.013）。
+                #   浩哥已明确要求删除，此处照办；若要恢复，从 backups/20261112_nobbw/ 取回旧文件。
 
-                # 委托价用「真实收盘价」，不用 HA 合成价。
-                # 2026-11-06 定案（方案 B）：指标域用 HA 判方向，委托域用真实价算钱。
-                # 实测证据：LIT 那笔 HA 收盘 3.4170，真实收盘 3.4530（差 +2.11%），
-                # 导致实际盈亏比从 1.20 掉到 0.73、单笔风险从 0.5% 放大到 0.82%。
                 px = float(ks[i]["close"])
                 if px <= 0 or not math.isfinite(px):
                     continue
@@ -967,8 +932,7 @@ class S15CeZlsma(Base):
                     reason=(f"ZLSMA{'站上' if side == 'long' else '跌破'}时段+"
                             f"{'阳' if side == 'long' else '阴'}线关键K"
                             f"{'站上' if side == 'long' else '跌破'}ZLSMA "
-                            f"ATR={atr_pct:.2f}%"
-                            + (f" BBW分位={bp:.0f}%" if bp is not None else "")),
+                            f"ATR={atr_pct:.2f}%"),
                     stop_price=round(stop, 8),
                     stop_src=stop_src,
                     max_hold_sec=self.max_hold,

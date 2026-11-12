@@ -217,8 +217,11 @@ def test_config():
     # 2026-11-11 晚 浩哥定：恢复指标原版 1.0（此前 B 档为追单量调到 0.7）
     chk(p.get("key_mult") == 1.0, "C7 key_mult = 1.0（指标原版，已恢复）",
         f"实际 {p.get('key_mult')}")
-    chk(p.get("key_closepos") == 0.66, "C8 key_closepos = 0.66", f"实际 {p.get('key_closepos')}")
-    chk(p.get("key_bodyfrac") == 0.5, "C9 key_bodyfrac = 0.5", f"实际 {p.get('key_bodyfrac')}")
+    # ★ 2026-11-12：普通门槛 0.66/0.50 取消，只剩单一标准 0.80/0.80（原「顶级」档）
+    chk(p.get("key_closepos") == 0.8, "C8 key_closepos = 0.80（单一标准，原 0.66 已废除）",
+        f"实际 {p.get('key_closepos')}")
+    chk(p.get("key_bodyfrac") == 0.8, "C9 key_bodyfrac = 0.80（单一标准，原 0.50 已废除）",
+        f"实际 {p.get('key_bodyfrac')}")
     chk(p.get("stop_key") is True, "C10 stop_key = true（止损含关键K线低/高点）",
         f"实际 {p.get('stop_key')}")
     # 出场四条
@@ -248,9 +251,11 @@ def test_config():
     chk(p.get("eff_min_signal") == 0.30, "C22 eff_min_signal = 0.30（EFF 挪到进场）",
         f"实际 {p.get('eff_min_signal')}")
     chk(p.get("eff_win_signal") == 48, "C23 eff_win_signal = 48", f"实际 {p.get('eff_win_signal')}")
-    # ③ BBW（最硬的一道墙）
-    chk(p.get("bbw_pct_min") == 70.0, "C24 bbw_pct_min = 70.0（松到 60 胜率立刻掉 5pp）",
-        f"实际 {p.get('bbw_pct_min')}")
+    # ④ BBW —— 2026-11-12 浩哥指令：整道闸连配置键物理删除，此处改为「键必须不存在」
+    chk("bbw_pct_min" not in p and "bbw_exempt_mult" not in p
+        and "bbw_exempt_closepos" not in p and "bbw_exempt_bodyfrac" not in p,
+        "C24 BBW 四个配置键已全部删除（六道闸→五道闸，不留死键）",
+        f"实际残留 {[k for k in p if 'bbw' in k]}")
     # 监控池
     mon = cfg["pools"]["monitor"]
     chk(mon.get("size") == 50, "C25 池子 size = 50（11-11 定档：50 档 +55.88R > 40 档 +45.93R）",
