@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Card, Select, Space } from 'antd'
+import { Card, Select, Space, Modal, Button, Tooltip } from 'antd'
+import { ExpandAltOutlined } from '@ant-design/icons'
 import Chart from '../Chart'
 import { api } from '../api'
 import { useI18n } from '../i18n'
@@ -23,6 +24,8 @@ export default function PriceChart({ universe }) {
   const [data, setData] = useState(null)
   const [heldSyms, setHeldSyms] = useState([])
   const [poolSyms, setPoolSyms] = useState([])
+  // 卡片只有 271px 宽，画 200 多根 K 线 + 3 条线太挤 —— 点开看大图
+  const [zoom, setZoom] = useState(false)
 
   // 持仓列表：开平仓后下拉要能立刻反映（15s 一次）
   useEffect(() => {
@@ -194,6 +197,11 @@ export default function PriceChart({ universe }) {
                 }} />
         <Select size="small" value={interval} onChange={setItv} style={{ width: 70 }}
                 options={INTERVALS.map((i) => ({ value: i, label: i }))} />
+        <Tooltip title={t('dash.zoomHint')}>
+          <Button size="small" type="text" icon={<ExpandAltOutlined />}
+                  onClick={() => setZoom(true)}
+                  style={{ padding: '0 4px', height: 22, color: 'var(--cyan, #45e6f5)' }} />
+        </Tooltip>
       </Space>
     }
           style={{
@@ -210,6 +218,25 @@ export default function PriceChart({ universe }) {
             body: { flex: 1, minHeight: 0, padding: '6px 8px 8px' },
           }}>
       {option && <Chart option={option} height="100%" />}
+
+      {/* 大图：同样的 option，屏幕宽了每根 K 线就宽，三条线自然分得开。
+          滚轮/拖拽照样能缩放平移（dataZoom inside 在大图里更好用）。 */}
+      <Modal
+        open={zoom}
+        onCancel={() => setZoom(false)}
+        footer={null}
+        width="94vw"
+        style={{ top: 16, maxWidth: 1600 }}
+        title={
+          <span style={{ fontSize: 13, fontWeight: 700 }}>
+            {t('dash.priceChart')} · {symbol} · {interval}
+          </span>
+        }
+        styles={{ body: { padding: '4px 8px 8px' } }}>
+        <div style={{ height: '74vh', minHeight: 420 }}>
+          {option && <Chart option={option} height="100%" />}
+        </div>
+      </Modal>
     </Card>
   )
 }
