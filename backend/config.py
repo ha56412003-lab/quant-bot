@@ -4,16 +4,32 @@ strategies.yaml is the single source of truth for strategy switches / params /
 per-strategy symbols / per-strategy risk + the global monitored universe.
 Credentials live in .env and are editable at runtime via the Config page.
 """
+import io
 import os
 import threading
 from pathlib import Path
 
 import yaml
 
+try:  # ★ 保留注释的 yaml 写入器；装不上就退回 safe_dump（只在保存时丢注释，不影响读）
+    from ruamel.yaml import YAML as _RTYAML
+
+    _RT_YAML = _RTYAML()
+    _RT_YAML.preserve_quotes = True
+    _RT_YAML.width = 4096
+    _RT_YAML.indent(mapping=2, sequence=2, offset=0)
+except Exception:  # noqa: BLE001
+    _RT_YAML = None
+
 ROOT = Path(__file__).resolve().parent.parent
 ENV_PATH = ROOT / ".env"
 STRATEGIES_PATH = ROOT / "strategies.yaml"
 DB_PATH = os.environ.get("QB_DB_PATH", str(ROOT / "quantbot.db"))
+
+# ── 版本号：全系统唯一真源 ────────────────────────────────────────────
+# 只改这一处；/api/status 会带给前端顶栏，文档与代码就不会再对不上。
+# 版本含义见 F:\obsidian笔记库\QUANT-BOT_VS15-1.2版本\VS15-1.2定版.md
+APP_VERSION = "VS15-1.2"
 
 _lock = threading.Lock()
 _env_lock = threading.Lock()
@@ -238,10 +254,55 @@ def pools() -> dict:
         return {}
 
 
+def _merge_roundtrip(node, plain):
+    """把 plain(dict) 灌进 node（ruamel 的 CommentedMap），文件里的注释原样保留。
+
+    为什么需要它（2026-11-12，浩哥拍板）：
+      yaml.safe_dump 是「按 dict 重新生成整份文件」——它只认识数据、不认识注释。
+      从界面保存一次参数，strategies.yaml 里 127 行「为什么定这个数」的说明会全部消失，
+      下次想改回去就看不到当初的依据了。
+      ruamel.yaml 的 round-trip 模式先带注释把文件读进来，再把新值灌进去，注释不动。
+    """
+    for k in list(node.keys()):
+        if k not in plain:
+            del node[k]
+    for k, v in plain.items():
+        cur = node.get(k) if hasattr(node, "get") else None
+        if isinstance(v, dict) and isinstance(cur, dict):
+            _merge_roundtrip(cur, v)
+            continue
+        # ★ 值没变就绝不赋值：ruamel 把注释挂在「键值对」对象上，
+        #   就算赋的是同一个数，也会把这个键上面的注释整块丢掉（踩过：
+        #   max_position_pct_per_coin 上面 3 行注释就是这么没的）。
+        #   顺带也保住了原来的写法（0.30 不会被改写成 0.3）。
+        if cur is not None and cur == v:
+            continue
+        node[k] = v
+
+
 def _write(cfg):
     with _lock:
-        STRATEGIES_PATH.write_text(
-            yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        text = None
+        if _RT_YAML is not None:
+            try:
+                doc = None
+                if STRATEGIES_PATH.exists():
+                    with io.open(STRATEGIES_PATH, encoding="utf-8") as f:
+                        doc = _RT_YAML.load(f)
+                if isinstance(doc, dict):
+                    _merge_roundtrip(doc, cfg)
+                    buf = io.StringIO()
+                    _RT_YAML.dump(doc, buf)
+                    text = buf.getvalue()
+            except Exception:  # noqa: BLE001 - 写不进去也不能让保存接口挂掉
+                text = None
+        if text is None:
+            # 兜底：ruamel 不可用时退回 PyYAML（这一条会丢注释，但绝不丢配置）
+            text = yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False)
+        # ★ newline="\n" 必须显式写：Windows 下默认文本模式会把换行翻成 CRLF，
+        #   结果整份文件每一行都算改动（踩过），也和仓库里的 LF 对不上。
+        with io.open(STRATEGIES_PATH, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
 
 
 def save_strategies(cfg):
@@ -279,7 +340,7 @@ def set_strategy_enabled(sid, enabled):
 #   · 做除数或窗口长度的键（ce_len / zlsma_len / ce_mult / eff_win_signal）
 #     必须 ≥ 下限，0 会除零或让指标失去意义。
 #   · 0 在这几个键上是「关闭该闸」的**合法语义**，所以下限取 0：
-#     min_atr_pct / min_dev_pct / dev_atr_mult / dual_stop_min_pct /
+#     min_atr_pct / dual_stop_min_pct /
 #     min_stop_dist_pct / slip_pct / be_at_r / half_at_r / full_at_r。
 #   · 比例类（key_closepos / key_bodyfrac / eff_min_signal / bbw_pct_min）
 #     天然 0~1 或 0~100，超出去不是「更严」而是恒真/恒假。
@@ -313,8 +374,8 @@ _STRAT_PARAM_BOUNDS = {
     # ── 进场闸 ──────────────────────────────────────────────────
     "bbw_pct_min":        (0.0, 100.0),  # 分位数，天然 0~100
     "min_atr_pct":        (0.0, 50.0),   # 0=不启用
-    "min_dev_pct":        (0.0, 50.0),   # 0=关闭
-    "dev_atr_mult":       (0.0, 10.0),   # 0=关闭
+    # 偏离闸的两个键（min_dev_pct / dev_atr_mult）已于 VS15-1.2 删除 —— 闸门本身早就没了，
+    # 留着它们只会出现「界面上能改、代码不读」的死键，比没有更糟。
     "eff_min_signal":     (0.0, 1.0),    # 效率比 0~1
     "eff_win_signal":     (5, 500),      # 窗口
     "key_bar":            None,

@@ -195,8 +195,8 @@ def allow_entry(sig, scfg, equity, cfg_global):
     # 为什么要有这一级：日熔断只看**已实现**亏损。8 个仓位各浮亏 1R(=150U)
     # = 净值 12% 时系统依然认为「今天没亏」，继续开新仓；等这些止损全部落地，
     # 亏损已经发生，熔断只是马后炮。
-    # 这一级只管「不再加新风险」：已有仓位的硬止损/快速失败/1.8R平半/3R/移动止盈/镜像/16h
-    # 全部照常运行，不减仓、不强平。
+    # 这一级只管「不再加新风险」：已有仓位的硬止损 / 保本 1.5R / 平半 1.2R /
+    # 全平 2.5R / 右侧止盈 全部照常运行，不减仓、不强平。
     # ⚠ 与 halted() 的区别：浮亏会随价格回升，所以**不落库、不过夜**，
     #    纯实时判断 —— 价格反弹回来就自动恢复开仓，不需要人工干预。
     _uh = float(cfg_global.get("unrealized_halt_pct") or 0)
@@ -233,8 +233,52 @@ def position_qty(sig, scfg, equity, cfg_global, price):
     risk_usd = capital * rpt / 100 * sig.size_mult
     qty = risk_usd / stop_dist
     notional = qty * price
-    notional = min(notional, max_pos)                       # per-position cap
-    notional = min(notional, max(capital * leverage - used, 0))  # strategy capacity left
-    notional = min(notional, equity * cfg_global["max_position_pct_per_coin"] / 100
-                   * leverage)                              # global per-coin cap (×lev)
+    # ★ 2026-11-12 埋点（只读，不改变任何计算）：
+    #   实盘发现「1R 金额不恒定」（LTC 52U / WLD 141U，目标 132U），
+    #   导致赢的单子仓位被打折、输的吃满。这套 min() 链里到底哪一道在砍、
+    #   还是 size_mult 在打折，光看结果反推不出来 —— 必须记下每道的原值。
+    #   写进 audit_log（action='sizing'），一天后用 grep 一次看全。
+    _need = notional
+    _cap1 = max_pos
+    _cap2 = max(capital * leverage - used, 0)
+    # ★ 2026-11-12「移动判断」（浩哥定）：不给每个币固定占比，而是
+    #   剩余容量 ÷ 剩余名额 —— 小单省下的额度自动让给后面的大单，
+    #   额度不浪费。固定占比只留作防呆上限（yaml: max_position_pct_per_coin）。
+    _slots = max(1, int(cfg_global["max_concurrent_coins"]) - len(db.open_positions()))
+    _cap3 = min(equity * cfg_global["max_position_pct_per_coin"] / 100 * leverage,
+                _cap2 / _slots)
+    notional = min(notional, _cap1)      # per-position cap
+    notional = min(notional, _cap2)      # strategy capacity left
+    notional = min(notional, _cap3)      # 剩余容量 ÷ 剩余名额（移动平分）
+    try:
+        _why = []
+        if _need > _cap1 + 1e-9:
+            _why.append("cap1_max_pos")
+        if _need > _cap2 + 1e-9:
+            _why.append("cap2_capacity")
+        if _need > _cap3 + 1e-9:
+            _why.append("cap3_per_coin")
+        db.audit("sizing", target=sig.symbol, detail={
+            "side": sig.side,
+            "equity": round(equity, 2),
+            "price": price,
+            "stop": sig.stop_price,
+            "stop_pct": round(stop_dist / price * 100, 4),
+            "rpt": rpt,
+            "size_mult": sig.size_mult,
+            "risk_usd": round(risk_usd, 2),      # 设计上的 1R
+            "capital": round(capital, 2),
+            "leverage": leverage,
+            "used": round(used, 2),
+            "need": round(_need, 2),             # 按公式该买多少
+            "cap1": round(_cap1, 2),
+            "cap2": round(_cap2, 2),
+            "cap3": round(_cap3, 2),
+            "final": round(notional, 2),         # 实际买到多少
+            "ratio": round(notional / _need, 4) if _need > 0 else 0.0,
+            "actual_r1": round(notional * (stop_dist / price), 2),  # 实际 1R
+            "cut": _why or ["none"],
+        }, actor="engine")
+    except Exception:  # noqa: BLE001
+        pass
     return notional / price

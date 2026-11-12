@@ -294,6 +294,21 @@ export default function SpiderBoard({ status, positions = [], nav, activeNav, on
 
               <div className="spacer" style={{ flex: 1 }} />
 
+              {/* 版本号（VS15-1.2 起）：从 /api/status.version 读。
+                  唯一真源 = backend/config.py::APP_VERSION —— 前端不写死，
+                  以后改版本只改后端一处，页面和文档就不会对不上。 */}
+              {status && status.version && (
+                <span title="策略版本 · 唯一真源 backend/config.py::APP_VERSION"
+                      style={{
+                        fontSize: 11, fontWeight: 700, letterSpacing: '.3px',
+                        padding: '2px 7px', borderRadius: 4,
+                        color: '#1a5fb4', background: 'rgba(26,95,180,.12)',
+                        border: '1px solid rgba(26,95,180,.35)', whiteSpace: 'nowrap',
+                      }}>
+                  {status.version}
+                </span>
+              )}
+
               {/* 环境标记（2026-11-11 身份分离）：
                   只在「不是正式盘」时才显示 —— 正式盘是常态，占位反而碍眼。
                   本地 run_server.bat 设 QB_ENV_LABEL=本地测试 → 淡橙「本地测试」 */}

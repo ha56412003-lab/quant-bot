@@ -1,15 +1,14 @@
 # -*- coding: utf-8 -*-
 """新增两道闸的单元测试（2026-11-08 浩哥批准落地）
 
-  闸一：进场偏离 —— 进场价离 ZLSMA 至少 dev_atr_mult×ATR(20)（strategies.py evaluate ④）
+  闸一：进场偏离 —— **2026-11-11 晚物理删除，VS15-1.2 连配置键一起删**
   闸二：快速失败 —— **2026-11-10 B 档整条删除**（方法已删，不再测）
 
-要验的六件事：
-  A1 偏离不够 → 不开仓
-  A2 偏离够   → 开仓
-  A3 min_dev_pct=0（关闭）→ 偏离再小也开仓（回滚路径必须通）
-  A4 边界 = 门槛整值 → 放过（判据是 < 才挡）
-  A5 空头方向同样生效（多空对称）
+要验的四件事（VS15-1.2 口径）：
+  A1 偏离再小也开仓 —— 闸确实不在了（回滚护栏）
+  A2 诊断表里不再有 dev / dev_thr 字段（面板那一列也删了）
+  A3 strategies.yaml 里不再有 min_dev_pct / dev_atr_mult 两个键（不留死键）
+  A4 config.py 不再校验这两个键（改 yaml 也不会因为超范围被拒）
     （B 组已随快速失败一起删除；原 B1~B8 见 git 历史 b654707）
 
 用法：python test_new_gates.py
@@ -135,7 +134,15 @@ def make_strategy(**over):
         "swing_lookback": 20, "min_atr_pct": 0, "bbw_pct_min": 70.0,
         "max_risk_pct": 30.0, "fee_rate": 0.0005, "slip_pct": 0.0,
         "half_at_r": 1.2,
-        "min_dev_pct": 0.0, "dev_atr_mult": 0.0,   # 偏离闸已删（2026-11-11 晚）
+        # ★ VS15-1.2：这两个闸的代码默认值已对齐定版（True）。
+        #   A/C/E/F 各组测的是别的规则，必须显式关掉，不能靠默认值——
+        #   否则以后默认值一改，这些用例会莫名其妙地失败（本次就踩到了）。
+        "key_bar": False, "stop_key": False,
+        # 止损距离下限也显式关掉：A/C/E/F 各组用的是合成 K 线，
+        # 止损天然很近，会被 0.6% 下限挡掉（VS15-1.2 默认值已改为 0.6）。
+        "min_stop_dist_pct": 0.0,
+        # 趋势效率门槛同理：合成数据 EFF 很低，默认 0.3 会把它们全挡掉
+        "eff_min_signal": 0.0,
         "reverse_enabled": False,                  # 反手默认关（回测已证伪）
     }
     st.p.update(over)
@@ -149,33 +156,32 @@ def make_strategy(**over):
 #  A 组：进场偏离闸 —— 2026-11-11 晚已【物理删除】
 # ══════════════════════════════════════════════════════
 def test_entry_dev():
-    """偏离闸已按 2026-11-11 晚浩哥的决定物理删除（见 strategies.py 第⑥道闸注释）。
+    """偏离闸已按 2026-11-11 晚浩哥的决定物理删除；VS15-1.2 把配置键和面板列也删了。
 
     旧用例 A1~A6 全部作废 —— 它们验的是「偏离不够 → 不开仓」，
     而这条拦截现在根本不存在了，留着只会测出一个假失败，比没测试更糟。
-    唯一保留：诊断字段（面板仍显示「离均线多远」这个真实值，只是不再用它拦截）。
+    现在只验「删干净了没有」：代码不拦、诊断表不带字段、yaml 没有死键。
     """
     print("\n" + "=" * 78)
-    print("A 组：偏离闸已删除，只验诊断字段还在")
+    print("A 组：偏离闸已删除 —— 验代码不拦 + 字段和死键都没了")
     print("=" * 78)
 
     S._LAST_BAR.clear()
     S._GATE_STATE.clear()
     S._LEG_ENTERED.clear()
     ks = make_ks(price=100.2)
-    st = make_strategy(min_dev_pct=0.5, dev_atr_mult=1.0)
+    st = make_strategy()
     orig = patch_ind(zl=100.0, ha_open=99.5, ha_close=100.2, dir_now=1, dir_prev=-1)
     try:
         sig = asyncio.run(st.evaluate(FakeCtx(100.2, ks)))
     finally:
         S._ce_zlsma = orig
-    # 关键行为：即使 yaml 里还写着门槛（0.5 / 1.0），代码也不再拦
-    chk(len(sig) == 1, "A0 偏离 0.2%（远小于旧门槛）仍然开仓 —— 闸真的删了", f"实际 {len(sig)} 个信号")
+    # 关键行为：偏离只有 0.2%，旧口径下会被门槛挡掉，现在必须照开
+    chk(len(sig) == 1, "A0 偏离 0.2% 仍开仓 —— 闸真的删了", f"实际 {len(sig)} 个信号")
     g = S._GATE_STATE.get("TESTUSDT") or {}
-    chk(g.get("dev") is not None, "A7 诊断表仍带 dev 字段（面板显示用，不再拦截）",
-        f"dev={g.get('dev')}")
-    chk(float(g.get("dev_thr") or 0) == 0.0, "A8 诊断表 dev_thr 恒为 0（门槛已归零）",
-        f"dev_thr={g.get('dev_thr')}")
+    chk("dev" not in g and "dev_thr" not in g,
+        "A1 诊断表里没有 dev / dev_thr 字段（VS15-1.2 删净）",
+        f"实际键 {sorted(g.keys())}")
 
 
 # ══════════════════════════════════════════════════════
@@ -196,10 +202,15 @@ def test_config():
         f"实际 {p.get('ce_mult')}")
     chk(p.get("swing_lookback") == 8, "C3 swing_lookback = 8（双止损最优）",
         f"实际 {p.get('swing_lookback')}")
-    # ④ 偏离闸（自适应）—— 2026-11-11 晚 物理删除
-    chk(p.get("min_dev_pct") == 0.0, "C4 min_dev_pct = 0", f"实际 {p.get('min_dev_pct')}")
-    chk(p.get("dev_atr_mult") == 0.0, "C5 dev_atr_mult = 0（偏离闸已物理删除）",
-        f"实际 {p.get('dev_atr_mult')}")
+    # ④ 偏离闸（自适应）—— 2026-11-11 晚物理删除；VS15-1.2 连两个配置键一起删
+    chk("min_dev_pct" not in p and "dev_atr_mult" not in p,
+        "C4 yaml 里没有 min_dev_pct / dev_atr_mult 死键（VS15-1.2 已删净）",
+        f"实际多出 {[k for k in p if 'dev' in k]}")
+    from backend import config as C
+    _b = C._STRAT_PARAM_BOUNDS
+    chk("min_dev_pct" not in _b and "dev_atr_mult" not in _b,
+        "C5 config.py 也不再校验这两个键（不留半截开关）",
+        f"实际 _STRAT_PARAM_BOUNDS 里还有 {[k for k in _b if 'dev' in k]}")
     # ②b 关键K线
     chk(p.get("key_bar") is True, "C6 key_bar = true（关键K线闸开）",
         f"实际 {p.get('key_bar')}")
@@ -256,7 +267,7 @@ def test_config():
 
 
 # ══════════════════════════════════════════════════════
-#  D 组：关键K线闸 + 自适应偏离闸（2026-11-10 B 档新增）
+#  D 组：关键K线闸（偏离闸 2026-11-11 已删，见 A 组）
 # ══════════════════════════════════════════════════════
 def make_ks_kb(base=100.0, n=220, big_at=None, side="long", amp=0.005):
     """第 big_at 根做成大阳/大阴线，其余是振幅 amp 的横向小K线。"""
@@ -283,15 +294,18 @@ def make_ks_kb(base=100.0, n=220, big_at=None, side="long", amp=0.005):
 def test_key_bar():
     print()
     print("=" * 78)
-    print("D 组：关键K线闸 + 自适应偏离闸（HA 判方向，原始K线判力度）")
+    print("D 组：关键K线闸（HA 判方向，原始K线判力度）")
     print("=" * 78)
 
-    # 基线参数：其余闸全放行，只留关键K线 + 偏离 + 三取近止损
+    # 基线参数：其余闸全放行，只留关键K线 + 三取近止损
     # max_risk_pct 放到 10：这组是造出来的大 K 线，止损天然偏远，
     # 用 5% 会被「止损太远」提前挡掉，测不到要测的闸。
     BASE = dict(key_bar=True, key_mult=0.7, key_closepos=0.66, key_bodyfrac=0.5,
-                dev_atr_mult=1.0, min_dev_pct=0.0, bbw_pct_min=70.0,
+                bbw_pct_min=70.0,
                 eff_min_signal=0.0, swing_lookback=8, max_risk_pct=10.0,
+                # D8a~d 验的是「三条候选取最近」的纯逻辑，先把 ATR 缓冲关掉；
+                # 缓冲本身由 D8e 单独验（0.2 ATR 会把关键K线止损推得更远）。
+                stop_key_atr_buf=0.0,
                 stop_key=True)
 
     async def run(ks, entry_px, base=None, side="long", zl=None,
@@ -370,6 +384,19 @@ def test_key_bar():
         "D8d stop_key=false → 关键K线不参与止损",
         f"实际 {sig[0].stop_price if sig else None}")
 
+    # D8e ATR 缓冲（VS15-1.2 新增 0.2）：关键K线止损必须被推得更远
+    sig0 = asyncio.run(run(ks, 100.0, low_raw=96.0))
+    sig2 = asyncio.run(run(ks, 100.0, low_raw=96.0,
+                           base=dict(BASE, stop_key_atr_buf=0.2)))
+    if sig0 and sig2:
+        gap = sig0[0].stop_price - sig2[0].stop_price
+        chk(gap > 0,
+            "D8e 0.2 ATR 缓冲把多单止损推得更远（更低）—— VS15-1.2 定版核心",
+            f"无缓冲 {sig0[0].stop_price:.4f} → 有缓冲 {sig2[0].stop_price:.4f}")
+    else:
+        chk(False, "D8e 缓冲开/关都必须出信号",
+            f"buf0={bool(sig0)} buf0.2={bool(sig2)}")
+
     # D9 自适应偏离：2026-11-11 晚偏离闸物理删除 → 整组作废
     #   （旧用例验的是「门槛随 ATR20 缩放」，现在门槛恒为 0，这条拦截不存在了）
     ks_small = make_ks_kb(base=100.0, big_at=218, side="long", amp=0.001)
@@ -377,20 +404,20 @@ def test_key_bar():
     chk(len(sig_small) == 1,
         "D9 偏离闸已删：ATR20 极小的币也照常开仓", f"实际 {len(sig_small)}")
     g = S._GATE_STATE.get("TESTUSDT") or {}
-    chk(float(g.get("dev_thr") or 0) == 0.0,
-        "D10 诊断表 dev_thr 恒为 0（不再随 ATR 缩放）",
-        f"dev_thr={g.get('dev_thr')}")
+    chk("dev_thr" not in g,
+        "D10 诊断表里不再有 dev_thr（VS15-1.2 把字段删净）",
+        f"实际键 {sorted(g.keys())}")
 
 
 # ══════════════════════════════════════════════════════
-#  E 组：出场链（平半 → 2.0R兜底 → 右侧止盈；镜像/快速失败/移动止盈已整条删除）
+#  E 组：出场链（保本1.5R → 平半1.2R → 全平2.5R → 右侧止盈；镜像/快速失败/移动止盈已整条删除）
 # ══════════════════════════════════════════════════════
 def test_exit_chain():
     print("\n" + "=" * 78)
-    print("E 组：出场链（B 档四条：平半 1.2R → 兜底 2.0R → 右侧止盈 → 硬止损）")
+    print("E 组：出场链（保本 1.5R → 平半 1.2R → 兜底 2.5R → 右侧止盈 → 硬止损）")
     print("=" * 78)
 
-    EXIT_BASE = dict(half_at_r=1.2, full_at_r=2.0,
+    EXIT_BASE = dict(half_at_r=1.2, full_at_r=2.5,
                      right_exit=True, right_exit_strict=True,
                      key_mult=0.7, key_closepos=0.66, key_bodyfrac=0.5)
 
@@ -426,10 +453,14 @@ def test_exit_chain():
     chk(r is not None and "HALF" in str(r).upper(), "E2 到 1.2R → 平一半",
         f"实际 {r}")
 
-    # E3 已平半 + 到 2R → 兜底全平
-    r = asyncio.run(run(102.0, mkpos(half=1)))
-    chk(r is not None and "兜底" in str(r), "E3 已平半 + 到 2.0R → 兜底全平",
+    # E3 已平半 + 到 2.5R → 兜底全平（VS15-1.2：门槛 2.0 → 2.5）
+    r = asyncio.run(run(102.5, mkpos(half=1)))
+    chk(r is not None and "兜底" in str(r), "E3 已平半 + 到 2.5R → 兜底全平",
         f"实际 {r}")
+
+    # E3b 已平半 + 只有 2.0R → 不许触发（证明确实是 2.5 而不是 2.0）
+    r = asyncio.run(run(102.0, mkpos(half=1)))
+    chk(r is None, "E3b 已平半 + 仅 2.0R → 不触发兜底（门槛是 2.5R）", f"实际 {r}")
 
     # E4 已平半 + 1.5R + HA 反向穿均线（strict 关）→ 右侧止盈
     r = asyncio.run(run(101.5, mkpos(half=1), zl=101.0, ha_open=101.0,

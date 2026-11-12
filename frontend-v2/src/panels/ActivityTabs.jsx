@@ -187,26 +187,7 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
           {v.toFixed(0)}%
         </span>
       } },
-    { title: t('gate.col.dev'), dataIndex: 'dev', width: 52, align: 'right',
-      render: (v, r) => {
-        const thr = r.dev_thr || 0
-        // ★ VS15-1.1：⑥ 偏离闸已从后端代码物理删除 → dev_thr 恒为 0.0。
-        //   这列之所以保留，是因为 dev 真值还有诊断价值（想知道「闸若还开着会拦掉谁」）。
-        //   但必须一眼看出它不参与判定，不能画成「关」让人以为是临时关掉的闸。
-        if (thr <= 0) {
-          if (v == null) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>停用</span>
-          return <span title="⑥ 偏离闸已在 VS15-1.1 删除：此值仅供参考，不拦单"
-                       style={{ color: 'var(--mute, #8c8c8c)', fontSize: 11, opacity: 0.65 }}>
-            {v.toFixed(2)}%
-          </span>
-        }
-        if (v == null) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
-        const pass = v >= thr
-        return <span title={`阈值 ${thr}`} style={{ color: pass ? 'var(--green, #52c41a)' : 'var(--mute, #8c8c8c)', fontSize: 12 }}>
-          {v.toFixed(2)}%
-        </span>
-      } },
-    // ⑤ 止损距离上限（2026-11-09 新增）—— 与④偏离方向相反：这道是「越近越好」。
+    // ⑤ 止损距离（上下限）—— 这道是「越近越好」到某个点，太近太远都不做。
     //   以前被它拦掉的币在面板上显示「全过·待成交」，等一晚上也不开仓，误导。
     { title: t('gate.col.risk'), dataIndex: 'risk', width: 52, align: 'right',
       render: (v, r) => {
@@ -338,8 +319,7 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
             display: 'flex', flexWrap: 'wrap', gap: '1px 10px', alignItems: 'baseline',
           }}>
             <span style={{ opacity: .92 }}>{t('gate.bar')} {gateBar}</span>
-            {/* ★ VS15-1.1：⑥ 偏离闸已删，页头不再统计它的通过数（原来那格恒等于
-                全通过，看着像一道很宽的闸，实际不拦单）。 */}
+            {/* ★ VS15-1.2：⑦ 偏离闸已连代码带配置键一起删除，页头统计里不再有它。 */}
             {[['gate.col.ce', 'ce_n'], ['gate.col.ha', 'ha_n'], ['gate.col.key', 'key_n'],
               ['gate.col.bbw', 'bbw_n'],
               ['gate.col.risk', 'risk_n'], ['gate.col.eff', 'eff_n']].map(([k, f]) => (

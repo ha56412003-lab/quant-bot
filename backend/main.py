@@ -433,6 +433,8 @@ async def api_status(mode: str = ""):
         "env_label": (os.environ.get("QB_ENV_LABEL") or "").strip(),
         # 当前实际用的数据库文件名 —— 排查"两边数据对不上"时先看这个
         "db_name": Path(config.DB_PATH).name,
+        # 版本号（唯一真源 backend/config.py::APP_VERSION），前端顶栏直接显示
+        "version": config.APP_VERSION,
     }
 
 
@@ -618,14 +620,13 @@ async def api_positions():
         stop_dist = (abs(price - stop) / price * 100) if (price and stop) else 0.0
 
         # ── S15 出场状态：只剩峰顶 R 和距峰顶回撤 ──
-        # 2026-11-08 出场改镜像后，「连续破均线 + 回撤多少 R」这套判定已从
-        # strategies.py 整段删除 —— 镜像出场只看 CE 翻转 + HA 反向关键K线
-        # + 站上/跌破 ZLSMA，不存在「回撤出局线」这个概念。
+        # 现役出场只有五条（硬止损 → 保本 1.5R → 平半 1.2R → 全平 2.5R → 右侧止盈），
+        # 没有「回撤出局线」这个概念：右侧止盈看的是 HA 反向 + 跌回 ZLSMA 下方，
+        # 不是回撤多少个 R 就走。
         # 所以 ma_break_cnt / ma_confirm_bars / trail_target_r 等展示字段一并
-        # 删除：它们对应的参数（trail_pct / trail_r / ma_bars_lt /
-        # ma_confirm_bars）在 yaml 里也已不存在，读出来永远是默认值，纯属空转。
-        # peak_r / drawdown_r 仍然真实保留：镜像出场每次都会刷新峰顶，
-        # 这两个数在卡片上是有意义的（能看到「曾经赚到多少、现在回吐了多少」）。
+        # 删除：它们对应的参数在 yaml 里也已不存在，读出来永远是默认值，纯属空转。
+        # peak_r / drawdown_r 仍然真实保留：这两个数在卡片上有意义
+        # （能看到「曾经赚到多少、现在回吐了多少」），但它们**不参与任何决策**。
         st = strategies._S15_POS_STATE.get(
             (p["symbol"], p["side"], p.get("opened_at"))) or {}
         # 峰顶优先用内存态；进程刚重启时内存还没重建，退回库里的 peak_r
@@ -932,8 +933,6 @@ async def api_gates():
             continue
         if v.get("ts") and (bar is None or v["ts"] > bar):
             bar = v["ts"]
-        dev = v.get("dev")
-        dev_thr = v.get("dev_thr") or 0
         risk = v.get("risk")
         risk_thr = v.get("risk_thr") or 0
         # 2026-11-11：第⑤道闸从「只有上限」变成「有下限也有上限」。
@@ -973,7 +972,6 @@ async def api_gates():
         else:
             verdict = v.get("why") or ""
         rows.append({"symbol": sym, "in_monitor": sym in mon,
-                     "dev_ok": (dev is not None and dev >= dev_thr) if dev_thr > 0 else True,
                      # 第五道闸：下限 ≤ 止损距离 ≤ 上限（两个都为 0 表示这道闸关闭）
                      "risk_ok": (risk is not None
                                  and (risk <= risk_thr if risk_thr > 0 else True)
@@ -984,9 +982,9 @@ async def api_gates():
                      "eff_thr": eff_sig,                   # 逐行给门槛，前端才能画 0.73/0.30
                      "pool_eff": (qdata.get(sym) or {}).get("eff"),
                      "why": verdict})
-    # 有戏的排前面：在池 > CE 已翻 > HA 成立 > 偏离够 > 止损合适 > BBW 高
+    # 有戏的排前面：在池 > 全闸通过 > 时段方向 > HA 成立 > 止损合适 > BBW 高
     rows.sort(key=lambda r: (not r.get("in_monitor"), not r.get("ok"), not r.get("ce"),
-                             not r.get("ha"), not r.get("dev_ok"), not r.get("risk_ok"),
+                             not r.get("ha"), not r.get("risk_ok"),
                              -(r.get("bbw") or 0)))
     return {
         "ts": bar,
@@ -998,15 +996,13 @@ async def api_gates():
         "bbw_n": sum(1 for r in rows
                      if r.get("bbw") is not None
                      and r["bbw"] >= (r.get("bbw_thr") or 70)),
-        "dev_n": sum(1 for r in rows if r.get("dev_ok")),
         "risk_n": sum(1 for r in rows if r.get("risk_ok")),
-        # B 档新增两道：②b 关键K线、⑥ 进场 EFF（门槛从配置读，不在前端写死）
+        # ②b 关键K线、⑥ 进场 EFF（门槛从配置读，不在前端写死）
         "key_n": sum(1 for r in rows if r.get("key")),
         "eff_n": sum(1 for r in rows
                      if r.get("eff") is not None and r["eff"] >= eff_sig),
         "eff_thr": eff_sig,
         "bbw_thr": next((r.get("bbw_thr") for r in rows if r.get("bbw_thr")), 70),
-        "dev_thr": next((r.get("dev_thr") for r in rows if r.get("dev_thr")), 0),
     }
 
 
@@ -1450,7 +1446,7 @@ async def api_mode(payload: dict):
         # ⚠ 2026-11-09 加：切回纸面前必须确认实盘仓位已清空。
         # 原因：db.open_positions() 默认只返回**当前模式**的仓位，
         # engine.manage_positions 正是用它遍历。切到 paper 的那一刻，实盘仓位
-        # 立刻失去硬止损/快速失败/2R/3R/镜像/16h 全部管理 —— 而交易所侧没有
+        # 立刻失去硬止损 / 保本 1.5R / 平半 1.2R / 全平 2.5R / 右侧止盈 的全部管理 —— 而交易所侧没有
         # 止损单，等于永久裸奔；同时页面按当前模式查询会显示「0 持仓」，骗人。
         live_open = db.open_positions(mode="live")
         if live_open and executor.mode() == "live":
