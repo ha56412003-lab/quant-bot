@@ -968,7 +968,10 @@ async def api_gates():
             # 否则会出现「CE 都没翻」却写着「已达日目标」的自相矛盾（2026-11-09 踩到）。
             verdict = sig["skip_reason"]          # 例：已达日目标，今日停止开新仓
         elif v.get("ok"):
-            verdict = "全闸通过·待成交"
+            # ★ 2026-11-12 夜：BBW 没过但被顶级关键K线放行的，结论必须说明白，
+            #   否则和 BBW 那一列的灰色数字自相矛盾。
+            verdict = ("全闸通过·BBW豁免" if v.get("bbw_exempt")
+                       else "全闸通过·待成交")
         else:
             verdict = v.get("why") or ""
         rows.append({"symbol": sym, "in_monitor": sym in mon,
@@ -983,6 +986,7 @@ async def api_gates():
                      "pool_eff": (qdata.get(sym) or {}).get("eff"),
                      "why": verdict})
     # 有戏的排前面：在池 > 全闸通过 > 时段方向 > HA 成立 > 止损合适 > BBW 高
+    # （豁免 BBW 的单 ok=True，已经在第二级排到前面，不需要单独处理）
     rows.sort(key=lambda r: (not r.get("in_monitor"), not r.get("ok"), not r.get("ce"),
                              not r.get("ha"), not r.get("risk_ok"),
                              -(r.get("bbw") or 0)))
@@ -993,9 +997,12 @@ async def api_gates():
         "passed": sum(1 for r in rows if r.get("ok")),
         "ce_n": sum(1 for r in rows if r.get("ce")),
         "ha_n": sum(1 for r in rows if r.get("ha")),
+        # ★ bbw_n 只统计「BBW 分位真的达标」的；被顶级关键K线豁免的单独算 bbw_exempt_n。
+        #   两个数分开，页头才看得出真实通过率和「有多少单其实没环境背书」。
         "bbw_n": sum(1 for r in rows
                      if r.get("bbw") is not None
                      and r["bbw"] >= (r.get("bbw_thr") or 70)),
+        "bbw_exempt_n": sum(1 for r in rows if r.get("bbw_exempt")),
         "risk_n": sum(1 for r in rows if r.get("risk_ok")),
         # ②b 关键K线、⑥ 进场 EFF（门槛从配置读，不在前端写死）
         "key_n": sum(1 for r in rows if r.get("key")),

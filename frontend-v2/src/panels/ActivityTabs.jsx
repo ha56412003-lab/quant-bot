@@ -177,10 +177,18 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
       render: (v) => (v == null ? <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
         : v ? <span style={{ color: '#35e08a', fontWeight: 700, fontSize: 13 }}>✓</span>
             : <span style={{ color: '#7c8296' }}>✗</span>) },
-    { title: t('gate.col.bbw'), dataIndex: 'bbw', width: 48, align: 'right',
+    { title: t('gate.col.bbw'), dataIndex: 'bbw', width: 58, align: 'right',
       render: (v, r) => {
         if (v == null) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
         const thr = r.bbw_thr || 70
+        // ★ 2026-11-12 夜：BBW 分位没过、但被顶级关键K线放行的，显示「3%豁」+ 琥珀色。
+        //   之前这种情况显示灰色 3%，结论却说「全闸通过」，自相矛盾、看不出是豁免。
+        if (r.bbw_exempt) {
+          return <span title={`BBW ${v.toFixed(0)}% < 阈值 ${thr}%，由顶级关键K线豁免（力度≥1.0×ATR、收盘位≥0.8、实体≥0.8）`}
+                       style={{ color: 'var(--amber, #d4a017)', fontSize: 12, fontWeight: 700 }}>
+            {v.toFixed(0)}%{t('gate.bbwExemptMark')}
+          </span>
+        }
         const pass = v >= thr
         // 2026-11-10：格子里那个 9px 的「/70」看不清，删掉；阈值挪到鼠标悬停。
         return <span title={`阈值 ${thr}`} style={{ color: pass ? 'var(--green, #52c41a)' : 'var(--mute, #8c8c8c)', fontSize: 12 }}>
@@ -327,6 +335,14 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
                 {t(k)} {g[f] || 0}/{gateRows.length}
               </span>
             ))}
+            {/* ★ 2026-11-12 夜：BBW 豁免数单独一档，不并进 bbw_n ——
+                并进去数字好看，但就看不出「有多少单其实没环境背书」了。 */}
+            {(g.bbw_exempt_n || 0) > 0 && (
+              <span style={{ whiteSpace: 'nowrap', color: '#ffd666', fontWeight: 700 }}
+                    title="BBW 分位没达标，但 K 线是顶级关键K线，直接放行的单数">
+                {t('gate.col.bbwExempt')} {g.bbw_exempt_n}
+              </span>
+            )}
           </div>
           <Table rowKey="symbol" dataSource={gateRows} columns={gateCols} size="small"
                  className="gate-table"

@@ -308,7 +308,7 @@ _LAST_BAR = {}   # (sid, symbol) -> 已评估过的K线时间戳，防止高频�
 # 进场闸门诊断：每根 15m K 线评估完把每道闸的即时状态存在这里。
 # 只写内存、不额外拉 K 线（扫描本来就在算 CE/HA/BBW，算完原本是丢掉的）。
 # 页面用它回答「今天是没机会，还是门槛卡死了」。
-_GATE_STATE = {}   # symbol -> {ts, dir, ce, ha, bbw, bbw_thr, atr_pct, ok, why}
+_GATE_STATE = {}   # symbol -> {ts, dir, ce, ha, bbw, bbw_thr, bbw_exempt, atr_pct, ok, why}
 
 
 # ── S15 趋势反转出场的 bar 边界缓存 ──────────────────────────────────────
@@ -772,6 +772,9 @@ class S15CeZlsma(Base):
                     # ★ 键名 "ce" 是前端契约（ActivityTabs 直接读、main.py 统计 ce_n），
                     #   不能动；值已是 ZLSMA 时段判定结果，名字纯属历史包袱。
                     "ce": _leg_ok, "ha": _ha_ok, "bbw": _bp, "bbw_thr": _thr,
+                    # ★ 2026-11-12 夜：由顶级关键K线豁免 BBW 时置 True。
+                    #   没有这个标记，面板会出现「BBW 3%（灰，没过）+ 结论说全闸通过」的自相矛盾。
+                    "bbw_exempt": False,
                     # ②b 关键K线 / ⑥ 进场 EFF（面板必须能看到，否则「没开仓」
                     # 永远只能看到前三道，看不出是卡在关键K线还是趋势效率）
                     "key": (bool(_is_key_bar(ks, i, atr_n,
@@ -878,6 +881,11 @@ class S15CeZlsma(Base):
                             if _g0 is not None:
                                 _g0["why"] = "BBW分位"
                             continue
+                        # ★ 豁免成立：BBW 分位不合格，但这根 K 线是顶级关键K线 → 放行。
+                        #   必须打标记，否则面板看起来像「BBW 没过却全通了」。
+                        _g0 = _GATE_STATE.get(sym)
+                        if _g0 is not None:
+                            _g0["bbw_exempt"] = True
                     else:
                         _g0 = _GATE_STATE.get(sym)
                         if _g0 is not None:

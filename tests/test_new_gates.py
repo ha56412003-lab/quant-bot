@@ -573,10 +573,118 @@ def test_reverse():
         "F12 反手开关关闭不影响正常开仓", f"实际 {len(sig)} 个")
 
 
+
+def test_bbw_exempt():
+    """G 组：顶级关键K线豁免 BBW 的「面板标记」（2026-11-12 夜浩哥要求）。
+
+    要解决的自相矛盾：BBW 分位 3%（灰色、明显没过），结论却说「全闸通过·待成交」，
+    面板上看不出是靠顶级K线跳过去的。现在豁免成功必须打 bbw_exempt 标记，
+    前端据此显示「3%豁」+ 琥珀色，结论列写「全闸通过·BBW豁免」。
+
+    顺带验：豁免关闭（mult=0）和「普通K线 + BBW 不够」这两种情况不能被误标成豁免。
+    """
+    # 普通档（0.7/0.66/0.5）；豁免档用 strategies.py 的兜底值 1.0/0.8/0.8
+    BASE = dict(key_bar=True, key_mult=0.7, key_closepos=0.66, key_bodyfrac=0.5,
+                bbw_pct_min=70.0,
+                eff_min_signal=0.0, swing_lookback=8, max_risk_pct=10.0,
+                stop_key_atr_buf=0.0, stop_key=False,
+                min_stop_dist_pct=0.0)
+
+    async def run(ks, entry_px, bbw, base=None, side="long", zl=None):
+        params = dict(BASE if base is None else base)
+        S._LAST_BAR.clear()
+        S._GATE_STATE.clear()
+        ctx = FakeCtx(entry_px, ks)
+        st = make_strategy(**params)
+        _zl = zl if zl is not None else entry_px * (0.98 if side == "long" else 1.02)
+        if side == "long":
+            orig = patch_ind(zl=_zl, ha_open=entry_px * 0.995, ha_close=entry_px,
+                             dir_now=1, dir_prev=-1, bbw=bbw, atr=1.0)
+        else:
+            orig = patch_ind(zl=_zl, ha_open=entry_px * 1.005, ha_close=entry_px,
+                             dir_now=-1, dir_prev=1, bbw=bbw, atr=1.0)
+        try:
+            sig = await st.evaluate(ctx)
+        finally:
+            S._ce_zlsma = orig
+        g = S._GATE_STATE.get("TESTUSDT") or {}
+        return sig, g
+
+    def mk_ks_top(base=100.0, n=220):
+        """i=218 是顶级关键K线：实体 5.0(=5×ATR)、收盘位 0.917、实体占比 0.833。"""
+        bar = 900
+        cur = int(time.time() // bar) * bar
+        start = cur - (n - 1) * bar
+        out = []
+        for i in range(n):
+            if i == n - 2:
+                o, c, h, l = base * 0.97, base * 1.02, base * 1.025, base * 0.965
+            else:
+                o = c = base
+                h, l = base * 1.005, base * 0.995
+            out.append({"ts": start + i * bar, "open": o, "high": h, "low": l, "close": c})
+        return out
+
+    def mk_ks_normal(base=100.0, n=220):
+        """i=218 只是「普通」关键K线：实体 1.2、收盘位 0.774、实体占比 0.774。
+        → 过 0.66/0.50 那条普通线，但过不了 0.80/0.80 的豁免线。"""
+        bar = 900
+        cur = int(time.time() // bar) * bar
+        start = cur - (n - 1) * bar
+        out = []
+        for i in range(n):
+            if i == n - 2:
+                o, c, h, l = 98.8, 100.0, 100.35, 98.8
+            else:
+                o = c = base
+                h, l = base * 1.005, base * 0.995
+            out.append({"ts": start + i * bar, "open": o, "high": h, "low": l, "close": c})
+        return out
+
+    # ── G1/G2：BBW 不合格 + 顶级K线 → 豁免放行并打标记 ──
+    ks = mk_ks_top()
+    sig, g = asyncio.run(run(ks, 100.0, bbw=3.0))
+    chk(len(sig) == 1, "G1 BBW 分位 3%（远低于 70）+ 顶级关键K线 → 豁免放行、开出信号",
+        f"实际 {len(sig)} 个信号, why={g.get('why')}")
+    chk(g.get("bbw_exempt") is True, "G2 豁免成立时 bbw_exempt 标记为 True（面板靠它显示「豁」）",
+        f"实际 bbw_exempt={g.get('bbw_exempt')!r}, why={g.get('why')}")
+    chk(g.get("bbw") == 3.0, "G2b 诊断里 bbw 仍是原始分位 3.0（不篡改事实，只加标记）",
+        f"实际 bbw={g.get('bbw')!r}")
+    chk(g.get("ok") is True, "G2c 豁免成立后 ok=True（闸门整体通过）",
+        f"实际 ok={g.get('ok')!r}, why={g.get('why')}")
+
+    # ── G3：BBW 不合格 + 只是普通K线 → 必须被 BBW 拦住，且不能标成豁免 ──
+    ks = mk_ks_normal()
+    sig, g = asyncio.run(run(ks, 100.0, bbw=3.0))
+    chk(len(sig) == 0, "G3 BBW 3% + 普通关键K线 → 被 BBW 闸拦下（豁免不成立）",
+        f"实际 {len(sig)} 个信号")
+    chk(g.get("bbw_exempt") is not True, "G3b 被拦时 bbw_exempt 不能是 True",
+        f"实际 bbw_exempt={g.get('bbw_exempt')!r}")
+    chk("BBW分位" in str(g.get("why", "")), "G3c 诊断写明卡在「BBW分位」",
+        f"why={g.get('why')}")
+
+    # ── G4：豁免关掉（mult=0）+ 顶级K线 → 同样被 BBW 拦，且不标豁免（回滚路径） ──
+    ks = mk_ks_top()
+    sig, g = asyncio.run(run(ks, 100.0, bbw=3.0,
+                             base=dict(BASE, bbw_exempt_mult=0.0)))
+    chk(len(sig) == 0, "G4 bbw_exempt_mult=0（关闭豁免）+ 顶级K线 → 退回纯 BBW 口径、被拦",
+        f"实际 {len(sig)} 个信号")
+    chk(g.get("bbw_exempt") is not True, "G4b 关闭豁免时 bbw_exempt 保持 False",
+        f"实际 bbw_exempt={g.get('bbw_exempt')!r}")
+
+    # ── G5：BBW 本来就合格 → 不标豁免（避免把正常放行也说成豁免） ──
+    ks = mk_ks_top()
+    sig, g = asyncio.run(run(ks, 100.0, bbw=85.0))
+    chk(len(sig) == 1, "G5 BBW 85%（合格）→ 正常放行", f"实际 {len(sig)} 个信号")
+    chk(g.get("bbw_exempt") is not True, "G5b BBW 自己就够了 → 不能标成豁免",
+        f"实际 bbw_exempt={g.get('bbw_exempt')!r}")
+
+
 def main():
     test_entry_dev()
     test_config()
     test_key_bar()
+    test_bbw_exempt()
     test_exit_chain()
     test_reverse()
     print("\n" + "=" * 78)
