@@ -201,7 +201,10 @@ export default function GateTunerPanel({ row, onParamsSave }) {
   //   按钮叫「恢复默认」，用户预期是恢复**这个面板上**的，不是偷偷动别处。
   const UI_KEYS = React.useMemo(() => {
     const s = new Set()
-    GATES.forEach((g) => (g.fields || []).forEach((f) => s.add(f.k)))
+    // ★ GATES 是两层结构（每道闸有个 params 数组），另外三个常量是扁平数组 ——
+    //   这里写错过一次：用 g.fields 取不到东西，导致六道闸上的 4 个参数
+    //   被「恢复默认」无视（按钮显示 1 项，实际该是 5 项）。
+    GATES.forEach((g) => (g.params || []).forEach((f) => s.add(f.k)))
     STOP_ALGO.forEach((f) => s.add(f.k))
     EXIT_R.forEach((f) => s.add(f.k))
     RIGHT_EXIT.forEach((f) => s.add(f.k))
