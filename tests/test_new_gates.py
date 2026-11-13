@@ -215,14 +215,14 @@ def test_config():
     chk(p.get("key_bar") is True, "C6 key_bar = true（关键K线闸开）",
         f"实际 {p.get('key_bar')}")
     # 2026-11-11 晚 浩哥定：恢复指标原版 1.0（此前 B 档为追单量调到 0.7）
-    chk(p.get("key_mult") == 1.0, "C7 key_mult = 1.0（指标原版，已恢复）",
+    chk(p.get("key_mult") == 0.9, "C7 key_mult = 0.9（2026-11-13 浩哥经接口改，现网值）",
         f"实际 {p.get('key_mult')}")
-    chk(p.get("key_closepos") == 0.66, "C8 key_closepos = 0.66", f"实际 {p.get('key_closepos')}")
+    chk(p.get("key_closepos") == 0.6, "C8 key_closepos = 0.6（2026-11-13 现网值）", f"实际 {p.get('key_closepos')}")
     chk(p.get("key_bodyfrac") == 0.5, "C9 key_bodyfrac = 0.5", f"实际 {p.get('key_bodyfrac')}")
     chk(p.get("stop_key") is True, "C10 stop_key = true（止损含关键K线低/高点）",
         f"实际 {p.get('stop_key')}")
     # 出场四条
-    chk(p.get("half_at_r") == 1.2, "C11 half_at_r = 1.2（平半线，转折点）",
+    chk(p.get("half_at_r") == 2.2, "C11 half_at_r = 2.2（2026-11-13 现网值）",
         f"实际 {p.get('half_at_r')}")
     chk("half_tp_r" not in p, "C12 half_tp_r 键已从 yaml 删除（旧「平半后再赚X全平」）",
         f"实际还在: {p.get('half_tp_r')}")
@@ -249,8 +249,16 @@ def test_config():
         f"实际 {p.get('eff_min_signal')}")
     chk(p.get("eff_win_signal") == 48, "C23 eff_win_signal = 48", f"实际 {p.get('eff_win_signal')}")
     # ③ BBW（最硬的一道墙）
-    chk(p.get("bbw_pct_min") == 70.0, "C24 bbw_pct_min = 70.0（松到 60 胜率立刻掉 5pp）",
+    chk(p.get("bbw_pct_min") == 60.0, "C24 bbw_pct_min = 60.0（2026-11-13 现网值）",
         f"实际 {p.get('bbw_pct_min')}")
+    # ★ VS15-1.5（2026-11-14）：第④条收紧气垫 + 第⑦道 ZLSMA 偏离闸
+    # ④ 双样本端到端都是负向（10币 +53.78→+45.88 / 50币 +27.20→+23.63）→ 参数设 0 休眠
+    chk(p.get("stop_key_atr_buf_tight") == 0,
+        "C26 stop_key_atr_buf_tight = 0（第④条休眠：双样本端到端均变差）",
+        f"实际 {p.get('stop_key_atr_buf_tight')}")
+    chk(p.get("zlsma_ext_max") == 1.5,
+        "C27 zlsma_ext_max = 1.5（第⑦道闸：端到端双样本峰值，1.2 反而更差）",
+        f"实际 {p.get('zlsma_ext_max')}")
     # 监控池
     mon = cfg["pools"]["monitor"]
     chk(mon.get("size") == 50, "C25 池子 size = 50（11-11 定档：50 档 +55.88R > 40 档 +45.93R）",

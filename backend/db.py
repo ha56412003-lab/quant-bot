@@ -128,6 +128,15 @@ def init():
             #   所以 stop_price 永远保留原始值，只有 engine 判「要不要平」时才看 be_on。
             # ★ 必须落库：只放内存的话重启后丢失 → 已经抬过的止损又掉回原位。
             "ALTER TABLE positions ADD COLUMN be_on INTEGER NOT NULL DEFAULT 0",
+            # 硬止损第④条（VS15-1.5，2026-11-14）：CE 已翻转且峰顶没到过 be_at_r 时，
+            # 把有效止损收紧到「关键K线端点 ∓ stop_key_atr_buf_tight × ATR20」。
+            #   stop_tight    = 收紧后的止损价（开仓那一刻按信号K线算死，永不变）
+            #   stop_tight_on = 1 表示已武装（CE 翻转那根收完后置 1，落库防重启丢失）
+            # ★ 与 be_on 互斥：stop_tight 只在 peak_r < be_at_r 时才武装，
+            #   而 be_on 是 peak_r ≥ be_at_r 才置位 —— 两条永远不会同时为 1。
+            # ★ 同样不动 stop_price：它是 R 的分母（abs(entry-stop_price)）。
+            "ALTER TABLE positions ADD COLUMN stop_tight REAL",
+            "ALTER TABLE positions ADD COLUMN stop_tight_on INTEGER NOT NULL DEFAULT 0",
             # 这笔仓位是在哪家交易所开的（binance / okx / bitget）。
             # 为什么必须落库：曾经只存一个全局「当前执行交易所」，切过去之后
             # close_position 会拿新交易所去平旧仓位 —— 旧仓位在另一家，
@@ -293,14 +302,16 @@ def open_position(**kw):
         cur = _conn.execute(
             "INSERT INTO positions(strategy,symbol,side,qty,entry_price,stop_price,"
             "opened_at,max_hold_sec,status,"
-            "entry_factors,reason,mode,leverage,extra_margin,fee_rate,slip_pct,exchange) "
-            "VALUES(?,?,?,?,?,?,?,?,'open',?,?,?,?,?,?,?,?)",
+            "entry_factors,reason,mode,leverage,extra_margin,fee_rate,slip_pct,exchange,"
+            "stop_tight) "
+            "VALUES(?,?,?,?,?,?,?,?,'open',?,?,?,?,?,?,?,?,?)",
             (kw["strategy"], kw["symbol"], kw["side"], kw["qty"], kw["entry_price"],
              kw.get("stop_price"),
              int(time.time()), kw["max_hold_sec"],
              kw.get("entry_factors"), kw.get("reason", ""),
              mode, kw.get("leverage"), kw.get("extra_margin", 0.0),
-             kw.get("fee_rate"), kw.get("slip_pct"), kw.get("exchange", "") or ""))
+             kw.get("fee_rate"), kw.get("slip_pct"), kw.get("exchange", "") or "",
+             kw.get("stop_tight")))
         return cur.lastrowid
 
 
@@ -366,6 +377,8 @@ _POSITION_WRITABLE = {
     "extra_margin", "fee_rate", "slip_pct", "half_closed",
     "peak_r",
     "be_on",   # 2026-11-11：保本移损标记（峰顶到过 be_at_r 后置 1）
+    "stop_tight",    # VS15-1.5：硬止损第④条收紧价（开仓算死）
+    "stop_tight_on",  # VS15-1.5：第④条是否已武装（CE 翻转后置 1）
 }
 
 

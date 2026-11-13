@@ -254,6 +254,8 @@ async def open_position(sig, qty, price, leverage=None):
             entry_factors=json.dumps(factors.snapshot_for(sig.symbol), ensure_ascii=False),
             reason=sig.reason, leverage=float(leverage or 0) or None,
             fee_rate=sig.fee_rate, slip_pct=sig.slip_pct,
+            # VS15-1.5 第④条：硬止损收紧价，开仓算死（0 = 这笔没有第④条）
+            stop_tight=float(getattr(sig, "stop_tight", 0.0) or 0.0) or None,
             # 记下这笔仓位到底开在哪家交易所。平仓必须平回同一家，
             # 否则切换执行交易所之后，旧仓位会被拿到新交易所去平。
             exchange=(venue or exchange()))

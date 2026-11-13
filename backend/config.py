@@ -29,7 +29,7 @@ DB_PATH = os.environ.get("QB_DB_PATH", str(ROOT / "quantbot.db"))
 # ── 版本号：全系统唯一真源 ────────────────────────────────────────────
 # 只改这一处；/api/status 会带给前端顶栏，文档与代码就不会再对不上。
 # 版本含义见 F:\obsidian笔记库\QUANT-BOT_VS15-1.3版本\VS15-1.3定版.md
-APP_VERSION = "VS15-1.4"
+APP_VERSION = "VS15-1.5"
 
 _lock = threading.Lock()
 _env_lock = threading.Lock()
@@ -373,6 +373,9 @@ _STRAT_PARAM_BOUNDS = {
     "stop_key": None,
     # ★ 同上：界面有框（止损算法「再往外让一点」），这里漏登记 → 存不进去。
     "stop_key_atr_buf": (0.0, 5.0),
+    # ★ VS15-1.5 第④条：收紧止损用的独立气垫（比 stop_key_atr_buf 紧）。
+    #   0 = 关闭第④条（现网值：端到端双样本都变差，休眠中）。
+    "stop_key_atr_buf_tight": (0.0, 5.0),
     # ★ 2026-11-12 夜拆出来的「右侧止盈」独立三键。原来右侧止盈直接复用入场
     #   的 key_mult / key_closepos / key_bodyfrac —— 调入场会连带改出场，
     #   而这两件事的风险方向完全不同（入场放宽=多开单；出场放宽=早止盈）。
@@ -396,6 +399,9 @@ _STRAT_PARAM_BOUNDS = {
     "key_mult":           (0.0, 10.0),   # 关键K线实体 ATR 倍数
     "key_closepos":       (0.0, 1.0),    # 收盘位置比例
     "key_bodyfrac":       (0.0, 1.0),    # 实体占比
+    # ★ VS15-1.5 第⑦道闸：abs(HA收盘 − ZLSMA50)/ATR20 的上限（0 = 关闭）。
+    #   0.05 下限防止「填个 0.001」把全部信号都拦掉还以为是 bug。
+    "zlsma_ext_max":      (0.0, 30.0),
     # ── 出场 ────────────────────────────────────────────────────
     "be_at_r":            (0.0, 20.0),   # 保本，0=关闭
     "half_at_r":          (0.0, 20.0),   # 半平，0=关闭

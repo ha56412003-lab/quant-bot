@@ -36,7 +36,17 @@ import yaml  # noqa: E402
 from backend import strategies as S  # noqa: E402
 
 DATA = os.path.join(ROOT, "backtest", "data80")
+# --data=DIR ：换数据集（默认 data80 不变）。data80 里混了 51 个美股代币，
+# 实盘根本不交易那些，所以「纯加密币口径」必须用 --data=data80coin（158 币）。
+for _a in sys.argv[1:]:
+    if _a.startswith("--data="):
+        _d = _a.split("=", 1)[1].strip()
+        DATA = _d if os.path.isabs(_d) else os.path.join(ROOT, "backtest", _d)
 FEE = 0.0005
+# --fee=0.0002 ：换手续费率（默认 0.0005 不变）。用来测算 maker 限价单情形。
+for _a in sys.argv[1:]:
+    if _a.startswith("--fee="):
+        FEE = float(_a.split("=", 1)[1].strip())
 
 # -- 从 yaml 读参数（永远跟线上一致）------------------------------
 with _io.open(os.path.join(ROOT, "strategies.yaml"), encoding="utf-8") as f:
@@ -78,6 +88,8 @@ for _a in sys.argv[1:]:
     if _a.startswith("--dump="):
         DUMP_PATH = _a.split("=", 1)[1]
 RIGHT_EXIT = bool(_P.get("right_exit", True))
+# ★ VS15-1.5 第④条默认开（与线上一致）；--notight 关掉，用于 A/B 对照。
+TIGHT_ON = "--notight" not in sys.argv
 FLIP_EARLY = "--flip" in sys.argv
 # ★ 默认关，与线上 flip_exit_early=0 一致：
 #   什么都不加 = 现网行为（右侧止盈只判平半之后）；
@@ -184,12 +196,14 @@ def install_fast_indicators(ind_full, atr_full, legs_full):
     return fast_ce, fast_atr, fast_legs
 
 
-def make_pos(entry_bar, side, entry, stop):
+def make_pos(entry_bar, side, entry, stop, tight=0.0):
     return dict(side=side, entry=entry, stop=stop,
                 risk=abs(entry - stop),
                 peak=0.0, mae=0.0,          # peak=MFE（最大浮盈R） mae=最大浮亏R
                 half_done=False, be_on=False, half_part=0.0,
-                entry_bar=entry_bar)
+                entry_bar=entry_bar,
+                # VS15-1.5 第④条：收紧价 + 是否已武装（CE 翻转后才武装）
+                tight=float(tight or 0.0), tight_on=False)
 
 
 def _flip_signal(ks, ind, atr_n, j, side):
@@ -221,7 +235,8 @@ def step_exit(ks, ind, atr_n, j, pos):
     zl, hc, ho = ind["zlsma"], ind["close"], ind["open"]
     o_, h_, l_, c_ = (float(ks[j]["open"]), float(ks[j]["high"]),
                       float(ks[j]["low"]), float(ks[j]["close"]))
-    eff_stop = entry if pos["be_on"] else pos["stop"]
+    # VS15-1.5 第④条：已武装 → 有效止损改用收紧价（它永远比原止损更紧或相等）
+    eff_stop = entry if pos["be_on"] else (pos["tight"] if pos["tight_on"] else pos["stop"])
 
     # 跟踪止损：保本之后，止损跟着峰值往上走（不钉死入场价）
     if pos["be_on"] and TRAIL_R > 0:
@@ -265,6 +280,25 @@ def step_exit(ks, ind, atr_n, j, pos):
     pos["peak"] = max(pos["peak"], ((h_ - entry) if sign > 0 else (entry - l_)) / risk)
     pos["mae"] = min(pos["mae"], ((l_ - entry) if sign > 0 else (entry - h_)) / risk)
     cur = ((c_ - entry) if sign > 0 else (entry - c_)) / risk
+
+    # ★ VS15-1.5 第④条：CE 翻转 + 峰顶还没到 be_at_r → 止损收紧到 pos["tight"]
+    #   线上在 check_exit 里每 tick 判（两套时钟：CE 方向看已收完的 K 线，
+    #   价格触碰看 0.5 秒实时价）。这里按 bar 推进，所以「本根收盘确认翻转」后
+    #   立刻用本根的 low/high 判一次触碰 —— 线上最多滞后 0.5 秒，同样会在
+    #   这根 K 线内被扫到，这样模拟不会偏乐观。
+    #   ★ 只有开仓时 CE 与持仓同向的单才带 tight（生成信号时就裁掉了反向的），
+    #     所以 tight_on 一旦触发，必然代表「持仓期间真的发生了翻转」。
+    if (pos["tight"] > 0 and not pos["tight_on"] and not pos["be_on"]
+            and pos["peak"] < BE_AT_R - 1e-9):
+        _w = 1 if side == "long" else -1
+        _d = int(ind["dir"][j] or 0) if j < len(ind["dir"]) else 0
+        if _d != 0 and _d != _w:
+            pos["tight_on"] = True
+            _t = pos["tight"]
+            if sign > 0 and l_ <= _t:
+                return min(o_, _t), "tight_stop"
+            if sign < 0 and h_ >= _t:
+                return max(o_, _t), "tight_stop"
 
     # 保本移损
     if BE_AT_R > 0 and not pos["be_on"] and pos["peak"] >= BE_AT_R - 1e-9:
@@ -409,7 +443,8 @@ async def run(quick=False, ncoins=0, start_at=0):
             if entry <= 0 or float(sig.stop_price) <= 0:
                 bar += 1
                 continue
-            pos = make_pos(bar, sig.side, entry, float(sig.stop_price))
+            pos = make_pos(bar, sig.side, entry, float(sig.stop_price),
+                           float(getattr(sig, "stop_tight", 0.0) or 0.0) if TIGHT_ON else 0.0)
             bar += 1
 
         # 数据末尾还有仓 → 按最后收盘价结掉

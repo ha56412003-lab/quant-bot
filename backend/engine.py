@@ -127,6 +127,7 @@ def _hard_stop_reason(pos, price):
     返回 (reason, be_triggered)：
       - 没触发     → (None, False)
       - 原始止损   → ("止损触发", False)
+      - 第④条收紧 → ("收紧止损", False)   ← VS15-1.5
       - 保本止损   → ("保本止损", True)
     """
     stop = pos.get("stop_price")
@@ -134,8 +135,18 @@ def _hard_stop_reason(pos, price):
     if not stop or side not in ("long", "short"):
         return None, False
     be_on = int(pos.get("be_on") or 0)
+    # VS15-1.5 第④条：CE 已翻转且峰顶没到过 be_at_r → 用收紧价。
+    #   与 be_on 互斥（be_on 是峰顶 ≥ be_at_r 才置位，第④条只在峰顶 < be_at_r 时武装），
+    #   万一历史数据两条都为 1，保本优先（它对交易者更有利，且不会放宽止损）。
+    _tight_on = int(pos.get("stop_tight_on") or 0)
+    _tight = pos.get("stop_tight")
     try:
-        stop_eff = float(pos["entry_price"]) if be_on else float(stop)
+        if be_on:
+            stop_eff = float(pos["entry_price"])
+        elif _tight_on and _tight and float(_tight) > 0:
+            stop_eff = float(_tight)
+        else:
+            stop_eff = float(stop)
     except (KeyError, TypeError, ValueError):
         return None, False
     if not stop_eff or not math.isfinite(stop_eff):
@@ -143,7 +154,11 @@ def _hard_stop_reason(pos, price):
     hit = (price <= stop_eff) if side == "long" else (price >= stop_eff)
     if not hit:
         return None, False
-    return ("保本止损" if be_on else "止损触发"), bool(be_on)
+    if be_on:
+        return "保本止损", True
+    if _tight_on and _tight and float(_tight) > 0:
+        return "收紧止损", False
+    return "止损触发", False
 
 
 async def manage_positions(ctx, strategies):
