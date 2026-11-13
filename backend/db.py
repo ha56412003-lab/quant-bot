@@ -134,14 +134,6 @@ def init():
             # 平不掉；万一那边恰好也有同名合约，还会平错仓。
             # 空串 = 历史仓位/纸面仓位，按当前设置处理。
             "ALTER TABLE positions ADD COLUMN exchange TEXT NOT NULL DEFAULT ''",
-            # 两档止损第一档（2026-11-13 VS15-1.4）：进场信号那根关键K线的
-            #   低点(多)/高点(空) ∓ stop1_atr_buf×ATR(20)，开仓时定死、不再更新。
-            # 语义分工（极易混淆，务必分清）：
-            #   stop_price  = 第二档 = 全平线 = 全系统算 R 的分母（打到正好亏 1R）
-            #   stop1_price = 第一档 = 平半触发线（打到只平一半，剩下继续跑）
-            # ★ 0 / NULL = 无第一档（两档开关关着、或贴太近被判定失效、或倒挂），
-            #   此时退化为原来的一档全平，行为与 VS15-1.3 完全一致。
-            "ALTER TABLE positions ADD COLUMN stop1_price REAL NOT NULL DEFAULT 0",
             "ALTER TABLE equity_curve ADD COLUMN mode TEXT NOT NULL DEFAULT 'paper'",
         ):
             try:
@@ -300,11 +292,11 @@ def open_position(**kw):
     with _lock, _conn:
         cur = _conn.execute(
             "INSERT INTO positions(strategy,symbol,side,qty,entry_price,stop_price,"
-            "stop1_price,opened_at,max_hold_sec,status,"
+            "opened_at,max_hold_sec,status,"
             "entry_factors,reason,mode,leverage,extra_margin,fee_rate,slip_pct,exchange) "
-            "VALUES(?,?,?,?,?,?,?,?,?,'open',?,?,?,?,?,?,?,?)",
+            "VALUES(?,?,?,?,?,?,?,?,'open',?,?,?,?,?,?,?,?)",
             (kw["strategy"], kw["symbol"], kw["side"], kw["qty"], kw["entry_price"],
-             kw.get("stop_price"), kw.get("stop1_price") or 0.0,
+             kw.get("stop_price"),
              int(time.time()), kw["max_hold_sec"],
              kw.get("entry_factors"), kw.get("reason", ""),
              mode, kw.get("leverage"), kw.get("extra_margin", 0.0),
@@ -368,7 +360,6 @@ def open_positions(strategy=None, symbol=None, mode="auto"):
 # 但它是模块里唯一没护栏的写入口，任何新调用方传 **payload 就能改 status 等任意列。
 _POSITION_WRITABLE = {
     "strategy", "symbol", "side", "qty", "entry_price", "stop_price",
-    "stop1_price",   # 2026-11-13 两档止损：第一档平半线（stop_price 仍是第二档/R 分母）
     "opened_at", "max_hold_sec",
     "status", "closed_at", "close_price", "pnl", "close_reason",
     "mfe_pct", "mae_pct", "entry_factors", "reason", "mode", "leverage",

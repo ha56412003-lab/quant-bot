@@ -481,10 +481,30 @@ def test_exit_chain():
     chk(r is not None and "右侧" in str(r),
         "E6 strict 开 + 反向关键K线（大阴线）→ 右侧止盈", f"实际 {r}")
 
-    # E7 平半前不判右侧（1.2R 之前出反向K线也不能抢跑）
+    # E7 flip_exit_early=1 时，平半前也判信号翻转（2026-11-13 浩哥要的独立出场条件）
     r = asyncio.run(run(100.3, mkpos(half=0), zl=101.0, ha_open=101.0,
+                        ha_close=100.5, right_exit_strict=False, ks=ks_bear,
+                        flip_exit_early=1))
+    chk(r is not None and "信号翻转" in str(r),
+        "E7 flip_exit_early=1 + 未平半 + 翻转 → 全平", f"实际 {r}")
+
+    # E7b flip_exit_early=0（默认）→ 平半前不抢跑，行为与 VS15-1.3 一致
+    r = asyncio.run(run(100.3, mkpos(half=0), zl=101.0, ha_open=101.0,
+                        ha_close=100.5, right_exit_strict=False, ks=ks_bear,
+                        flip_exit_early=0))
+    chk(r is None, "E7b flip_exit_early=0（默认）→ 未平半不抢跑", f"实际 {r}")
+
+    # E7c right_exit 总开关关掉 → 连平半后都不判（一键退回）
+    r = asyncio.run(run(101.5, mkpos(half=1), zl=101.0, ha_open=101.0,
+                        ha_close=100.5, right_exit_strict=False, ks=ks_bear,
+                        right_exit=False))
+    chk(r is None, "E7c right_exit 关 → 平半后也不判", f"实际 {r}")
+
+    # E7d 平半后翻转 → 原因文字仍是「右侧止盈」（历史统计口径不变）
+    r = asyncio.run(run(101.5, mkpos(half=1), zl=101.0, ha_open=101.0,
                         ha_close=100.5, right_exit_strict=False, ks=ks_bear))
-    chk(r is None, "E7 未平半 → 右侧止盈不抢跑", f"实际 {r}")
+    chk(r is not None and "右侧" in str(r),
+        "E7d 平半后翻转 → 原因仍写「右侧止盈」", f"实际 {r}")
 
     # E10 max_hold_hours=0 不得「开仓即平」—— engine 的 0 值保护
     import backend.engine as E
