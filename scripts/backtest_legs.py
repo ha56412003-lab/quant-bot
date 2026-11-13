@@ -64,8 +64,19 @@ def _arg_f(name, default):
 # timegate: 持仓超过多少根 K 线强制按现价平（0 = 关闭）
 BE_AT_R = _arg_f("be", BE_AT_R)
 FULL_AT_R = _arg_f("full", FULL_AT_R)     # 全平线（治「右尾被砍」的反向验证）
+HALF_AT_R = _arg_f("half", HALF_AT_R)     # 平半线（治「右尾被砍」：推后让大赢单跑）
 TRAIL_R = _arg_f("trail", 0.0)
 TIME_GATE = int(_arg_f("timegate", 0))
+# ★ --eff=X：进场趋势效率门槛。（线上 0.30；文档里的 0.55 只是「单边」分类线，从来不是门槛）
+_P["eff_min_signal"] = _arg_f("eff", float(_P.get("eff_min_signal", 0.30)))
+# ★ 快速失败：进场后 N 根内若逆行超过 X×R 就砍（数据：MAE>0.9R 的单 84.3% 亏损，合计 -604.8R）
+FASTFAIL = _arg_f("ff", 0.0)          # 0 = 关（默认，与线上一致）
+FASTFAIL_BARS = int(_arg_f("ffbars", 2))
+# --dump=path：把每笔明细导成 CSV（只写不读，不参与任何计算）
+DUMP_PATH = None
+for _a in sys.argv[1:]:
+    if _a.startswith("--dump="):
+        DUMP_PATH = _a.split("=", 1)[1]
 RIGHT_EXIT = bool(_P.get("right_exit", True))
 FLIP_EARLY = "--flip" in sys.argv
 # ★ 默认关，与线上 flip_exit_early=0 一致：
@@ -226,6 +237,15 @@ def step_exit(ks, ind, atr_n, j, pos):
     if side == "short" and h_ >= eff_stop:
         return max(o_, eff_stop), _stop_tag
 
+    # ★ 快速失败（--ff=X --ffbars=N）：进场后 N 根内逆行超 X×R 就砍。
+    #   依据：MAE > 0.9R 的单 84.3% 亏损、合计 -604.8R；MAE < 0.3R 的只亏 9.6%。
+    #   默认 FASTFAIL=0 关闭，基线逐值不变。
+    if FASTFAIL > 0 and not pos["half_done"] \
+            and (j - pos["entry_bar"]) <= FASTFAIL_BARS:
+        _ff_line = entry - FASTFAIL * risk * sign
+        if (sign > 0 and l_ <= _ff_line) or (sign < 0 and h_ >= _ff_line):
+            return _ff_line, "fast_fail"
+
     # ★ 2026-11-13 新增：信号翻转 → 全平（独立出场条件，平半前也判）
     #   FLIP_EARLY 开（默认）= 新逻辑，位置在硬止损之后、1.2R 平半之前。
     #   FLIP_EARLY 关（--no-flip）= 老逻辑，仍留在最后（兜底全平之后），保证基线逐值一致。
@@ -267,7 +287,7 @@ def step_exit(ks, ind, atr_n, j, pos):
     return None
 
 
-def finish(pos, exit_px, bars, reason):
+def finish(pos, exit_px, bars, reason, entry_ts=0):
     """把一笔结单算成 R。已平半的按 1.2R + 剩余半仓结算。"""
     entry, risk = pos["entry"], pos["risk"]
     sign = 1.0 if pos["side"] == "long" else -1.0
@@ -276,7 +296,12 @@ def finish(pos, exit_px, bars, reason):
     if pos["half_done"]:
         r = 0.5 * pos["half_part"] + 0.5 * r
     return dict(side=pos["side"], r=r, bars=bars, reason=reason,
-                mfe=pos["peak"], mae=pos["mae"])
+                mfe=pos["peak"], mae=pos["mae"],
+                entry=entry, stop=pos["stop"], exit_px=exit_px,
+                entry_ts=int(entry_ts or 0),
+                stop_dist=abs(entry - pos["stop"]) / entry * 100 if entry else 0,
+                half_done=1 if pos["half_done"] else 0,
+                be_on=1 if pos["be_on"] else 0)
 
 
 def stats(trades):
@@ -345,7 +370,8 @@ async def run(quick=False, ncoins=0, start_at=0):
                 hit = step_exit(ks, ind_full, atr_n, bar, pos)
                 if hit:
                     px, why = hit
-                    t = finish(pos, px, bar - pos["entry_bar"], why)
+                    t = finish(pos, px, bar - pos["entry_bar"], why,
+                               int(ks[pos["entry_bar"]].get("ts", 0)))
                     t["sym"] = sym
                     t["exit_ts"] = int(ks[bar].get("ts", bar))
                     trades.append(t)
@@ -371,7 +397,8 @@ async def run(quick=False, ncoins=0, start_at=0):
                     continue
                 # 反手：同一根开盘价平旧仓（只吃手续费，不吃跳空）
                 swap_px = float(ks[bar + 1]["open"])
-                t = finish(pos, swap_px, bar - pos["entry_bar"], "reverse")
+                t = finish(pos, swap_px, bar - pos["entry_bar"], "reverse",
+                           int(ks[pos["entry_bar"]].get("ts", 0)))
                 t["sym"] = sym
                 t["exit_ts"] = int(ks[bar + 1].get("ts", bar))
                 trades.append(t)
@@ -387,7 +414,8 @@ async def run(quick=False, ncoins=0, start_at=0):
 
         # 数据末尾还有仓 → 按最后收盘价结掉
         if pos is not None:
-            t = finish(pos, float(ks[-1]["close"]), len(ks) - 1 - pos["entry_bar"], "eod")
+            t = finish(pos, float(ks[-1]["close"]), len(ks) - 1 - pos["entry_bar"], "eod",
+                       int(ks[pos["entry_bar"]].get("ts", 0)))
             t["sym"] = sym
             t["exit_ts"] = int(ks[-1].get("ts", len(ks) - 1))
             trades.append(t)
@@ -397,6 +425,22 @@ async def run(quick=False, ncoins=0, start_at=0):
 
     st = stats(trades)
     days = 60.0
+
+    # ── 明细导出（--dump=path）：每笔一行，用于「什么样的单会亏」的归因分析 ──
+    if DUMP_PATH:
+        import csv as _csv
+        _cols = ["sym", "side", "entry_ts", "exit_ts", "entry", "stop", "exit_px",
+                 "stop_dist", "mfe", "mae", "r", "reason", "bars",
+                 "half_done", "be_on"]
+        try:
+            with open(DUMP_PATH, "w", encoding="utf-8", newline="") as _f:
+                _w = _csv.DictWriter(_f, fieldnames=_cols, extrasaction="ignore")
+                _w.writeheader()
+                for _t in trades:
+                    _w.writerow({k: _t.get(k, "") for k in _cols})
+            print("\n  明细已导出: %s（%d 行）" % (DUMP_PATH, len(trades)))
+        except Exception as _e:  # noqa: BLE001
+            print("\n  [!] 明细导出失败: %s" % _e)
     print("")
     print("=" * 96)
     print("结果：%d 币（跳过 %d 个数据不足）  反手 %d 笔" % (len(files) - skipped, skipped, n_rev))

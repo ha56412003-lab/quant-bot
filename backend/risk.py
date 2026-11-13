@@ -40,7 +40,17 @@ def daily_realized_pnl(mode="auto"):
     平仓当天，昨天的亏损被抹掉（POLUSDT #19：昨天 −17.05、今天 +15.86，
     账面显示今天赚 15.86，真实是 −1.20）。对 trades 流水求和才按天平。
     """
-    return db.realized_pnl_since(_day_start(), mode)
+    # 2026-11-13 加：版本起点。熔断只统计「本次版本开启之后」的已实现亏损，
+    # 否则净值重置到 1000 后会被上一版本的亏损二次触发（分母变小反而更容易爆）。
+    # meta daily_pnl_since_ts 为空/0 时行为完全不变；跨过次日本地 0 点后自动失效。
+    _start = _day_start()
+    try:
+        _vstart = float(db.get_meta("daily_pnl_since_ts", "0") or 0)
+    except Exception:  # noqa: BLE001
+        _vstart = 0.0
+    if _vstart > _start:
+        _start = _vstart
+    return db.realized_pnl_since(_start, mode)
 
 
 def _halt_until_ts():
