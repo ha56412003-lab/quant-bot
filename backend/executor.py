@@ -250,6 +250,8 @@ async def open_position(sig, qty, price, leverage=None):
         pid = db.open_position(
             strategy=sig.strategy, symbol=sig.symbol, side=sig.side, qty=qty,
             entry_price=fill, stop_price=sig.stop_price or None,
+            # 两档止损第一档（2026-11-13）：0 / None = 无第一档，走一档全平。
+            stop1_price=getattr(sig, "stop1_price", 0.0) or 0.0,
             max_hold_sec=sig.max_hold_sec,
             entry_factors=json.dumps(factors.snapshot_for(sig.symbol), ensure_ascii=False),
             reason=sig.reason, leverage=float(leverage or 0) or None,

@@ -74,6 +74,22 @@ Z_LEN = int(_P.get("zlsma_len", 50))
 CE_LEN = int(_P.get("ce_len", 1))
 CE_MULT = float(_P.get("ce_mult", 2.0))
 
+# ── 两档止损（VS15-1.4，2026-11-13）────────────────────────────
+# 命令行 --2tier 打开。关闭时全部走老逻辑，与改动前逐值一致。
+# ★ 参数必须在此写进 _P，否则 evaluate() 里 _stop_ref 读不到，等于没开。
+if "--2tier" in sys.argv:
+    _P["two_tier_stop"] = 1
+# --no-ce-half：两档开，但平半后**不**改走 CE 通道（仍用第二档固定线）
+#   用来把「第一档平半」和「平半后走 CE」两个因素拆开，看是谁在拖后腿。
+if "--no-ce-half" in sys.argv:
+    _P["stop2_use_ce_after_half"] = 0
+# --s1buf=X：第一档缓冲（ATR 倍数），用来验证「是不是第一档太近」
+for _a in sys.argv[1:]:
+    if _a.startswith("--s1buf="):
+        _P["stop1_atr_buf"] = float(_a.split("=", 1)[1])
+TWO_TIER = int(_P.get("two_tier_stop", 0) or 0) == 1
+TWO_TIER_CE_AFTER_HALF = int(_P.get("stop2_use_ce_after_half", 1) or 0) == 1
+
 # 反手开关：默认读 yaml（现在是 false），命令行 --reverse / --no-reverse 可强制覆盖
 _CFG_REV = bool(_P.get("reverse_enabled", False))
 if "--reverse" in sys.argv:
@@ -108,6 +124,11 @@ if TRAIL_R > 0:
 if TIME_GATE > 0:
     _extra.append("时间闸 %d根(%.1fh)" % (TIME_GATE, TIME_GATE * 0.25))
 print("  实验项: %s" % ("、".join(_extra) if _extra else "无（基线）"))
+if TWO_TIER:
+    print("  两档止损: 开   第一档缓冲 %.2f ATR   平半后走CE = %s"
+          % (float(_P.get("stop1_atr_buf", 0.3)), "是" if TWO_TIER_CE_AFTER_HALF else "否"))
+else:
+    print("  两档止损: 关（现网一档全平）")
 print("=" * 96)
 
 
@@ -167,11 +188,13 @@ def install_fast_indicators(ind_full, atr_full, legs_full):
     return fast_ce, fast_atr, fast_legs
 
 
-def make_pos(entry_bar, side, entry, stop):
+def make_pos(entry_bar, side, entry, stop, stop1=0.0):
     return dict(side=side, entry=entry, stop=stop,
                 risk=abs(entry - stop),
+                stop1=float(stop1 or 0.0),   # 两档第一档（0 = 无第一档）
                 peak=0.0, mae=0.0,          # peak=MFE（最大浮盈R） mae=最大浮亏R
                 half_done=False, be_on=False, half_part=0.0,
+                half_src="",                # 平半来源：tier1 / r12
                 entry_bar=entry_bar)
 
 
@@ -196,10 +219,29 @@ def step_exit(ks, ind, atr_n, j, pos):
     _stop_tag = "trail_stop" if (pos["be_on"] and TRAIL_R > 0) else ("be_stop" if pos["be_on"] else "hard_stop")
 
     # 硬止损（保本后止损 = 入场价 / 跟踪线）
+    # ★ 线上顺序：engine._hard_stop_reason 在 check_exit 之前跑，
+    #   所以同一根 K 线同时穿两档时，这里是全平（第二档赢），不是平半。
     if side == "long" and l_ <= eff_stop:
         return min(o_, eff_stop), _stop_tag
     if side == "short" and h_ >= eff_stop:
         return max(o_, eff_stop), _stop_tag
+
+    # ①b 【两档】平半后改用 CE 通道（移动棘轮线）全平
+    #     与线上 _ce_channel_exit 同口径：只判平半后，与上面硬止损取先到。
+    if TWO_TIER and TWO_TIER_CE_AFTER_HALF and pos["half_done"]:
+        _ce_arr = ind.get("long_stop" if side == "long" else "short_stop")
+        if _ce_arr is not None and j < len(_ce_arr):
+            _cv = _ce_arr[j]
+            if _cv is not None:
+                try:
+                    _cv = float(_cv)
+                except (TypeError, ValueError):
+                    _cv = None
+                if _cv is not None and _cv > 0:
+                    if side == "long" and l_ <= _cv:
+                        return min(o_, _cv), "ce_exit"
+                    if side == "short" and h_ >= _cv:
+                        return max(o_, _cv), "ce_exit"
 
     # 时间闸：持够 N 根还没走完，按现价平（治「慢」）
     if TIME_GATE > 0 and (j - pos["entry_bar"]) >= TIME_GATE:
@@ -214,10 +256,25 @@ def step_exit(ks, ind, atr_n, j, pos):
     if BE_AT_R > 0 and not pos["be_on"] and pos["peak"] >= BE_AT_R - 1e-9:
         pos["be_on"] = True
 
-    # 平一半
+    # ①c 【两档】第一档平半：价格打到 stop1 就平一半，剩一半继续
+    #     与线上 _stop1_half 同口径：只判价格打到线，共用 half_done（先到先得）。
+    if TWO_TIER and pos["stop1"] > 0 and not pos["half_done"]:
+        _s1 = pos["stop1"]
+        _hit1 = (l_ <= _s1) if side == "long" else (h_ >= _s1)
+        if _hit1:
+            _px1 = (min(o_, _s1) if side == "long" else max(o_, _s1))
+            pos["half_done"] = True
+            pos["half_src"] = "tier1"
+            # 存「平半那一刻的真实 R」（亏钱所以是负值），finish 按 0.5 加权
+            pos["half_part"] = (((_px1 - entry) * sign)
+                                - (entry + _px1) * FEE) / risk
+            return None
+
+    # 平一半（half_at_r = 1.2R）
     if not pos["half_done"] and pos["peak"] >= HALF_AT_R - 1e-9:
         pos["half_done"] = True
         pos["half_part"] = HALF_AT_R
+        pos["half_src"] = "r12"
         return None
 
     # 兜底全平
@@ -245,7 +302,8 @@ def finish(pos, exit_px, bars, reason):
     if pos["half_done"]:
         r = 0.5 * pos["half_part"] + 0.5 * r
     return dict(side=pos["side"], r=r, bars=bars, reason=reason,
-                mfe=pos["peak"], mae=pos["mae"])
+                mfe=pos["peak"], mae=pos["mae"],
+                half_src=pos.get("half_src", "") or "")
 
 
 def stats(trades):
@@ -351,7 +409,8 @@ async def run(quick=False, ncoins=0, start_at=0):
             if entry <= 0 or float(sig.stop_price) <= 0:
                 bar += 1
                 continue
-            pos = make_pos(bar, sig.side, entry, float(sig.stop_price))
+            pos = make_pos(bar, sig.side, entry, float(sig.stop_price),
+                           float(getattr(sig, "stop1_price", 0.0) or 0.0))
             bar += 1
 
         # 数据末尾还有仓 → 按最后收盘价结掉
@@ -435,9 +494,37 @@ async def run(quick=False, ncoins=0, start_at=0):
     c = Counter(t["reason"] for t in trades)
     print("")
     print("  出场原因分布:", dict(c))
+    if TWO_TIER and trades:
+        n_t1 = sum(1 for t in trades if t.get("half_src") == "tier1")
+        n_r12 = sum(1 for t in trades if t.get("half_src") == "r12")
+        print("  平半来源  : 第一档止损平半 %d 笔 / 1.2R 平半 %d 笔"
+              % (n_t1, n_r12))
+        _t1 = [t for t in trades if t.get("half_src") == "tier1"]
+        if _t1:
+            print("  第一档平的这些单 : 均R %+.3f  合计 %+.1fR  均持 %.1fh"
+                  % (sum(t["r"] for t in _t1) / len(_t1),
+                     sum(t["r"] for t in _t1),
+                     sum(t["bars"] for t in _t1) * 0.25 / len(_t1)))
     if st["mdd"] < 0:
         print("  净值/回撤 : %.2f" % (abs(st["r"] / st["mdd"])))
     print("=" * 96)
+
+    # --json=path 写结果，便于多组对比
+    for _a in sys.argv[1:]:
+        if _a.startswith("--json="):
+            _out = _a.split("=", 1)[1]
+            _rec = dict(ncoins=len(files) - skipped, reverse=n_rev,
+                        two_tier=TWO_TIER,
+                        stop1_atr_buf=float(_P.get("stop1_atr_buf", 0.3)),
+                        ce_after_half=TWO_TIER_CE_AFTER_HALF,
+                        **{k: st[k] for k in ("n", "win", "pl", "r", "mdd", "bars")})
+            _rec["reasons"] = dict(c)
+            _rec["half_src"] = dict(Counter(t.get("half_src", "") for t in trades
+                                            if t.get("half_src")))
+            import io as _io2
+            with _io2.open(_out, "w", encoding="utf-8") as _f:
+                json.dump(_rec, _f, ensure_ascii=False, indent=2)
+            print("  结果已写: %s" % _out)
     return st
 
 

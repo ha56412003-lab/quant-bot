@@ -21,6 +21,10 @@ class Signal:
     side: str                 # long / short
     reason: str
     stop_price: float = 0.0
+    # ★ 两档止损（2026-11-13）：第一档 = 进场信号那根关键K线端点 ∓ stop1_atr_buf×ATR。
+    #   打到它只平一半，固定不动。0.0 = 无第一档（两档关 / 贴太近 / 倒挂），一律走一档全平。
+    #   stop_price 仍是第二档，也是全系统算 R 的分母 —— 两者绝不能混。
+    stop1_price: float = 0.0
     max_hold_sec: int = 86400
     size_mult: float = 1.0
     fresh: int = 999          # 距信号触发（如 CE 翻转）已过几根 K 线，越小越新鲜
@@ -549,22 +553,35 @@ class S15CeZlsma(Base):
             return default
 
     def _stop_ref(self, ks, i, ind, side, atr_n, swing_lb, stop_key, dual_stop_min_pct):
-        """止损价 = 三条并列取近 + 两档修正 —— **唯一实现**。
+        """止损价 —— **唯一实现**。返回 (第一档, 第二档, 来源, 第二档距离%)。
 
         开仓判定和光闸面板第⑤道闸都调这一个方法，保证「面板显示的距离 = 真实开仓用的距离」。
-        返回 (止损价, 来源, 距离%)；来源取值 swing / ce / key / dual_ce / dual_swing。
 
-        三条取近（多头取最高、空头取最低 = 离入场价最近的那条）：
-          ① 左侧 swing_lb 根摆动低/高点（原始 K 线，含进场那根）
-          ② CE 通道（ce_mult × ATR(1)，棘轮只进不退）
-          ③ 关键K线的低点（多）/ 高点（空）
-        两档（dual_stop_min_pct > 0 时）：三条取近后距离 < 阈值 → 这一档只用 ②CE 通道。
-          ★不看来源：摆动/CE/关键K线哪条最近都算 —— 与回测母本同口径。
+        ===== 两种模式 =====
+
+        【two_tier_stop = 0 · 现网原行为】
+          三条并列取近（swing / ce / key）+ 两档修正，返回 (None, stop, src, dist)。
+          第一档恒为 None，下游按「一档全平」处理 —— 与 VS15-1.3 逐字节一致。
+
+        【two_tier_stop = 1 · 两档】
+          第一档 = 关键K线端点 ∓ stop1_atr_buf×ATR(20)，**固定不动**（进场信号那根）
+          第二档 = min(swing_lb 根摆动, CE 通道) 取近，**不含关键K线**
+                   （关键K线已经搬到第一档，第二档只看摆动和 CE）
+
+          第一档失效的两种情况（浩哥 2026-11-13 定：失效后只剩第二档）：
+            ① 距离 < dual_stop_min_pct（贴太近，一根正常波动就打掉）
+            ② 倒挂 dist1 >= dist2（第一档反而更远，价格先碰第二档，它没意义）
+
+        ===== R 分母 = 第二档（浩哥 2026-11-13 定）=====
+          第二档 = 最大亏损线，打到正好亏 1R；第一档只是平半触发线。
+          绝不能拿第一档当分母，否则 1.2R 止盈提前、实际风险放大数倍。
         """
         px = float(ks[i]["close"])
         want_long = (side == "long")
         lo_win = ind["low_raw"][i - swing_lb + 1:i + 1]
         hi_win = ind["high_raw"][i - swing_lb + 1:i + 1]
+
+        # ---------- 第二档基础：摆动 ----------
         stop = min(lo_win) if want_long else max(hi_win)
         stop_src = "swing"
         _ce_arr = ind.get("long_stop" if want_long else "short_stop")
@@ -578,6 +595,10 @@ class S15CeZlsma(Base):
             if (want_long and _ce_stop > stop) or ((not want_long) and _ce_stop < stop):
                 stop = _ce_stop
                 stop_src = "ce"
+
+        # ---------- 关键K线端点（两档时给第一档，单档时进三条取近）----------
+        _kb_ready = False
+        _kb_val = 0.0
         if stop_key:
             _kb = float(ks[i]["low"] if want_long else ks[i]["high"])
             # 2026-11-12 浩哥批准：关键K线端点再往外扩 stop_key_atr_buf × ATR(20)。
@@ -593,22 +614,52 @@ class S15CeZlsma(Base):
                     and atr_n[i] and float(atr_n[i]) > 0):
                 _pad = _kb_buf * float(atr_n[i])
                 _kb = (_kb - _pad) if want_long else (_kb + _pad)
-            if (want_long and _kb > stop) or ((not want_long) and _kb < stop):
-                stop = _kb
-                stop_src = "key"
-        # ⑤c 两档止损
-        if dual_stop_min_pct > 0:
-            _d3 = ((px - stop) if want_long else (stop - px)) / px * 100.0
-            if _d3 < dual_stop_min_pct - 1e-9:
-                if _ce_stop is not None and math.isfinite(_ce_stop):
-                    stop = _ce_stop
-                    stop_src = "dual_ce"
-                else:
-                    stop = min(lo_win) if want_long else max(hi_win)
-                    stop_src = "dual_swing"
-        risk = (px - stop) if want_long else (stop - px)
-        dist = (risk / px * 100.0) if px > 0 else 0.0
-        return stop, stop_src, dist
+            _kb_val = _kb
+            _kb_ready = True
+
+        # ================= two_tier_stop = 0：现网原行为，逐字节不变 =================
+        _two_tier = int(self._p("two_tier_stop", 0) or 0) == 1
+        if not _two_tier:
+            if _kb_ready:
+                if ((want_long and _kb_val > stop)
+                        or ((not want_long) and _kb_val < stop)):
+                    stop = _kb_val
+                    stop_src = "key"
+            # ⑤c 两档止损（旧语义：三条取近后太近 → 换 CE）
+            if dual_stop_min_pct > 0:
+                _d3 = ((px - stop) if want_long else (stop - px)) / px * 100.0
+                if _d3 < dual_stop_min_pct - 1e-9:
+                    if _ce_stop is not None and math.isfinite(_ce_stop):
+                        stop = _ce_stop
+                        stop_src = "dual_ce"
+                    else:
+                        stop = min(lo_win) if want_long else max(hi_win)
+                        stop_src = "dual_swing"
+            risk = (px - stop) if want_long else (stop - px)
+            dist = (risk / px * 100.0) if px > 0 else 0.0
+            return None, stop, stop_src, dist
+
+        # ================= two_tier_stop = 1：两档 =================
+        # 第二档距离（不含关键K线；stop 此刻 = min(摆动, CE) 取近）
+        _risk2 = (px - stop) if want_long else (stop - px)
+        dist2 = (_risk2 / px * 100.0) if px > 0 else 0.0
+
+        # 第一档 = 关键K线端点（用独立缓冲 stop1_atr_buf，默认跟线上 0.3）
+        stop1 = None
+        if _kb_ready:
+            _b1 = self._p("stop1_atr_buf", 0.3)
+            _kb1 = float(ks[i]["low"] if want_long else ks[i]["high"])
+            if (_b1 > 0 and atr_n is not None and i < len(atr_n)
+                    and atr_n[i] and float(atr_n[i]) > 0):
+                _pad1 = _b1 * float(atr_n[i])
+                _kb1 = (_kb1 - _pad1) if want_long else (_kb1 + _pad1)
+            _risk1 = (px - _kb1) if want_long else (_kb1 - px)
+            dist1 = (_risk1 / px * 100.0) if px > 0 else 0.0
+            # 失效条件 ① 贴太近  ② 倒挂（第一档反而更远）
+            if dist1 >= dual_stop_min_pct - 1e-9 and dist1 < dist2 - 1e-9:
+                stop1 = _kb1
+
+        return stop1, stop, stop_src, dist2
 
     async def evaluate(self, ctx) -> list:
         """入场：时段确认 + HA 形态 + 关键K线力度 + BBW 分位 + 止损距离 + 趋势效率（六道闸）。
@@ -761,7 +812,7 @@ class S15CeZlsma(Base):
                 # ⑤ 止损距离（面板参考值）—— 不管前面几道闸过没过，每个池内币都算一遍。
                 #   以前只在「前五道全过」之后才回填，导致光闸面板第⑤道永远是 0/N
                 #   （没币走到就没人算），看着像"40 个币全被止损拦了"，实际是一个都没到。
-                _ref_stop, _ref_src, _ref_dist = self._stop_ref(
+                _ref_stop1, _ref_stop, _ref_src, _ref_dist = self._stop_ref(
                     ks, i, ind, "long" if d_now == 1 else "short",
                     atr_n, swing_lb, stop_key, dual_stop_min_pct)
                 from .quality import _eff as _eff_fn   # 延迟导入，避免模块循环
@@ -913,7 +964,9 @@ class S15CeZlsma(Base):
                 #    逻辑只在 _stop_ref() 里写一份，面板第⑤道闸也调它 ——
                 #    避免「面板显示的距离」和「真实开仓用的距离」两套代码各算各的。
                 side = "long" if d_now == 1 else "short"
-                stop, stop_src, _rpct = _ref_stop, _ref_src, _ref_dist
+                # ★ 两档（2026-11-13）：_ref_stop1 = 第一档（平半线，可能 None）
+                #   _ref_stop = 第二档（全平线 / R 分母），与现网同名同义
+                stop1, stop, stop_src, _rpct = _ref_stop1, _ref_stop, _ref_src, _ref_dist
                 risk = (px - stop) if side == "long" else (stop - px)
                 if risk <= 0 or not math.isfinite(risk):
                     continue
@@ -978,6 +1031,9 @@ class S15CeZlsma(Base):
                             f"ATR={atr_pct:.2f}%"
                             + (f" BBW分位={bp:.0f}%" if bp is not None else "")),
                     stop_price=round(stop, 8),
+                    stop1_price=(round(stop1, 8)
+                                 if (stop1 and math.isfinite(stop1) and stop1 > 0)
+                                 else 0.0),
                     stop_src=stop_src,
                     max_hold_sec=self.max_hold,
                     fresh=0, strength=abs(c - z) / atr,
@@ -1055,6 +1111,15 @@ class S15CeZlsma(Base):
                     # 表现是「代码看着对、保本从来不生效」。静默失败比报错更贵。
                     log.warning("be_on 落库失败 %s: %s", pos.get("symbol"), exc)
 
+            # ★★ 第一档止损平半（2026-11-13 VS15-1.4 两档止损）
+            #    两档开着、仓位有第一档、还没平过一半 → 现价打到第一档就平一半。
+            #    为什么放在保本之后、1.2R 之前：保本只置标志位不平仓，无副作用；
+            #    而第一档一定比 1.2R 更近（亏钱方向），必须优先判，否则会先撞硬止损。
+            #    和 _half_take_profit 共用 half_closed 指针 —— 谁先到谁平，只平一次。
+            _s1h = self._stop1_half(ctx, pos)
+            if _s1h:
+                return _s1h
+
             # ① 平一半（half_at_r = 1.2R）
             half = await self._half_take_profit(ctx, pos)
             if half:
@@ -1065,6 +1130,12 @@ class S15CeZlsma(Base):
             full = self._full_target(ctx, pos)
             if full:
                 return full
+            # ④ 平半后改用 CE 通道（移动的棘轮线）全平 —— 浩哥 2026-11-13 定。
+            #    engine 的硬止损仍在判 stop_price(第二档)，两者取先到的：
+            #    CE 更近时这条先触发，CE 更远时 engine 那条兜底，不会漏。
+            _ce_exit = await self._ce_channel_exit(ctx, pos)
+            if _ce_exit:
+                return _ce_exit
             return await self._right_exit(ctx, pos)
         except Exception as exc:  # noqa: BLE001
             log.warning("S15 check_exit %s 失败: %s", pos.get("symbol"), exc)
@@ -1146,7 +1217,12 @@ class S15CeZlsma(Base):
         """
         if not bool(self._p("right_exit", True)):
             return None
-        if not int(pos.get("half_closed") or 0):
+        # ★ 2026-11-13 两档止损：平半前也允许判「翻转信号」——
+        #   浩哥定的第一档触发条件 = OR（右侧翻转信号 或 打到第一档线）。
+        #   平半前命中 → 只平一半；平半后命中 → 全平（原右侧止盈行为，一字未改）。
+        _half_closed = int(pos.get("half_closed") or 0)
+        _two_tier_on = int(self._p("two_tier_stop", 0) or 0) == 1
+        if not _half_closed and not _two_tier_on:
             return None
         sym = pos.get("symbol")
         side = pos.get("side")
@@ -1198,8 +1274,11 @@ class S15CeZlsma(Base):
                 stt["bar_ts"] = bar_ts
                 return None
         stt["bar_ts"] = bar_ts
-        return ("右侧止盈(HA反向+穿ZLSMA"
-                + ("+反向关键K线)" if strict else ")"))
+        _rl = "HA反向+穿ZLSMA" + ("+反向关键K线)" if strict else ")")
+        if not _half_closed:
+            # 两档：平半前的翻转信号 = 第一档触发条件之一 → 只平一半
+            return f"HALF:第一档翻转(平一半,剩一半继续|{_rl}"
+        return "右侧止盈(" + _rl
 
     async def _bar_pack(self, ctx, sym):
         """出场用「bar 级」指标包，按 cur_bar 缓存（一根 K 线只拉一次数据）。
@@ -1235,7 +1314,9 @@ class S15CeZlsma(Base):
         hit = _S15_ZL_CACHE.get(ck)
         # 11 项：(cur_bar, z_now, ha_close, bar_ts, dir_now, dir_prev, ha_open,
         #         bp_now, ks, i, atr_n)
-        if hit and hit[0] == cur_bar and len(hit) >= 11:
+        # ★ 2026-11-13 两档止损：第 12 项存 (ce_long, ce_short) 当根 CE 通道值，
+        #   平半后要拿它当移动止损（每 0.5 秒重算一次 ZLSMA50 太贵）。
+        if hit and hit[0] == cur_bar and len(hit) >= 12:
             return (hit[1], hit[2], hit[6], hit[4], hit[5], hit[7],
                     hit[3], hit[8], hit[9], hit[10])
 
@@ -1255,12 +1336,103 @@ class S15CeZlsma(Base):
         if i < 2 or ind["zlsma"][i] is None:
             return None
         atr_n = _atr_n(ks, 20)
+        _ce_now = (ind["long_stop"][i] if ind.get("long_stop") is not None else None,
+                   ind["short_stop"][i] if ind.get("short_stop") is not None else None)
         _S15_ZL_CACHE[ck] = (
             cur_bar, ind["zlsma"][i], ind["close"][i], ks[i].get("ts", i),
             ind["dir"][i], ind["dir"][i - 1], ind["open"][i],
-            ind["bbw_pct"][i], ks, i, atr_n)
+            ind["bbw_pct"][i], ks, i, atr_n, _ce_now)
         h = _S15_ZL_CACHE[ck]
         return (h[1], h[2], h[6], h[4], h[5], h[7], h[3], h[8], h[9], h[10])
+
+    def _stop1_half(self, ctx, pos):
+        """第一档止损平半（2026-11-13 VS15-1.4 两档止损）。
+
+        现价打到 pos["stop1_price"]（进场信号那根关键K线端点 ∓ stop1_atr_buf×ATR）
+        → 平掉 50%，剩下的一半继续持有。
+
+        为什么必须有这一条：
+          现在止损一碰就全平。行情经常先假突破把单打掉、再往你要的方向走。
+          两档让近的那条线只止一部分血，剩一半还有机会 —— 实盘 10 笔回放，
+          5 笔止损单合计 −702.98U，若在第一档先平一半可省 202.60U。
+
+        ★ 与 _half_take_profit 共用 half_closed：谁先到谁平，全生命周期只平一次。
+          含义是「先亏到第一档平了半，后面再涨到 1.2R 也不再平」—— 浩哥 2026-11-13 确认。
+        ★ 只判「价格打到线」，不判信号翻转 —— 翻转走 _right_exit 那条（也返回 HALF）。
+        ★ 返回 "HALF:..." 让 engine 按 fraction=0.5 平仓，并落 half_closed=1。
+        """
+        if int(self._p("two_tier_stop", 0) or 0) != 1:
+            return None
+        if int(pos.get("half_closed") or 0):
+            return None
+        try:
+            stop1 = float(pos.get("stop1_price") or 0)
+        except (TypeError, ValueError):
+            return None
+        if stop1 <= 0 or not math.isfinite(stop1):
+            return None            # 0 = 无第一档（关着 / 贴太近失效 / 倒挂）
+        side = pos.get("side")
+        if side not in ("long", "short"):
+            return None
+        px = ctx.price(pos.get("symbol"))
+        if not px or not math.isfinite(px):
+            return None
+        hit = (px <= stop1) if side == "long" else (px >= stop1)
+        if not hit:
+            return None
+        return "HALF:第一档止损(平一半,剩一半继续)"
+
+    async def _ce_channel_exit(self, ctx, pos):
+        """平半后用 CE 通道当移动止损（2026-11-13 VS15-1.4，浩哥定）。
+
+        浩哥原话：「平半之后第二档还生效，但是只能走第二档的 CE 通道（CE 通道是移动的）」。
+
+        CE 是棘轮线 —— 只朝有利方向走、永不后退。平半后拿它管剩下那半仓：
+        趋势继续走，这条线跟着往上（多单）爬，把利润锁住；一旦被跌破就全平。
+
+        ★ 只在平半后生效（平半前由 _stop1_half + engine 硬止损管）。
+        ★ 与 engine 的 _hard_stop_reason（仍判 stop_price = 第二档）并存，取先到的：
+          CE 更近时这条先触发，CE 更远时 engine 那条兜底，两条都不会漏。
+        ★ 关掉用 stop2_use_ce_after_half = 0，退回「平半后仍判第二档固定线」。
+        """
+        if int(self._p("two_tier_stop", 0) or 0) != 1:
+            return None
+        if not int(pos.get("half_closed") or 0):
+            return None
+        if int(self._p("stop2_use_ce_after_half", 1) or 0) != 1:
+            return None
+        side = pos.get("side")
+        if side not in ("long", "short"):
+            return None
+        sym = pos.get("symbol")
+        kline_iv = str(self.p.get("kline_interval", "15m"))
+        hit_cache = _S15_ZL_CACHE.get((sym, kline_iv))
+        # 缓存必须有第 12 项（CE 通道值）；没有就先跑一次 _bar_pack 把它填上
+        if not (hit_cache and len(hit_cache) >= 12):
+            if await self._bar_pack(ctx, sym) is None:
+                return None
+            hit_cache = _S15_ZL_CACHE.get((sym, kline_iv))
+            if not (hit_cache and len(hit_cache) >= 12):
+                return None
+        _ce_pair = hit_cache[11]
+        if not _ce_pair:
+            return None
+        ce_val = _ce_pair[0] if side == "long" else _ce_pair[1]
+        if ce_val is None:
+            return None
+        try:
+            ce_val = float(ce_val)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(ce_val) or ce_val <= 0:
+            return None
+        px = ctx.price(sym)
+        if not px or not math.isfinite(px):
+            return None
+        hit = (px <= ce_val) if side == "long" else (px >= ce_val)
+        if not hit:
+            return None
+        return f"CE通道止损(平半后,线={ce_val:.6g})"
 
     async def _half_take_profit(self, ctx, pos):
         """浮盈达 half_at_r（B 档 1.2R，从 yaml 读）且没平过一半 → 平掉 50%，剩一半放开跑。

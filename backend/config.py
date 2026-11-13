@@ -373,6 +373,12 @@ _STRAT_PARAM_BOUNDS = {
     "stop_key": None,
     # ★ 同上：界面有框（止损算法「再往外让一点」），这里漏登记 → 存不进去。
     "stop_key_atr_buf": (0.0, 5.0),
+    # ★ 2026-11-13 VS15-1.4 两档止损三个新参数。
+    #   two_tier_stop 是总开关：0 = 完全退回 VS15-1.3 一档全平（逐字节同行为）。
+    #   ★ 界面暂无控件时也必须在这里登记 —— 漏登记 → 存进 yaml 也读不出来。
+    "two_tier_stop": (0, 1),
+    "stop1_atr_buf": (0.0, 5.0),
+    "stop2_use_ce_after_half": (0, 1),
     # ★ 2026-11-12 夜拆出来的「右侧止盈」独立三键。原来右侧止盈直接复用入场
     #   的 key_mult / key_closepos / key_bodyfrac —— 调入场会连带改出场，
     #   而这两件事的风险方向完全不同（入场放宽=多开单；出场放宽=早止盈）。
@@ -434,6 +440,9 @@ _STRAT_PARAM_DEFAULTS = {
     "bbw_pct_min": 70.0,
     "bbw_exempt_mult": 1.0, "bbw_exempt_closepos": 0.8, "bbw_exempt_bodyfrac": 0.8,
     "stop_key": True, "stop_key_atr_buf": 0.2,
+    # 两档止损（VS15-1.4）：two_tier_stop=0 时全部走旧逻辑，行为与 1.3 一致。
+    # stop1_atr_buf 默认 0.3 = 线上现用值；stop2_use_ce_after_half=1 = 平半后改用 CE 通道。
+    "two_tier_stop": 0, "stop1_atr_buf": 0.3, "stop2_use_ce_after_half": 1,
     "min_stop_dist_pct": 0.6, "max_risk_pct": 5.0, "dual_stop_min_pct": 0.5,
     "min_atr_pct": 0.0,
     "eff_min_signal": 0.30, "eff_win_signal": 48,
