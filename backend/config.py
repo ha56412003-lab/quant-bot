@@ -410,7 +410,9 @@ _STRAT_PARAM_BOUNDS = {
     "right_exit_strict":  None,
     "flip_exit_early":    (0, 1),        # 信号翻转提前到平半前（0=关=默认；80币回测否决）
     # ── 同根限笔 / 成本 ─────────────────────────────────────────
-    "max_same_bar_side":  (1, 20),       # 0=禁止所有开仓
+    # ★ 0 = 不限（等于关掉这道限制，engine._same_bar_allow: cap<=0 → 恒 True）
+    #   1 = 同一根 15m K 线同向最多 1 笔；2026-11-14 实测修正：旧注释写「0=禁止所有开仓」是反的
+    "max_same_bar_side":  (0, 20),
     "fee_rate":           (0.0, 0.01),   # 1% 封顶（币安 taker 0.05%）
     "slip_pct":           (0.0, 5.0),    # 0=无滑点
     "reverse_enabled":    None,          # bool：反手开关（默认 false，回测已证伪）

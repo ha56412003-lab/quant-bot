@@ -161,6 +161,81 @@ function GlobalRisk({ data, onSaved }) {
   )
 }
 
+/** 同一根K线同向上限（策略级参数 max_same_bar_side）
+ *
+ *  为什么不并进上面的「全局风控」表单：这个键住在 strategies.yaml 的 S15 params 里，
+ *  用 /api/risk/global 保存会被白名单拒掉（那个接口只认 global 段的键）。
+ *  所以它只是**位置**跟「并发」「同向」挨着，保存走策略配置接口。
+ *  ★ 0 = 不限（关掉这道限制，engine._same_bar_allow: cap<=0 → 恒 True）
+ *    1 = 同一根 15m K 线同向最多 1 笔
+ *  ★ 编辑中不能被 15 秒轮询冲掉（2026-11-05 出过陈旧值覆盖回写的事故）
+ */
+function SameBarCap() {
+  const { t } = useI18n()
+  const [data, refresh] = usePoll(api.strategies, 15000)
+  const rows = (data && data.strategies) || []
+  const row = rows.find((r) => (r.params || {}).max_same_bar_side !== undefined)
+  const live = row ? row.params.max_same_bar_side : undefined
+  const [val, setVal] = useState(null)
+  const [orig, setOrig] = useState(null)
+  const dirty = React.useRef(false)
+  React.useEffect(() => {
+    if (dirty.current || live === undefined) return
+    setVal(live); setOrig(live)
+  }, [live])
+  const changed = val !== null && orig !== null && Number(val) !== Number(orig)
+  const save = async () => {
+    const n = Number(val)
+    if (!Number.isFinite(n) || n < 0 || n > 20 || n !== Math.floor(n)) {
+      message.error(`${t('risk.sameBar')} ${t('risk.sameBarRange')}`); return
+    }
+    if (!changed) { message.info(t('risk.noChange')); return }
+    try {
+      await api.strategyConfig(row.id, { params: { max_same_bar_side: n } })
+      dirty.current = false
+      message.success(n === 0
+        ? t('risk.sameBarSavedOff')
+        : `${t('risk.sameBarSaved')} ${n}`)
+      refresh?.()
+    } catch (e) { message.error(`${t('config.saveFailed')}: ${e.message}`) }
+  }
+  return (
+    <Card size="small" title={t('risk.sameBarTitle')} style={{ marginTop: 16 }}>
+      <Row gutter={[16, 8]}>
+        <Col xs={24} md={9}>
+          <div style={{ fontSize: 12, color: 'var(--mute, #7d8590)', marginBottom: 4 }}>
+            {t('risk.sameBar')}
+          </div>
+          <InputNumber size="small" style={{ width: '100%' }} min={0} max={20} step={1}
+                       value={val}
+                       onChange={(x) => { dirty.current = true; setVal(x) }} />
+          <div style={{ fontSize: 11, color: '#4d5661', marginTop: 2 }}>
+            {t('risk.sameBarTip')}（0 ~ 20）
+          </div>
+        </Col>
+        <Col xs={24} md={15}>
+          <div style={{ fontSize: 11.5, color: '#8a96a8', lineHeight: 1.9 }}>
+            {t('risk.sameBarLayers')}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <Button size="small" type={changed ? 'primary' : 'default'} onClick={save}>
+              {t('risk.sameBarSave')}
+            </Button>
+            <Button size="small" disabled={!changed}
+                    onClick={() => { setVal(orig); dirty.current = false }}>
+              {t('risk.sameBarUndo')}
+            </Button>
+            <span style={{ fontSize: 11, color: '#6b7787' }}>
+              {live === undefined ? '--' : `${t('risk.sameBarLive')} ${live}`}
+              {live !== undefined && Number(live) === 0 ? ` · ${t('risk.sameBarOffState')}` : ''}
+            </span>
+          </div>
+        </Col>
+      </Row>
+    </Card>
+  )
+}
+
 function StrategyRiskTable({ data, onSaved }) {
   const { t } = useI18n()
   const [edits, setEdits] = useState({})
@@ -232,6 +307,7 @@ export default function RiskPage() {
         </Col>
         <Col xs={24} md={16}>
           <GlobalRisk data={risk} onSaved={refresh} />
+          <SameBarCap />
         </Col>
       </Row>
       <StrategyRiskTable data={risk} onSaved={refresh} />
