@@ -373,8 +373,8 @@ _STRAT_PARAM_BOUNDS = {
     "stop_key": None,
     # ★ 同上：界面有框（止损算法「再往外让一点」），这里漏登记 → 存不进去。
     "stop_key_atr_buf": (0.0, 5.0),
-    # ★ VS15-1.5 第④条：收紧止损用的独立气垫（比 stop_key_atr_buf 紧）。
-    #   0 = 关闭第④条（现网值：端到端双样本都变差，休眠中）。
+    # ★ VS15-1.5 第④条（时段翻转平）：独立气垫（比 stop_key_atr_buf 紧）。
+    #   0 = 关闭第④条（现网值 0；旧「双样本变差」结论已作废，等正确实现重跑）。
     "stop_key_atr_buf_tight": (0.0, 5.0),
     # ★ 2026-11-12 夜拆出来的「右侧止盈」独立三键。原来右侧止盈直接复用入场
     #   的 key_mult / key_closepos / key_bodyfrac —— 调入场会连带改出场，
@@ -445,6 +445,9 @@ _STRAT_PARAM_DEFAULTS = {
     "min_atr_pct": 0.0,
     "eff_min_signal": 0.30, "eff_win_signal": 48,
     "be_at_r": 1.5, "half_at_r": 1.2, "full_at_r": 2.5,
+    # ★ VS15-1.5 第④条「时段翻转平」：0 = 关（定版值），>0 = 往信号K线端点外让几倍 ATR20
+    #   前端策略页的「启用」开关就是认这个键：开 = 写 0.2，关 = 写回 0。
+    "stop_key_atr_buf_tight": 0.0,
     "right_exit": True, "right_exit_strict": True, "flip_exit_early": 0,
     "reverse_enabled": False,
     # 右侧止盈用的关键K线门槛（独立于入场，取历史定版值 1.0/0.66/0.5）

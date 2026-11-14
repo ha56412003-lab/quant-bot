@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """VS15-1.5 两道新规则的代码级验证。
 
-第④条：持仓中 CE 翻转 + 峰顶 < be_at_r → 硬止损收紧到「关键K线端点 ∓ 0.2×ATR20」
-第⑦道：abs(HA收盘 − ZLSMA50) / ATR20 ≥ zlsma_ext_max(1.2) → 拒绝开仓
+第④条：持仓中时段翻转 + 峰顶 < be_at_r → 止损改到「多单 关键K线最高价+0.2×ATR20／空单 最低价+0.2×ATR20」
+第⑦道：abs(HA收盘 − ZLSMA50) / ATR20 ≥ zlsma_ext_max(1.5) → 拒绝开仓
 
 跑法：cd E:/quant-bot && .venv/Scripts/python.exe tests/test_v15_rules.py
 """
@@ -60,7 +60,7 @@ def test_hard_stop_selection():
     # A3 已武装 tight=97 → 96.9 就触发（比原止损 95 早）
     p = pos(stop_tight=97.0, stop_tight_on=1)
     r = engine._hard_stop_reason(p, 96.9)
-    chk(r == ("收紧止损", False), "A3 已武装 → 96.9 触发「收紧止损」 实际 %s" % (r,))
+    chk(r == ("时段翻转平", False), "A3 已武装 → 96.9 触发「时段翻转平」 实际 %s" % (r,))
 
     # A4 已武装但价在 tight 上方 → 不触发
     chk(engine._hard_stop_reason(p, 97.5) == (None, False),
@@ -73,8 +73,8 @@ def test_hard_stop_selection():
 
     # A6 空头方向：止损在上方，收紧价必须更高才叫「更紧」
     ps = pos(side="short", stop_price=105.0, stop_tight=103.0, stop_tight_on=1)
-    chk(engine._hard_stop_reason(ps, 103.5) == ("收紧止损", False),
-        "A6 空头已武装 → 103.5 触发收紧止损")
+    chk(engine._hard_stop_reason(ps, 103.5) == ("时段翻转平", False),
+        "A6 空头已武装 → 103.5 触发「时段翻转平」")
     chk(engine._hard_stop_reason(ps, 102.5) == (None, False),
         "A7 空头已武装、价 102.5 在 103 下方 → 不触发")
 
@@ -249,10 +249,145 @@ def test_gate7_qnt():
         "signals=%d" % len(out4))
 
 
+def test_exit4_uses_leg_not_dir():
+    """C10/C11：第④条武装必须看「时段」（ZLSMA50 实体穿越+下一根确认），不能看 CE 的 dir。
+
+    背景（2026-11-14 浩哥纠正）：1.2 版本起「翻转」的定义就是时段翻转，
+    统一口径不再叫「CE 翻转」。
+    第④条一度实现成 CE 的 dir（HA 收盘穿 ATR(1)×2 轨道），两者不是一个东西，
+    用错会让第④条永远等不到触发条件（ZECUSDT #71 实证：dir 差 3.535 块，
+    时段只差 0.014 块擦边作废 —— 两条线完全不同）。
+    """
+    print("\n[C] 第④条判据：_bar_pack 必须回传「时段」而不是 CE dir")
+    from backend import strategies as S
+
+    path = os.path.join(HERE, "fixtures", "qnt_20261113_2130.json")
+    if not os.path.exists(path):
+        chk(False, "C10 找不到 QNTUSDT 夹具", path)
+        return
+    bars = json.load(open(path, encoding="utf-8"))
+    ks = bars[-300:]
+
+    cfg = {"_iid": "TEST", "symbols": ["QNTUSDT"], "max_hold_hours": 0, "params": {}}
+    cfg["params"].update({
+        "key_bar": True, "key_mult": 0.9, "key_closepos": 0.6, "key_bodyfrac": 0.5,
+        "stop_key": True, "stop_key_atr_buf": 0.3, "stop_key_atr_buf_tight": 0.2,
+        "ce_mult": 2.0, "ce_len": 1, "zlsma_len": 50, "use_close": True, "use_ha": True,
+        "bbw_pct_min": 60.0, "bbw_len": 20, "bbw_pct_win": 100,
+        "eff_min_signal": 0.30, "eff_win_signal": 48,
+        "min_stop_dist_pct": 0.6, "max_risk_pct": 5.0, "dual_stop_min_pct": 0.5,
+        "swing_lookback": 8, "zlsma_ext_max": 1.5,
+    })
+    inst = S.S15CeZlsma(cfg)
+    try:
+        S._LAST_BAR.clear()
+        S._LEG_ENTERED.clear()
+        S._S15_ZL_CACHE.clear()
+    except Exception:  # noqa: BLE001
+        pass
+    ctx = FakeCtx("QNTUSDT", ks)
+    # _bar_pack 有「数据必须追到当前窗口」的守卫（int(ks[-1].ts) < cur_bar → None），
+    # 夹具是历史数据，所以把 time.time 临时钉到「夹具之后」再调。
+    import unittest.mock as _um
+    _fake_now = float(int(ks[-1]["ts"]) + 1)
+    with _um.patch.object(S.time, "time", lambda: _fake_now):
+        pk = asyncio.run(inst._bar_pack(ctx, "QNTUSDT"))
+    chk(pk is not None and len(pk) == 9,
+        "C10 _bar_pack 返回 9 元组（第 9 个是 leg_now）",
+        "len=%s" % (len(pk) if pk else None))
+    if not pk or len(pk) < 9:
+        return
+
+    i = len(ks) - 2
+    ind = S._ce_zlsma(ks, 1, 2.0, 50, True, True)
+    legs = S._zlsma_legs(ks, ind, 3)[0]
+    leg_now, dir_now = int(pk[8] or 0), int(ind["dir"][i] or 0)
+    chk(leg_now == int(legs[i] or 0),
+        "C11 pk[8] == 时段方向（leg_dir[%d]）" % i,
+        "pk=%d / legs=%d / dir=%d" % (leg_now, int(legs[i] or 0), dir_now))
+
+    diff = sum(1 for x, y in zip(legs, ind["dir"])
+               if int(x or 0) != int(y or 0))
+    print("      这 300 根里「时段」与「CE dir」不同的根数：%d / %d" % (diff, len(legs)))
+    chk(diff > 0, "C12 时段与 CE dir 确实是两套东西（本段有 %d 根不一致）" % diff,
+        "若为 0 说明夹具覆盖不到差异，换更长数据")
+
+
+def test_exit4_price_formula():
+    """C13~C15：第④条收紧价公式 —— 最高点、最低点都向外扩，两边都是加法。
+
+    浩哥 2026-11-14 定稿：
+        手里多单（时段已翻空）→ 关键K线 **最高价 + buf_tight×ATR20**
+        手里空单（时段已翻多）→ 关键K线 **最低价 + buf_tight×ATR20**
+    ★ 两条的收紧价都在价格【上方】，所以「武装」那一刻引擎就判打穿 → 立刻市价离场。
+      这条的实质 = 「时段翻转到反面 + 峰顶 < be_at_r → 走人」。
+    """
+    print("\n[D] 第④条收紧价公式（都是加法）")
+    from backend import strategies as S
+
+    chk(abs(S._tight_stop_price("long", 100.0, 90.0, 1.0) - 101.0) < 1e-9,
+        "C13 多单 → 关键K线最高价 + pad（100+1=101）",
+        "实际 %s" % S._tight_stop_price("long", 100.0, 90.0, 1.0))
+    chk(abs(S._tight_stop_price("short", 100.0, 90.0, 1.0) - 91.0) < 1e-9,
+        "C14 空单 → 关键K线最低价 + pad（90+1=91）",
+        "实际 %s" % S._tight_stop_price("short", 100.0, 90.0, 1.0))
+
+    # C15 端到端：QNTUSDT 那根（多单）信号里的 stop_tight 必须 = 最高价 + 0.2×ATR20
+    path = os.path.join(HERE, "fixtures", "qnt_20261113_2130.json")
+    if not os.path.exists(path):
+        chk(False, "C15 找不到 QNTUSDT 夹具", path)
+        return
+    bars = json.load(open(path, encoding="utf-8"))
+    want_ts = int(datetime.datetime(2026, 11, 13, 21, 30,
+                                    tzinfo=datetime.timezone(datetime.timedelta(hours=8))
+                                    ).timestamp())
+    idx = next((k for k, b in enumerate(bars) if int(b["ts"]) == want_ts), None)
+    if idx is None:
+        chk(False, "C15 数据里找不到 2026-11-13 21:30 那根", "")
+        return
+    ks = bars[max(0, idx - 298): idx + 2]
+    cfg = {"_iid": "TEST", "symbols": ["QNTUSDT"], "max_hold_hours": 0, "params": {}}
+    cfg["params"].update({
+        "key_bar": True, "key_mult": 0.9, "key_closepos": 0.6, "key_bodyfrac": 0.5,
+        "stop_key": True, "stop_key_atr_buf": 0.3, "stop_key_atr_buf_tight": 0.2,
+        "ce_mult": 2.0, "ce_len": 1, "zlsma_len": 50, "use_close": True, "use_ha": True,
+        "bbw_pct_min": 60.0, "bbw_len": 20, "bbw_pct_win": 100,
+        "eff_min_signal": 0.30, "eff_win_signal": 48,
+        "min_stop_dist_pct": 0.6, "max_risk_pct": 5.0, "dual_stop_min_pct": 0.5,
+        "swing_lookback": 8, "zlsma_ext_max": 0.0,
+    })
+    inst = S.S15CeZlsma(cfg)
+    try:
+        S._LAST_BAR.clear()
+        S._LEG_ENTERED.clear()
+        S._S15_ZL_CACHE.clear()
+    except Exception:  # noqa: BLE001
+        pass
+    out = asyncio.run(inst.evaluate(FakeCtx("QNTUSDT", ks)))
+    if not out:
+        chk(False, "C15 QNTUSDT 基线信号丢了（不该）", "")
+        return
+    s = out[0]
+    i = len(ks) - 2
+    atr20 = S._atr_n(ks, 20)[i]
+    exp = float(ks[i]["high"]) + 0.2 * float(atr20)
+    got = float(getattr(s, "stop_tight", 0) or 0)
+    print("      信号K线：高 %.4f  低 %.4f  ATR20 %.4f → 期望收紧价 %.4f（side=%s）"
+          % (ks[i]["high"], ks[i]["low"], atr20, exp, s.side))
+    chk(abs(got - exp) < 1e-6,
+        "C15 多单 stop_tight == 关键K线最高价 + 0.2×ATR20",
+        "实际 %.6f / 期望 %.6f / 原止损 %.6f" % (got, exp, s.stop_price))
+    chk(got > float(s.stop_price),
+        "C16 收紧价在原止损【上方】（= 也在价格上方 → 武装即离场）",
+        "tight %.4f vs stop %.4f" % (got, float(s.stop_price)))
+
+
 def main():
     test_hard_stop_selection()
     test_signal_and_db()
     test_gate7_qnt()
+    test_exit4_uses_leg_not_dir()
+    test_exit4_price_formula()
     print("\n" + "=" * 70)
     if FAIL:
         print("结果：%d 通过 / %d 失败" % (PASS, FAIL))

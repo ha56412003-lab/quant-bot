@@ -128,10 +128,10 @@ def init():
             #   所以 stop_price 永远保留原始值，只有 engine 判「要不要平」时才看 be_on。
             # ★ 必须落库：只放内存的话重启后丢失 → 已经抬过的止损又掉回原位。
             "ALTER TABLE positions ADD COLUMN be_on INTEGER NOT NULL DEFAULT 0",
-            # 硬止损第④条（VS15-1.5，2026-11-14）：CE 已翻转且峰顶没到过 be_at_r 时，
-            # 把有效止损收紧到「关键K线端点 ∓ stop_key_atr_buf_tight × ATR20」。
+            # 硬止损第④条（时段翻转平，VS15-1.5）：时段翻到反面且峰顶没到过 be_at_r 时，
+            # 把有效止损改到「多单 关键K线最高价 + pad／空单 关键K线最低价 + pad」。
             #   stop_tight    = 收紧后的止损价（开仓那一刻按信号K线算死，永不变）
-            #   stop_tight_on = 1 表示已武装（CE 翻转那根收完后置 1，落库防重启丢失）
+            #   stop_tight_on = 1 表示已武装（时段翻转那根收完后置 1，落库防重启丢失）
             # ★ 与 be_on 互斥：stop_tight 只在 peak_r < be_at_r 时才武装，
             #   而 be_on 是 peak_r ≥ be_at_r 才置位 —— 两条永远不会同时为 1。
             # ★ 同样不动 stop_price：它是 R 的分母（abs(entry-stop_price)）。
@@ -378,7 +378,7 @@ _POSITION_WRITABLE = {
     "peak_r",
     "be_on",   # 2026-11-11：保本移损标记（峰顶到过 be_at_r 后置 1）
     "stop_tight",    # VS15-1.5：硬止损第④条收紧价（开仓算死）
-    "stop_tight_on",  # VS15-1.5：第④条是否已武装（CE 翻转后置 1）
+    "stop_tight_on",  # VS15-1.5：第④条是否已武装（时段翻转后置 1）
 }
 
 

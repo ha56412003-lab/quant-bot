@@ -202,7 +202,7 @@ def make_pos(entry_bar, side, entry, stop, tight=0.0):
                 peak=0.0, mae=0.0,          # peak=MFE（最大浮盈R） mae=最大浮亏R
                 half_done=False, be_on=False, half_part=0.0,
                 entry_bar=entry_bar,
-                # VS15-1.5 第④条：收紧价 + 是否已武装（CE 翻转后才武装）
+                # VS15-1.5 第④条：收紧价 + 是否已武装（时段翻转后才武装）
                 tight=float(tight or 0.0), tight_on=False)
 
 
@@ -281,24 +281,29 @@ def step_exit(ks, ind, atr_n, j, pos):
     pos["mae"] = min(pos["mae"], ((l_ - entry) if sign > 0 else (entry - h_)) / risk)
     cur = ((c_ - entry) if sign > 0 else (entry - c_)) / risk
 
-    # ★ VS15-1.5 第④条：CE 翻转 + 峰顶还没到 be_at_r → 止损收紧到 pos["tight"]
-    #   线上在 check_exit 里每 tick 判（两套时钟：CE 方向看已收完的 K 线，
+    # ★ VS15-1.5 第④条：时段翻转 + 峰顶还没到 be_at_r → 止损收紧到 pos["tight"]
+    #   ★★ 判据是「时段」（ZLSMA50 实体穿越 + 下一根确认），不是 CE 的 dir
+    #      —— 与线上 check_exit 同步修正（2026-11-14 浩哥纠正）。
+    #   线上在 check_exit 里每 tick 判（两套时钟：时段方向看已收完的 K 线，
     #   价格触碰看 0.5 秒实时价）。这里按 bar 推进，所以「本根收盘确认翻转」后
     #   立刻用本根的 low/high 判一次触碰 —— 线上最多滞后 0.5 秒，同样会在
     #   这根 K 线内被扫到，这样模拟不会偏乐观。
-    #   ★ 只有开仓时 CE 与持仓同向的单才带 tight（生成信号时就裁掉了反向的），
+    #   ★ 只有开仓时时段与持仓同向的单才带 tight（生成信号时就裁掉了反向的），
     #     所以 tight_on 一旦触发，必然代表「持仓期间真的发生了翻转」。
     if (pos["tight"] > 0 and not pos["tight_on"] and not pos["be_on"]
             and pos["peak"] < BE_AT_R - 1e-9):
         _w = 1 if side == "long" else -1
-        _d = int(ind["dir"][j] or 0) if j < len(ind["dir"]) else 0
+        _ld = S._zlsma_legs(ks, ind, 3)[0]
+        _d = int(_ld[j] or 0) if j < len(_ld) else 0
         if _d != 0 and _d != _w:
             pos["tight_on"] = True
             _t = pos["tight"]
+            # 线上这条叫「时段翻转平」：判据是时段（不是 CE dir），价放在关键K线端点外扩处
+            # → 武装那一刻基本已经站在价格另一侧，等价于「翻到反面就走人」。
             if sign > 0 and l_ <= _t:
-                return min(o_, _t), "tight_stop"
+                return min(o_, _t), "leg_flip_stop"
             if sign < 0 and h_ >= _t:
-                return max(o_, _t), "tight_stop"
+                return max(o_, _t), "leg_flip_stop"
 
     # 保本移损
     if BE_AT_R > 0 and not pos["be_on"] and pos["peak"] >= BE_AT_R - 1e-9:

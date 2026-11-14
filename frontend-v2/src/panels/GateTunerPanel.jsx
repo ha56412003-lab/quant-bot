@@ -151,6 +151,12 @@ const RIGHT_EXIT = [
     type: 'num', step: 0.05, min: 0, max: 1 },
 ]
 
+// ★ 出场 · 第④条「时段翻转平」（VS15-1.5 新增，默认关闭）
+//   后端只有一个数字键 stop_key_atr_buf_tight：0 = 关，>0 = 往外让几倍波动幅度后撤出。
+//   界面上做成「开关 + 一个数」，开关打开时填 ON_PAD，关掉时写回 0 —— 不新增后端键。
+//   ON_PAD 只是「打开时先给个数」，不是策略门槛，真正生效的值永远是后台读回来的那个数。
+const X3_ON_PAD = 0.2
+
 const fmtVal = (v) => (typeof v === 'boolean' ? (v ? '开' : '关') : v)
 
 function ParamCell({ def, value, onChange }) {
@@ -178,10 +184,14 @@ function ParamCell({ def, value, onChange }) {
 
 export default function GateTunerPanel({ row, onParamsSave }) {
   const live = React.useMemo(() => ({ ...(row?.params || {}) }), [row?.params])
+  // ★ 只在「后台值真的变了」时重置草稿。外层每 15 秒轮询一次，每次都会换一个新的 params
+  //   对象；若直接依赖对象本身，用户改到一半会被静默清空 —— 实测点开 X3 开关后等一轮
+  //   轮询，开关自己退回「关」、「未保存 N 项」也一起消失，看起来像点了没反应。
+  const liveKey = React.useMemo(() => JSON.stringify(live), [live])
   const [draft, setDraft] = React.useState(live)
   const [saving, setSaving] = React.useState(false)
 
-  React.useEffect(() => { setDraft({ ...live }) }, [live])
+  React.useEffect(() => { setDraft({ ...live }) }, [liveKey])
 
   const dirtyKeys = React.useMemo(
     () => Object.keys(draft).filter((k) => draft[k] !== live[k]),
@@ -207,6 +217,9 @@ export default function GateTunerPanel({ row, onParamsSave }) {
     GATES.forEach((g) => (g.params || []).forEach((f) => s.add(f.k)))
     STOP_ALGO.forEach((f) => s.add(f.k))
     EXIT_R.forEach((f) => s.add(f.k))
+    // ★ 第④条「时段翻转平」只有一个数字键（0=关），也必须进这个集合，
+    //   否则「恢复默认」不会把它关回去 —— 用户开了之后再点恢复，会以为退回定版了。
+    s.add('stop_key_atr_buf_tight')
     RIGHT_EXIT.forEach((f) => s.add(f.k))
     return s
   }, [])
@@ -497,6 +510,77 @@ export default function GateTunerPanel({ row, onParamsSave }) {
           },
         ]}
       />
+
+      {/* ── 出场 · 第④条「时段翻转平」（VS15-1.5 新增，默认关闭）──────────── */}
+      <div className="gate-tuner-x3-head" style={{ marginTop: 14, marginBottom: 6 }}>
+        <Text strong style={{ fontSize: 12.5 }}>出场 · 时段翻转平（第④条）</Text>
+        <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
+          默认关闭。开仓后一直没跑出利润、行情又翻到反面时，别等原止损，直接撤
+        </Text>
+      </div>
+
+      <div className="gate-tuner-x3"
+           style={{ border: '1px solid #f0f0f0', borderRadius: 4, padding: '10px 12px' }}>
+
+        <Space size={[18, 10]} wrap align="center">
+          <span className="gate-tuner-param"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Tooltip title="打开 = 这条出场条件生效；关掉 = 完全不参与，等于现在线上的状态">
+              <Text style={{ fontSize: 11.5, whiteSpace: 'nowrap', borderBottom: '1px dashed #bbb' }}>
+                启用
+              </Text>
+            </Tooltip>
+            {draft.stop_key_atr_buf_tight === undefined ? (
+              <Tooltip title="后台配置里还没有这个键。先上线对应代码，这里才会出现开关">
+                <Tag color="default" style={{ fontSize: 10.5, margin: 0 }}>后台未启用</Tag>
+              </Tooltip>
+            ) : (
+              <Switch size="small"
+                      checked={Number(draft.stop_key_atr_buf_tight) > 0}
+                      disabled={saving}
+                      onChange={(v) => set('stop_key_atr_buf_tight', v ? X3_ON_PAD : 0)} />
+            )}
+          </span>
+
+          <span className="gate-tuner-param"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <Tooltip title={'撤出的位置 = 信号那根K线的高点（做多）／低点（空单）+ 这个数 × 平均波动幅度。'
+              + ' 0.2 = 再让 0.2 倍波动，专门躲插针；0 = 贴着那根K线的端点走'}>
+              <Text style={{ fontSize: 11, whiteSpace: 'nowrap', borderBottom: '1px dashed #bbb' }}>
+                再往外让
+              </Text>
+            </Tooltip>
+            {draft.stop_key_atr_buf_tight === undefined ? null : (
+              <InputNumber
+                size="small"
+                value={draft.stop_key_atr_buf_tight}
+                step={0.05}
+                min={0}
+                max={5}
+                style={{ width: 82 }}
+                disabled={saving || !(Number(draft.stop_key_atr_buf_tight) > 0)}
+                onChange={(v) => set('stop_key_atr_buf_tight', v === null ? 0 : v)}
+              />
+            )}
+          </span>
+
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            峰顶门槛：赚到 {fmtVal(draft.be_at_r)}R 之前才算「没跑出来」（跟上面「保本移损」同一个数，改那边这里跟着变）
+          </Text>
+        </Space>
+
+        <div className="gate-tuner-desc"
+             style={{ fontSize: 11.5, lineHeight: 1.65, marginTop: 8, whiteSpace: 'pre-line',
+                      color: '#8c8c8c' }}>
+          {'这条在问什么：开进去以后价格一直没往我这边走（最高只赚到不到 '}
+          {fmtVal(draft.be_at_r)}
+          {'R），行情却已经翻到反面了 —— 说明这单已经错了。别等价格慢慢磨到原止损，当场按市价撤掉。\n'
+           + '★ 什么时候不算数：还没翻、或者峰顶已经超过那个 R（说明这单是对的，交给保本和止盈去管）。\n'
+           + '★ 回测结论（2026-11-14，头部10币 + 50币双样本，往外让 0.1/0.2/0.3/0.5 四档）：全都不如关着。'
+           + '它把「大亏」变成「小亏」，同时也把「大赚」砍成「小亏」，净值基本不变；唯一实打实的好处是最大回撤降 16%。'
+           + '所以定版值是 0（关）。想拿回撤换收益的时候再开。'}
+        </div>
+      </div>
 
       <div className="gate-tuner-rexit-head" style={{ marginTop: 14, marginBottom: 6 }}>
         <Text strong style={{ fontSize: 12.5 }}>右侧止盈要的证据有多硬</Text>

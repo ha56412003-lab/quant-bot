@@ -23,10 +23,10 @@ class Signal:
     stop_price: float = 0.0
     max_hold_sec: int = 86400
     size_mult: float = 1.0
-    fresh: int = 999          # 距信号触发（如 CE 翻转）已过几根 K 线，越小越新鲜
+    fresh: int = 999          # 距信号触发（如时段翻转）已过几根 K 线，越小越新鲜
     strength: float = 0.0     # 信号强度（如 |close-ZLSMA| / ATR），越大趋势越强
     stop_src: str = ""        # 止损来源诊断：swing / ce / key / dual_ce / dual_swing
-    # 硬止损第④条收紧价（VS15-1.5）：CE 翻转且峰顶未到 be_at_r 时改用它。
+    # 硬止损第④条收紧价（VS15-1.5）：时段翻转且峰顶未到 be_at_r 时改用它。
     #   0 = 无（stop_key 关掉时算不出来）→ 第④条不存在，退回原来的三条取近。
     stop_tight: float = 0.0
     # 反手标记（2026-11-11 晚 浩哥定）：本时段方向与在管仓位相反时置 True。
@@ -319,7 +319,7 @@ _GATE_STATE = {}   # symbol -> {ts, dir, ce, ha, bbw, bbw_thr, bbw_exempt, atr_p
 # 16 次/秒。若每次都去拉 1h K 线，一天约 553MB —— 而且 99.9% 的调用
 # 拿到的都是同一根未收盘 bar，算出来的 ZLSMA 完全一样。
 # 这里只缓存「当前 bar 的 ZLSMA / ATR 值」，跨过 bar 边界才重新拉取。
-# 键: (symbol, interval)  值: (cur_bar, zlsma, ha_close, bar_ts, dir_now, dir_prev, ha_open)
+# 键: (symbol, interval)  值: (cur_bar, zlsma, ha_close, bar_ts, ha_open, bbw_pct, ks, i, atr_n, leg_now)
 _S15_ZL_CACHE = {}
 
 # ── S15 右侧止盈的逐仓位去重状态 ──────────────────────────────────────
@@ -355,6 +355,28 @@ def _atr_n(ks, n=20):
         if i >= n - 1:
             out[i] = sum(tr[i - n + 1:i + 1]) / n
     return out
+
+
+def _tight_stop_price(side, kb_high, kb_low, pad):
+    """第④条时段翻转止损价（VS15-1.5；公式 2026-11-14 浩哥定稿）。
+
+    ★ 关键K线的最高点和最低点，都是向外扩 buf_tight × ATR20 —— **两边都是加法**：
+        手里多单（时段已翻空）→ 关键K线 **最高价 + pad**
+        手里空单（时段已翻多）→ 关键K线 **最低价 + pad**
+
+    为什么是「加法」而不是对称地放在价格外围：
+      时段已经翻到反面了，止损要放在「关键K线朝反面那一端的更外侧」。
+      实测后果（ZECUSDT #71 口径，pad=0.2×ATR20=1.6254）：
+        · 空单信号K线 低 919.130 → 收紧价 920.7554，入场 919.79
+          → 时段翻多那一刻价格已经涨过 920.76，武装即判打穿 → 立刻市价离场；
+        · 多单同理：收紧价 = 最高价 + pad，一定在价格上方 → 武装即离场。
+      所以这条的实质是「时段翻转 + 峰顶 < be_at_r → 走人」，端点只管把线放稳，
+      成交价由 engine 按当时市价成交（不是端点价）。
+
+    调用方负责「永不放宽」的 clamp（多单取 max、空单取 min）与非法值归零。
+    """
+    kb = float(kb_high) if side == "long" else float(kb_low)
+    return kb + float(pad)
 
 
 def _is_key_bar(ks, i, atr_n, want, mult=1.0, closepos=0.66, bodyfrac=0.5):
@@ -501,7 +523,7 @@ class S15CeZlsma(Base):
                  "方向翻转那一刻就是信号；ZLSMA(50) 零延迟均线用来确认趋势站没站稳；"
                  "布林带宽度分位衡量波动是否扩张，只在市场真的在动的时候才出手。"
                  "入场用真实收盘价算钱，用 HA 合成价判方向，用原始 K 线判力度。",
-        "entry": "七道闸全过才开仓：① 时段确认 —— ZLSMA50 实体穿越切多空时段（CE 翻转不再是触发器）"
+        "entry": "七道闸全过才开仓：① 时段确认 —— ZLSMA50 实体穿越切多空时段（旧 CE dir 口径不再是触发器）"
                  " ② HA 形态 —— HA 收盘站在均线同一侧、方向一致"
                  " ③ 关键K线 —— 原始 K 线实体 ≥ key_mult×ATR20，收盘落在极值 1/3 区，实体占比 ≥ 50%"
                  " ④ BBW 分位 —— 布林带宽度近 100 根分位 ≥ bbw_pct_min（波动扩张才做）"
@@ -511,7 +533,7 @@ class S15CeZlsma(Base):
                  "离均线太远 = 追高追空，不开", 
         "exit": "五个出口按顺序判，先命中先执行：① 硬止损 = 8 根摆动 / CE 通道 / 关键K线端点外扩 stop_key_atr_buf×ATR20，"
                 "三条取最近；距离 < 0.50% 时只保留 CE 通道（⑤c 两档）"
-                " ①b 收紧止损（VS15-1.5，默认关闭）—— 峰顶 < 1.5R 且 CE 方向翻转 → 收紧到 关键K线端点 ∓ 0.2×ATR20"
+                " ①b 时段翻转平（VS15-1.5，默认关闭）—— 峰顶 < 1.5R 且时段翻到反面（判据是时段，不是 CE dir）→ 止损改到「关键K线最高价+0.2×ATR20（多单）/最低价+0.2×ATR20（空单）」，武装即按市价离场"
                 " ② 峰顶到 1.5R → 止损抬到入场价（保本）"
                 " ③ 到 half_at_r 平一半（先锁定不亏）"
                 " ④ 平半后到 full_at_r 全平（兜底）"
@@ -620,7 +642,7 @@ class S15CeZlsma(Base):
         """入场：时段确认 + HA 形态 + 关键K线力度 + BBW 分位 + 止损距离 + 趋势效率（六道闸）。
 
         VS15-1.3 对齐后的真实顺序（与前端「六道闸」面板逐列一一对应）：
-          ① 时段确认   ZLSMA50 实体穿越切多空时段；CE 翻转不再是触发器
+          ① 时段确认   ZLSMA50 实体穿越切多空时段；旧 CE dir 口径不再是触发器
           ② HA 形态    HA 收盘站在 ZLSMA 同一侧且方向一致
           ③ 关键K线    原始 K 线实体 ≥ key_mult×ATR20，收盘落在极值 1/3 区，实体占比 ≥ 50%
           ④ BBW 分位   布林带宽度近 100 根分位 ≥ 70（波动扩张才做）
@@ -628,7 +650,7 @@ class S15CeZlsma(Base):
           ⑥ 趋势效率   进场前 48 根单边度 EFF ≥ 0.30
 
         设计要点：
-          · 时段是「状态」不是「事件」—— CE 翻转那种事件口径每根都会重刷信号。
+          · 时段是「状态」不是「事件」—— 旧 CE dir 那种事件口径每根都会重刷信号。
           · 布林带宽度只衡量「价格分散程度」，是唯一没被证伪的趋势过滤器
             （ADX、ADX上升、效率比全部失效）。
           · 止损 = 三条并列取近：8 根摆动 / CE 通道 / 关键K线极值（外扩 0.2×ATR20）。
@@ -711,7 +733,9 @@ class S15CeZlsma(Base):
                 _LAST_BAR[bar_key] = bar_ts
 
                 z, atr = ind["zlsma"][i], ind["atr"][i]
-                dirs_arr = ind["dir"]
+                # ★ 2026-11-14：CE 的 dir（ind["dir"]）在入场链路上已全部停用 ——
+                #   方向一律取 _zlsma_legs 切出的「时段」（见下面 d_now）。
+                #   留此注释是为了防止以后有人又把它加回来当方向用。
                 if z is None or atr is None or atr <= 0:
                     continue
                 z, atr = float(z), float(atr)
@@ -720,7 +744,7 @@ class S15CeZlsma(Base):
                     continue
 
                 # ① 时段判定（ZLSMA50 实体穿越 + 下一根确认）—— 2026-11-11 晚 浩哥定档
-                #    旧写法 `d_now != d_prev` 只在 CE 翻转那一根判定，那根不是关键K线
+                #    旧写法 `d_now != d_prev` 只在旧 CE dir 翻转的那一根判定，那根不是关键K线
                 #    整个时段就全废（UNI 13:15 翻空就是这样，四小时空头行情全丢）。
                 #    现在：ZLSMA 穿越划定多/空时段，时段内任意一根关键K线都能开枪。
                 _leg_dir, _leg_ts_arr, _side_arr, _leg_starts = _zlsma_legs(
@@ -746,7 +770,7 @@ class S15CeZlsma(Base):
                 _bp = bbw_pct[i]
                 _ha_ok = (c > z and c > o) if d_now == 1 else (c < z and c < o)
                 _thr = bbw_pct_min if bbw_pct_min > 0 else 70.0
-                # 变量曾名 _ce_ok，容易让人以为判的是 CE 翻转 —— 实际判的是
+                # 变量曾名 _ce_ok，容易让人以为判的是 CE dir —— 实际判的是
                 # _zlsma_legs 切出来的多空时段（状态，不是翻转事件）。改名对齐语义。
                 _leg_ok = (d_now != 0)
                 # ⚠ 2026-11-06 修：原来写成 `_bp is None or _bp >= _thr`，
@@ -1002,10 +1026,10 @@ class S15CeZlsma(Base):
                 # （熔断 / 日目标 / 事件静默 / 并发 / 杠杆 / 单币上限…），
                 # 任何一道拒绝都不会有仓位。所以策略层只能说「全部闸门通过」，
                 # 真实结论由 /api/gates 用持仓表 + 信号表的 skip_reason 覆盖。
-                # 第④条收紧价（VS15-1.5）：关键K线端点 ∓ stop_key_atr_buf_tight × ATR20
+                # 第④条收紧价（VS15-1.5）：多单 = 关键K线最高价 + pad／空单 = 关键K线最低价 + pad
                 #   开仓这一刻按「信号 K 线」算死，之后永不变 —— 跟 stop_price 一样。
-                #   什么时候生效由 check_exit 决定（CE 翻转 + 峰顶 < be_at_r 才武装）。
-                #   ★ 比第③条紧 0.1 个 ATR（0.3 → 0.2），所以一生效必然取代第③条。
+                #   什么时候生效由 check_exit 决定（时段翻转 + 峰顶 < be_at_r 才武装）。
+                #   ★ 两条收紧价都落在价格另一侧 → 武装那一刻就判打穿，等价于「翻到反面就走」。
                 #   ★ 不受 dual_stop_min_pct 地板约束（浩哥 2026-11-13 定）：④ 是持仓中
                 #     的收紧动作，不与开仓门槛共用同一把尺子。
                 _st_tight = 0.0
@@ -1013,18 +1037,25 @@ class S15CeZlsma(Base):
                 #   （曾经默认 0.2，重启前 yaml 没这键 → 顺带把 ④ 开出来了）
                 _kb_buf_tight = float(self._p("stop_key_atr_buf_tight", 0.0))
                 _want_d = 1 if side == "long" else -1
-                _dir_at_entry = int(dirs_arr[i] or 0) if dirs_arr and i < len(dirs_arr) else 0
-                if (stop_key and _kb_buf_tight > 0 and _dir_at_entry == _want_d
+                # ★ 资格检查也用「时段」，不是 CE 的 dir（浩哥 2026-11-14 定义）：
+                #   入场已经用 d_now == _want_d 把方向锁死了，所以这条恒成立 →
+                #   ④ 对所有单子一视同仁，不再随机划掉「CE dir 刚好不一致」的那六成。
+                _leg_at_entry = (int(_leg_dir[i] or 0)
+                                 if _leg_dir and i < len(_leg_dir) else 0)
+                if (stop_key and _kb_buf_tight > 0 and _leg_at_entry == _want_d
                         and atr_n is not None and i < len(atr_n) and atr_n[i]):
                     _pad2 = _kb_buf_tight * float(atr_n[i])
-                    _kb2 = float(ks[i]["low"] if side == "long" else ks[i]["high"])
-                    _st_tight = (_kb2 - _pad2) if side == "long" else (_kb2 + _pad2)
+                    # ★ 公式（浩哥 2026-11-14 定稿）：最高点、最低点都向外扩 → 两边都是加法
+                    #   多单（时段已翻空）→ 关键K线最高价 + pad
+                    #   空单（时段已翻多）→ 关键K线最低价 + pad
+                    _st_tight = _tight_stop_price(side, ks[i]["high"], ks[i]["low"], _pad2)
                     if not (math.isfinite(_st_tight) and _st_tight > 0):
                         _st_tight = 0.0
                     else:
                         # ★ 永不放宽：④ 价必须比原止损更紧（或相等），否则作废。
-                        #   实测「④ 价天然更紧」只占 22~34%，不卡这一刀会在
-                        #   六成以上的单子上把止损推远 —— 那是反向优化。
+                        #   ★ 2026-11-14 公式改成「两边都是加法」之后，这一刀自动恒成立
+                        #     （多单 最高价+pad 必定高于原止损；空单 最低价+pad 必定低于），
+                        #     留着是兜底：万一关键K线端点异常，宁可不要 ④ 也不许放宽止损。
                         if side == "long":
                             _st_tight = max(_st_tight, stop)
                         else:
@@ -1122,15 +1153,24 @@ class S15CeZlsma(Base):
                     # 表现是「代码看着对、保本从来不生效」。静默失败比报错更贵。
                     log.warning("be_on 落库失败 %s: %s", pos.get("symbol"), exc)
 
-            # ④ 硬止损收紧（VS15-1.5，浩哥 2026-11-13 定）
-            #   做多：峰值 < be_at_r 且 CE 翻转 → 止损收紧到 关键K线最低点 − 0.2×ATR20
-            #   做空：峰值 < be_at_r 且 CE 翻转 → 止损收紧到 关键K线最高点 + 0.2×ATR20
+            # ④ 硬止损收紧（VS15-1.5，浩哥 2026-11-13 定；判据 2026-11-14 修正）
+            #   多单：峰值 < be_at_r 且「时段」翻到空 → 收紧到 关键K线【最高价】+ 0.2×ATR20
+            #   空单：峰值 < be_at_r 且「时段」翻到多 → 收紧到 关键K线【最低价】+ 0.2×ATR20
+            #   ★ 最高点、最低点都是向外扩 → 两边都是加法（浩哥 2026-11-14 定稿）
             #   收紧价在开仓时就算死（Signal.stop_tight → positions.stop_tight），
-            #   这里只负责「什么时候武装」：peak_r 还没到 be_at_r、且 CE 方向已反。
+            #   这里只负责「什么时候武装」：peak_r 还没到 be_at_r、且时段已经反了。
+            #   ★★ 判据必须是「时段」（leg），不是 CE 的 dir ——
+            #     浩哥 2026-11-14 当面纠正：1.2 版本起「翻转」的定义就是
+            #     ZLSMA50 实体穿越（均线落进实体内部）+ 下一根确认（实体完全跑到反面），
+            #     之后一直算这个时段，直到下次穿越确认。入场 `d_now` 用的就是它（见 _zlsma_legs）。
+            #     Chandelier Exit 的 dir 是另一套东西（HA 收盘穿 ATR(1)×2 轨道才翻），
+            #     两者可以长期不一致 —— 2026-11-14 ZECUSDT #71 实证：持仓期 leg 与 dir
+            #     都没翻，但 dir 的翻线远在 3.5 块之外、而 leg 只差 0.014 块擦边作废。
+            #     用错判据 = 第④条永远等不到触发条件。
             #   ★ 两套时钟（浩哥定的设计）：
-            #     · CE 是否翻转 → 看最后一根「已收完」15m K 线的 dir（每根 15m 更新一次）
+            #     · 时段是否翻转 → 看最后一根「已收完」15m K 线（每根 15m 更新一次）
             #     · 价格是否碰到 → engine.py 每 0.5 秒用实时价比 stop_tight
-            #   ★ 只对「开仓时 CE 与持仓同向」的单生效（反向的单根本不带 stop_tight），
+            #   ★ 只对「开仓时时段与持仓同向」的单生效（反向的单根本不带 stop_tight），
             #     所以武装那一刻必然代表持仓期间真的翻转了，不是「本来就反着」。
             #   ★ 与 be_on 互斥：peak_r 到过 be_at_r 就把止损抬到入场价，第④条自动失效。
             #   ★ 不动 stop_price（R 的分母）→ 亏损一定小于 1R。
@@ -1144,16 +1184,19 @@ class S15CeZlsma(Base):
                     and st and float(st.get("peak") or 0.0) < _be_at_r - 1e-9):
                 _pk = await self._bar_pack(ctx, pos.get("symbol"))
                 if _pk:
-                    _d_now = int(_pk[3] or 0)
-                    _want_d = 1 if pos.get("side") == "long" else -1
-                    if _d_now != 0 and _d_now != _want_d:
+                    # _pk[8] = leg_now（时段方向）；0 = 时段还没确认，此时不武装
+                    _leg_now = int(_pk[8] or 0)
+                    _want_leg = 1 if pos.get("side") == "long" else -1
+                    if _leg_now != 0 and _leg_now != _want_leg:
                         try:
                             if db.update_position(pos["id"], stop_tight_on=1):
                                 pos["stop_tight_on"] = 1
-                                log.info("S15 %s 峰顶 %.2fR < %.2fR 且 CE 翻转 → "
+                                log.info("S15 %s 峰顶 %.2fR < %.2fR 且时段翻%s → "
                                          "止损收紧到 %s（原 %s）",
                                          pos.get("symbol"), float(st.get("peak") or 0.0),
-                                         _be_at_r, _st_tight, pos.get("stop_price"))
+                                         _be_at_r,
+                                         "空" if _leg_now == -1 else "多",
+                                         _st_tight, pos.get("stop_price"))
                         except Exception as exc:  # noqa: BLE001
                             log.warning("stop_tight_on 落库失败 %s: %s",
                                         pos.get("symbol"), exc)
@@ -1278,7 +1321,7 @@ class S15CeZlsma(Base):
         pk = await self._bar_pack(ctx, sym)
         if pk is None:
             return None
-        z_now, ha_close, ha_open, _dir_now, _dir_prev, _bp, bar_ts, ks, i, atr_n = pk
+        (z_now, ha_close, ha_open, _bp, bar_ts, ks, i, atr_n, _leg_now) = pk
         if z_now is None or ha_close is None or ha_open is None:
             return None
 
@@ -1329,9 +1372,14 @@ class S15CeZlsma(Base):
     async def _bar_pack(self, ctx, sym):
         """出场用「bar 级」指标包，按 cur_bar 缓存（一根 K 线只拉一次数据）。
 
-        返回 10 元组：
-            (z_now, ha_close, ha_open, dir_now, dir_prev, bp_now,
-             bar_ts, ks, i, atr_n)
+        返回 9 元组：
+            (z_now, ha_close, ha_open, bp_now, bar_ts, ks, i, atr_n, leg_now)
+
+        ⚠ leg_now = 第 i 根所属「时段」的方向（ZLSMA50 实体穿越 + 下一根确认），
+          0 = 时段尚未确认。第④条「时段翻转平」只认它。
+          ★ 2026-11-14 浩哥统一口径：全系统只说「时段翻转」。
+          ★ 同日把 Chandelier Exit 的 dir_now / dir_prev 从返回包里彻底删掉 ——
+            出场链路（check_exit / _right_exit）从此一个旧指标都不碰。
         数据还没追到当前窗口时返回 None（不写缓存，下个 tick 再来）。
 
         ⚠ 为什么返回 ks / i / atr_n：右侧止盈要判「那根原始 K 线是不是反向关键K线」，
@@ -1358,11 +1406,12 @@ class S15CeZlsma(Base):
         cur_bar = int(time.time() // bsec) * bsec
         ck = (sym, kline_iv)
         hit = _S15_ZL_CACHE.get(ck)
-        # 11 项：(cur_bar, z_now, ha_close, bar_ts, dir_now, dir_prev, ha_open,
-        #         bp_now, ks, i, atr_n)
-        if hit and hit[0] == cur_bar and len(hit) >= 11:
-            return (hit[1], hit[2], hit[6], hit[4], hit[5], hit[7],
-                    hit[3], hit[8], hit[9], hit[10])
+        # 10 项：(cur_bar, z_now, ha_close, bar_ts, ha_open,
+        #         bp_now, ks, i, atr_n, leg_now)
+        # ★ 2026-11-14：CE 的 dir_now / dir_prev 已从包里彻底删掉（无人读，留着只会误导）。
+        if hit and hit[0] == cur_bar and len(hit) >= 10:
+            return (hit[1], hit[2], hit[4], hit[5], hit[3],
+                    hit[6], hit[7], hit[8], hit[9])
 
         need = max(ce_len, z_len * 2, 100) + 80
         ks = await ctx.klines(sym, kline_iv, need)
@@ -1380,12 +1429,15 @@ class S15CeZlsma(Base):
         if i < 2 or ind["zlsma"][i] is None:
             return None
         atr_n = _atr_n(ks, 20)
+        # 第④条要用「时段」（ZLSMA50 实体穿越+下一根确认），不是 CE 的 dir。
+        # 一根 K 线只算一次，跟着 _bar_pack 的缓存走。
+        _leg_dir, _leg_ts_arr, _side_arr, _leg_starts = _zlsma_legs(
+            ks, ind, _LEG_MAX_WAIT)
         _S15_ZL_CACHE[ck] = (
             cur_bar, ind["zlsma"][i], ind["close"][i], ks[i].get("ts", i),
-            ind["dir"][i], ind["dir"][i - 1], ind["open"][i],
-            ind["bbw_pct"][i], ks, i, atr_n)
+            ind["open"][i], ind["bbw_pct"][i], ks, i, atr_n, int(_leg_dir[i] or 0))
         h = _S15_ZL_CACHE[ck]
-        return (h[1], h[2], h[6], h[4], h[5], h[7], h[3], h[8], h[9], h[10])
+        return (h[1], h[2], h[4], h[5], h[3], h[6], h[7], h[8], h[9])
 
     async def _half_take_profit(self, ctx, pos):
         """浮盈达 half_at_r（B 档 1.2R，从 yaml 读）且没平过一半 → 平掉 50%，剩一半放开跑。
