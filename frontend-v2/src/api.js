@@ -151,6 +151,20 @@ export const api = {
   toggleStrategy: (id, enabled) => post(`/api/strategies/${id}/toggle`, { enabled }),
   strategyConfig: (id, payload) => post(`/api/strategies/${id}/config`, payload),
   createStrategy: (base, name) => post('/api/strategies/create', { base, name }),
+  // ── 策略参数模板（presets）────────────────────────────────────────────
+  //   存放 param_presets.yaml（独立文件）；应用 = 写进 strategies.yaml 的 params
+  strategyPresets: (id) => get(`/api/strategies/${id}/presets`),
+  saveStrategyPreset: (id, payload) => post(`/api/strategies/${id}/presets`, payload),
+  applyStrategyPreset: (id, pid) => post(`/api/strategies/${id}/presets/${pid}/apply`, {}),
+  deleteStrategyPreset: async (id, pid) => {
+    if (READ_ONLY) throw _blockWrite('删除模板')
+    const r = await fetch(`/api/strategies/${id}/presets/${pid}`,
+                          { method: 'DELETE', headers: _hdr() })
+    const d = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(d.detail || `${r.status}`)
+    return d
+  },
+
   deleteStrategy: async (id) => {
     if (READ_ONLY) throw _blockWrite('删除策略')
     const r = await fetch(`/api/strategies/${id}`, { method: 'DELETE', headers: _hdr() })

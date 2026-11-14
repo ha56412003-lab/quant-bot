@@ -21,7 +21,8 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import (binance, config, daily_target, db, engine, executor, factors,
-               livekeys, netwatch, pool, quality, radar, risk, shadow, strategies, ws)
+               livekeys, netwatch, pool, presets, quality, radar, risk, shadow,
+               strategies, ws)
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -1147,6 +1148,130 @@ async def api_strategy_config(sid: str, payload: dict):
             pass
         raise HTTPException(400, "invalid config value")
     db.log("info", f"策略 {sid} 配置更新")
+    return {"ok": True}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 策略参数模板（presets）
+#   存放：param_presets.yaml（独立文件，不进 strategies.yaml —— 模板坏了策略照跑）
+#   应用：把模板里的值写进 strategies.yaml 的 params（config.set_strategy_params，
+#         bounds 校验 + ruamel 写回）→ engine 每轮重读 → 下一轮生效，不用重启
+#   内置：__defaults__ = 代码里的默认表（config._STRAT_PARAM_DEFAULTS），不存文件
+# ─────────────────────────────────────────────────────────────────────────────
+_PRESET_ID_MAX = 32
+
+
+def _cur_params(sid):
+    cfg = config.load_strategies()
+    scfg = (cfg.get("strategies") or {}).get(sid)
+    if not isinstance(scfg, dict):
+        raise HTTPException(404, f"unknown strategy {sid}")
+    return dict(scfg.get("params") or {})
+
+
+def _num_eq(a, b):
+    """数值容差比较：1.5 与 1.50 视为同一个值，别在差异表里刷噪音。"""
+    if isinstance(a, bool) or isinstance(b, bool):
+        return a == b
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return abs(float(a) - float(b)) < 1e-9
+    return a == b
+
+
+def _preset_diff(tpl, cur):
+    """模板 vs 当前：只比「当前也有的键」。模板里没有的键 = 不动，不参与比较。"""
+    out = []
+    for k, v in tpl.items():
+        if k in cur and not _num_eq(cur[k], v):
+            out.append({"k": k, "cur": cur[k], "tpl": v})
+    return out
+
+
+def _preset_id_ok(pid):
+    return bool(pid) and len(pid) <= _PRESET_ID_MAX and all(
+        c.isalnum() or c in "-_" for c in pid)
+
+
+@app.get("/api/strategies/{sid}/presets")
+async def api_presets(sid: str):
+    cur = _cur_params(sid)
+    defaults = config.strat_param_defaults(sid)
+    # 内置「默认版（代码默认值）」：只取当前也有的键，不塞新键进 yaml
+    dflt = {k: v for k, v in defaults.items() if k in cur}
+    dflt_diff = _preset_diff(dflt, cur)
+    items = []
+    for p in presets.list_for(sid):
+        tpl = {k: v for k, v in (p.get("params") or {}).items() if k in cur}
+        diff = _preset_diff(tpl, cur)
+        items.append({"id": p.get("id"), "name": p.get("name"),
+                      "note": p.get("note") or "", "created_ts": p.get("created_ts"),
+                      "auto": bool(p.get("auto")),
+                      "n": len(tpl), "diff_n": len(diff), "diff": diff})
+    return {"default_item": {"id": presets.DEFAULTS_ID,
+                             "name": "默认版（代码默认值）",
+                             "note": "代码里 _STRAT_PARAM_DEFAULTS 那张表，不是文件里存的",
+                             "auto": False, "n": len(dflt),
+                             "diff_n": len(dflt_diff), "diff": dflt_diff},
+            "items": items, "cur_n": len(cur),
+            "max": presets.MAX_PER_STRATEGY}
+
+
+@app.post("/api/strategies/{sid}/presets")
+async def api_preset_create(sid: str, payload: dict):
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "模板名不能为空")
+    if len(name) > 40:
+        raise HTTPException(400, "模板名最多 40 个字")
+    note = str(payload.get("note") or "").strip()
+    cur = _cur_params(sid)
+    try:
+        item = presets.create(sid, name, cur, note)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    db.log("info", f"策略 {sid} 保存参数模板「{name}」({item['id']})，{len(cur)} 项")
+    return {"ok": True, "preset": {k: item.get(k) for k in
+                                   ("id", "name", "note", "created_ts", "auto")}}
+
+
+@app.post("/api/strategies/{sid}/presets/{pid}/apply")
+async def api_preset_apply(sid: str, pid: str):
+    cur = _cur_params(sid)
+    if pid == presets.DEFAULTS_ID:
+        tpl = {k: v for k, v in config.strat_param_defaults(sid).items() if k in cur}
+        pname = "默认版（代码默认值）"
+    else:
+        if not _preset_id_ok(pid):
+            raise HTTPException(404, f"unknown preset {pid}")
+        p = presets.get(sid, pid)
+        if p is None:
+            raise HTTPException(404, f"unknown preset {pid}")
+        tpl = {k: v for k, v in (p.get("params") or {}).items() if k in cur}
+        pname = p.get("name") or pid
+    diff = _preset_diff(tpl, cur)
+    if not diff:
+        return {"ok": True, "applied": [], "preset": pid, "name": pname,
+                "note": "已经和这套模板一致，没有改动"}
+    # 切换前自动备份（单槽）：点错了能退回
+    try:
+        presets.backup(sid, cur)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("模板自动备份失败（不影响切换）：%s", exc)
+    patch = {d["k"]: d["tpl"] for d in diff}
+    config.set_strategy_params(sid, patch)   # bounds 校验 + yaml 写回，非法值会 400
+    db.log("info", f"策略 {sid} 应用参数模板「{pname}」：{len(diff)} 项生效"
+                   + "（" + "、".join(f"{d['k']} {d['cur']}→{d['tpl']}" for d in diff[:6])
+                   + ("…" if len(diff) > 6 else "") + "）")
+    return {"ok": True, "applied": diff, "preset": pid, "name": pname}
+
+
+@app.delete("/api/strategies/{sid}/presets/{pid}")
+async def api_preset_delete(sid: str, pid: str):
+    if not _preset_id_ok(pid):
+        raise HTTPException(404, f"unknown preset {pid}")
+    if not presets.delete(sid, pid):
+        raise HTTPException(404, f"unknown preset {pid}")
+    db.log("info", f"策略 {sid} 删除参数模板 {pid}")
     return {"ok": True}
 
 

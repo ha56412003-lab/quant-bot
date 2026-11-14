@@ -88,3 +88,4 @@ reports/smoke_fail_*.png
 # 不加这行会被上面的 *.bak_* / strategies.yaml.bak_* 规则挡掉。
 !deploy/yaml_archive/*
 !deploy/yaml_archive/**
+param_presets.yaml

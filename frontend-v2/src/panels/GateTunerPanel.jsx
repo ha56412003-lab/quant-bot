@@ -1,6 +1,7 @@
 import React from 'react'
-import { Card, Table, Switch, InputNumber, Button, Tag, Typography, Space, message, Tooltip, Modal } from 'antd'
+import { Card, Table, Switch, InputNumber, Button, Tag, Typography, Space, message, Tooltip, Modal, Select, Input } from 'antd'
 import { ReloadOutlined, SaveOutlined, RollbackOutlined } from '@ant-design/icons'
+import { api } from '../api'
 
 const { Text } = Typography
 
@@ -214,6 +215,153 @@ export default function GateTunerPanel({ row, onParamsSave }) {
 
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }))
 
+  // ── 参数模板（presets）──────────────────────────────────────────────────
+  //   存放 param_presets.yaml（独立文件）；载入 = 写进 strategies.yaml 的 params
+  //   ★ 载入前一定先弹「会变哪几项」，确认才写；切换前后端自动存一份当前值备份
+  const [presData, setPresData] = React.useState(null)
+  const [selPres, setSelPres] = React.useState('__defaults__')
+  const [presBusy, setPresBusy] = React.useState(false)
+  const [saveOpen, setSaveOpen] = React.useState(false)
+  const [saveName, setSaveName] = React.useState('')
+  const [saveNote, setSaveNote] = React.useState('')
+
+  const loadPresets = React.useCallback(async () => {
+    if (!row?.id) return
+    try {
+      setPresData(await api.strategyPresets(row.id))
+    } catch (e) {
+      // 模板列表拉不到不影响调参，静默即可
+    }
+  }, [row?.id])
+
+  React.useEffect(() => { loadPresets() }, [loadPresets])
+
+  const presOptions = React.useMemo(() => {
+    if (!presData) return []
+    const NUM = ['②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩', '⑪']
+    const out = [{
+      value: presData.default_item.id,
+      label: `① 默认版（代码默认值）· 差 ${presData.default_item.diff_n} 项`,
+    }]
+    ;(presData.items || []).forEach((p, i) => {
+      out.push({
+        value: p.id,
+        label: p.auto
+          ? `⚙ ${p.name}` + (p.created_ts ? `（${new Date(p.created_ts * 1000).toLocaleString('zh-CN', { hour12: false })}）` : '')
+          : `${NUM[i] || '·'} ${p.name} · 差 ${p.diff_n} 项`,
+      })
+    })
+    return out
+  }, [presData])
+
+  const selObj = React.useMemo(() => {
+    if (!presData) return null
+    if (selPres === presData.default_item.id) return presData.default_item
+    return (presData.items || []).find((p) => p.id === selPres) || null
+  }, [presData, selPres])
+
+  const applyPreset = () => {
+    if (!selObj) return
+    if (!selObj.diff_n) {
+      message.info('已经和这套模板一致，没有需要改的')
+      return
+    }
+    Modal.confirm({
+      title: `载入「${selObj.name}」：${selObj.diff_n} 项会变`,
+      width: 580,
+      content: (
+        <div style={{ fontSize: 12 }}>
+          <div style={{ color: '#c4182c', marginBottom: 8 }}>
+            确认后立刻写进线上参数，下一轮扫描就用新值（不用重启）。
+            切换前后端会自动把「现在的这一整套」存成一份备份，点错了能退回。
+          </div>
+          <div style={{ maxHeight: 300, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 4 }}>
+            <table style={{ width: '100%', fontSize: 11.5, borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: '#fafafa' }}>
+                  <th style={{ textAlign: 'left', padding: '4px 8px' }}>参数</th>
+                  <th style={{ textAlign: 'right', padding: '4px 8px' }}>现在</th>
+                  <th style={{ textAlign: 'right', padding: '4px 8px' }}>换成</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selObj.diff.map((d) => (
+                  <tr key={d.k} style={{ borderTop: '1px solid #f5f5f5' }}>
+                    <td style={{ padding: '4px 8px', fontFamily: 'ui-monospace, monospace' }}>{d.k}</td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right', color: '#8c8c8c' }}>{fmtVal(d.cur)}</td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 600, color: '#1a5fb4' }}>{fmtVal(d.tpl)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ),
+      okText: '确认载入',
+      cancelText: '先不动',
+      onOk: async () => {
+        setPresBusy(true)
+        try {
+          const r = await api.applyStrategyPreset(row.id, selObj.id)
+          if (!r.applied || !r.applied.length) {
+            message.info(r.note || '没有改动')
+          } else {
+            message.success(`已载入「${r.name}」：${r.applied.length} 项生效，下一轮扫描起用新值（面板数字 15 秒内刷新）`)
+          }
+          await loadPresets()
+        } catch (e) {
+          message.error('载入失败：' + e.message)
+        } finally {
+          setPresBusy(false)
+        }
+      },
+    })
+  }
+
+  const doSavePreset = async () => {
+    const name = String(saveName || '').trim()
+    if (!name) {
+      message.error('给这套模板起个名字')
+      return
+    }
+    setPresBusy(true)
+    try {
+      const r = await api.saveStrategyPreset(row.id, { name, note: String(saveNote || '').trim() })
+      setSaveOpen(false)
+      setSaveName('')
+      setSaveNote('')
+      await loadPresets()
+      if (r?.preset?.id) setSelPres(r.preset.id)
+      message.success(`已存成模板「${name}」，以后点「载入这套」就能一键切回来`)
+    } catch (e) {
+      message.error('保存失败：' + e.message)
+    } finally {
+      setPresBusy(false)
+    }
+  }
+
+  const delPreset = () => {
+    if (!selObj || selObj.id === (presData?.default_item?.id || '__defaults__')) return
+    Modal.confirm({
+      title: `删除模板「${selObj.name}」？`,
+      content: '只删这份存档，线上正在跑的参数一点不动。',
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '留着',
+      onOk: async () => {
+        try {
+          await api.deleteStrategyPreset(row.id, selObj.id)
+          setSelPres(presData?.default_item?.id || '__defaults__')
+          await loadPresets()
+          message.success('已删除')
+        } catch (e) {
+          message.error('删除失败：' + e.message)
+        }
+      },
+    })
+  }
+
+
   // ★ 定版默认值从后端读（row.defaults），前端不写死任何数字。
   //   以后改定版值只改 config.py 的 _STRAT_PARAM_DEFAULTS 一处。
   const DEFAULTS = React.useMemo(() => ({ ...(row?.defaults || {}) }), [row?.defaults])
@@ -412,6 +560,56 @@ export default function GateTunerPanel({ row, onParamsSave }) {
         </Space>
       }
     >
+      {/* ── 参数模板：①默认版 / ②③… 你自己存的每一套，一键切 ────────────── */}
+      <div className="gate-tuner-presets"
+           style={{ marginBottom: 12, padding: '8px 10px', background: '#fafafa',
+                    border: '1px solid #f0f0f0', borderRadius: 4 }}>
+        <Space size={8} wrap>
+          <Text strong style={{ fontSize: 12 }}>参数模板</Text>
+          <Select size="small" style={{ minWidth: 300 }} value={selPres}
+                  onChange={setSelPres} options={presOptions}
+                  loading={!presData} disabled={presBusy} />
+          <Button size="small" type="primary" ghost disabled={presBusy || !selObj || !selObj.diff_n}
+                  onClick={applyPreset}>
+            载入这套{selObj && selObj.diff_n ? ` (${selObj.diff_n} 项会变)` : ''}
+          </Button>
+          <Button size="small" disabled={presBusy || !presData}
+                  onClick={() => {
+                    const manual = (presData?.items || []).filter((x) => !x.auto).length
+                    setSaveName(`浩哥自定义版${manual + 1}`)
+                    setSaveNote('')
+                    setSaveOpen(true)
+                  }}>
+            把当前参数存成新模板
+          </Button>
+          <Button size="small" danger disabled={presBusy || !selObj
+                  || selObj.id === (presData?.default_item?.id || '__defaults__')}
+                  onClick={delPreset}>
+            删除这套
+          </Button>
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            模板只装策略参数（不含风控）；点载入先弹「会变哪几项」，确认才写，切换前自动备份
+          </Text>
+        </Space>
+      </div>
+
+      <Modal title="把当前参数存成一套模板" open={saveOpen} width={470}
+             onCancel={() => setSaveOpen(false)} onOk={doSavePreset}
+             okText="保存" cancelText="取消" confirmLoading={presBusy}>
+        <div style={{ fontSize: 12 }}>
+          <div style={{ marginBottom: 10, color: '#8c8c8c', lineHeight: 1.7 }}>
+            存的是「此刻线上这一整套参数」（共 {presData?.cur_n ?? 0} 项）。
+            以后在模板下拉里选中它、点「载入这套」，就能一键切回来。
+          </div>
+          <div style={{ marginBottom: 4 }}>模板名字</div>
+          <Input value={saveName} maxLength={40} onChange={(e) => setSaveName(e.target.value)}
+                 placeholder="比如：浩哥自定义版2" />
+          <div style={{ margin: '10px 0 4px' }}>备注（可不填，写清这版在试什么）</div>
+          <Input value={saveNote} maxLength={120} onChange={(e) => setSaveNote(e.target.value)}
+                 placeholder="比如：偏离闸放宽到 2.0 试试" />
+        </div>
+      </Modal>
+
       <Table
         className="gate-tuner-table"
         rowKey="key"
