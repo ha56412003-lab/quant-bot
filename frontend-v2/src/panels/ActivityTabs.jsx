@@ -150,7 +150,9 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
           {/* 池内池外只决定「能不能开新仓」，跟已持仓的币无关：
               仓位一旦开了就由持仓循环管到底（出场不看池）。
               给持仓币挂「池外」只会让人以为它没人管，所以只在未持仓时显示。 */}
-          {!r.in_monitor && !r.opened && <Tag color="default" style={{ marginLeft: 2, fontSize: 10, padding: '0 3px' }}>{t('gate.outPool')}</Tag>},
+          {/* ★ 2026-11-14 修视觉：这里原来 `</Tag>},` 的逗号落在 JSX 子节点里，
+              每行币种后面都会多印一个「,」（DOT, ARB, UNI, …）。去掉。 */}
+          {!r.in_monitor && !r.opened && <Tag color="default" style={{ marginLeft: 2, fontSize: 10, padding: '0 3px' }}>{t('gate.outPool')}</Tag>}
         </span>
       ) },
     { title: t('gate.col.dir'), dataIndex: 'dir', width: 30,
@@ -216,6 +218,20 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
         if (v == null) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
         const pass = v >= thr
         return <span title={`阈值 ${thr}`} style={{ color: pass ? 'var(--green, #52c41a)' : 'var(--mute, #8c8c8c)', fontSize: 12 }}>
+          {Number(v).toFixed(2)}
+        </span>
+      } },
+    // ⑦ ZLSMA 偏离闸（VS15-1.5，2026-11-14 上线）—— 离均线太远 = 追高追空。
+    //   ★ 这道是「越小越好」：zld < 门槛才算过，超了就被拒开仓。
+    //   门槛 0 = 闸关闭（1.4 及以前的行为），显示「关」而不是把 null 画成 ✗。
+    { title: t('gate.col.zl'), dataIndex: 'zld', width: 44, align: 'right',
+      render: (v, r) => {
+        const thr = r.zl_thr || 0
+        if (thr <= 0) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>关</span>
+        if (v == null) return <span style={{ color: 'var(--mute, #8c8c8c)' }}>-</span>
+        const pass = v < thr
+        return <span title={`离 ZLSMA50 ${Number(v).toFixed(2)} 倍平均波动，门槛 ${thr}（超过就不开仓）`}
+                     style={{ color: pass ? 'var(--green, #52c41a)' : 'var(--red, #c4182c)', fontSize: 12 }}>
           {Number(v).toFixed(2)}
         </span>
       } },
@@ -327,7 +343,6 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
             display: 'flex', flexWrap: 'wrap', gap: '1px 10px', alignItems: 'baseline',
           }}>
             <span style={{ opacity: .92 }}>{t('gate.bar')} {gateBar}</span>
-            {/* ★ VS15-1.2：⑦ 偏离闸已连代码带配置键一起删除，页头统计里不再有它。 */}
             {[['gate.col.ce', 'ce_n'], ['gate.col.ha', 'ha_n'], ['gate.col.key', 'key_n'],
               ['gate.col.bbw', 'bbw_n'],
               ['gate.col.risk', 'risk_n'], ['gate.col.eff', 'eff_n']].map(([k, f]) => (
@@ -335,6 +350,12 @@ export default function ActivityTabs({ signals, trades, logs, gates, events }) {
                 {t(k)} {g[f] || 0}/{gateRows.length}
               </span>
             ))}
+            {/* ⑦ 偏离：门槛 0 = 闸关闭，写「关」而不是「0/43」（否则像全被拦了）。
+                ★ VS15-1.2 曾把这道闸连代码带配置一起删掉，VS15-1.5 又装回来了，
+                  页头这行必须跟着回来，否则面板显示七道闸、统计只有六道。 */}
+            <span style={{ whiteSpace: 'nowrap' }}>
+              {t('gate.col.zl')} {(g.zl_thr || 0) > 0 ? `${g.zl_n || 0}/${gateRows.length}` : '关'}
+            </span>
             {/* ★ 2026-11-12 夜：BBW 豁免数单独一档，不并进 bbw_n ——
                 并进去数字好看，但就看不出「有多少单其实没环境背书」了。 */}
             {(g.bbw_exempt_n || 0) > 0 && (

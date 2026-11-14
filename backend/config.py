@@ -448,6 +448,8 @@ _STRAT_PARAM_DEFAULTS = {
     # ★ VS15-1.5 第④条「时段翻转平」：0 = 关（定版值），>0 = 往信号K线端点外让几倍 ATR20
     #   前端策略页的「启用」开关就是认这个键：开 = 写 0.2，关 = 写回 0。
     "stop_key_atr_buf_tight": 0.0,
+    # ★ VS15-1.5 第⑦道闸（ZLSMA 偏离）：定版值 1.5 倍 ATR20，0 = 关闸
+    "zlsma_ext_max": 1.5,
     "right_exit": True, "right_exit_strict": True, "flip_exit_early": 0,
     "reverse_enabled": False,
     # 右侧止盈用的关键K线门槛（独立于入场，取历史定版值 1.0/0.66/0.5）

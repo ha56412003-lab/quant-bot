@@ -884,6 +884,26 @@ def _eff_signal_min() -> float:
     return _EFF_SIG_CACHE["val"]
 
 
+# ── 第⑦道闸（ZLSMA 偏离）门槛，同样带 mtime 缓存 ──────────────────────
+# ★ 门槛值只有 yaml 一个真源，前端拿到 zl_thr 才画得出「超了/没超」；
+#   0 = 这道闸关闭（VS15-1.4 及以前的行为），前端要显示「关」而不是 0/43。
+_ZL_MAX_CACHE = {"mtime": 0.0, "val": 0.0}
+
+
+def _zl_max_signal() -> float:
+    """第⑦道闸门槛（strategies.yaml → S15 params → zlsma_ext_max）。"""
+    try:
+        mt = config.STRATEGIES_PATH.stat().st_mtime
+        if mt != _ZL_MAX_CACHE["mtime"]:
+            cfg = yaml.safe_load(config.STRATEGIES_PATH.read_text(encoding="utf-8")) or {}
+            p = ((cfg.get("strategies") or {}).get("S15_CE_ZLSMA") or {}).get("params") or {}
+            _ZL_MAX_CACHE["val"] = float(p.get("zlsma_ext_max") or 0.0)
+            _ZL_MAX_CACHE["mtime"] = mt
+    except Exception as exc:  # noqa: BLE001
+        log.debug("read zlsma_ext_max failed: %s", exc)
+    return _ZL_MAX_CACHE["val"]
+
+
 @app.get("/api/gates")
 async def api_gates():
     """进场闸门诊断：监控池每个币最新一根 15m 的七道闸状态。
@@ -911,6 +931,7 @@ async def api_gates():
     # ★ 2026-11-09 再修：池外的币永远不会被扫描，_GATE_STATE 是历史残留。
     #   照旧显示「全过·待成交」会让人以为在排队等开仓（实际等到天亮也不开）。
     #   池外一律明说「池外」，并尽可能带上被踢原因（EFF 不达标 / 池满）。
+    zl_max = _zl_max_signal()
     held = {p["symbol"] for p in db.open_positions()}
     sig_map = {}
     try:
@@ -983,6 +1004,9 @@ async def api_gates():
                      "opened": sym in held, "verdict": verdict,
                      **v,                                  # 含 key（关键K线）/ eff（进场 EFF）
                      "eff_thr": eff_sig,                   # 逐行给门槛，前端才能画 0.73/0.30
+                     # 第⑦道闸：偏离值 zld 由 strategies 扫描时写进 _GATE_STATE（单位 ATR）；
+                     # 门槛逐行下发，前端不写死 1.5（改 yaml 立刻生效）。
+                     "zl_thr": zl_max,
                      "pool_eff": (qdata.get(sym) or {}).get("eff"),
                      "why": verdict})
     # 有戏的排前面：在池 > 全闸通过 > 时段方向 > HA 成立 > 止损合适 > BBW 高
@@ -1009,6 +1033,11 @@ async def api_gates():
         "eff_n": sum(1 for r in rows
                      if r.get("eff") is not None and r["eff"] >= eff_sig),
         "eff_thr": eff_sig,
+        # ⑦ ZLSMA 偏离：zld < 门槛才算过；门槛 0 = 闸关闭（zl_n 记 0，
+        #   前端看到 zl_thr=0 会显示「关」，不会误报成「一个都没过」）
+        "zl_n": sum(1 for r in rows
+                    if zl_max > 0 and r.get("zld") is not None and r["zld"] < zl_max),
+        "zl_thr": zl_max,
         "bbw_thr": next((r.get("bbw_thr") for r in rows if r.get("bbw_thr")), 70),
     }
 

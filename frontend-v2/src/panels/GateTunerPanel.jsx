@@ -5,7 +5,7 @@ import { ReloadOutlined, SaveOutlined, RollbackOutlined } from '@ant-design/icon
 const { Text } = Typography
 
 /**
- * S15 六道闸手动调参
+ * S15 七道闸手动调参
  * ─────────────────────────────────────────────────────────────
  * 位置：策略库页面 S15 策略表格下方
  * 数据源：全部从 row.params（后端 strategies.yaml 实时值）读，前端不写死任何门槛
@@ -44,7 +44,7 @@ const GATES = [
         + '① 身子够大：K 线实体至少等于平时一根的平均波动幅度\n'
         + '② 收得够边：收盘价落在最高／最低的那一小块，不是冲出去又拉回来\n'
         + '③ 不是长影线：实体占整根（连影线）的一半以上\n'
-        + '这是六道闸里最窄的一道，八成以上的信号都卡在这里。',
+        + '这是七道闸里最窄的一道，八成以上的信号都卡在这里。',
     params: [
       { k: 'key_bar', label: '启用', hint: '关掉 = 这道闸不查了', type: 'bool' },
       { k: 'key_mult', label: '身子倍数', hint: 'K线身子要比平时大几倍。1.0 = 跟平时差不多大就行；调大更严格、开仓更少', type: 'num', step: 0.1, min: 0 },
@@ -93,9 +93,22 @@ const GATES = [
       { k: 'eff_win_signal', label: '看多远', hint: '往回看多少根 K 线来算。48 根 = 12 小时', type: 'num', step: 1, min: 0 },
     ],
   },
+  {
+    no: '⑦', id: 'zl', name: '离均线多远',
+    q: '现在进场，是不是在追高／追低？',
+    desc: 'ZLSMA50 是这波趋势的中轴线。拿最新一根 K 线的收盘价，看它离这条线有多远，'
+        + '用「平均波动幅度」（ATR20）来量。\n'
+        + '· 离得近（1 倍以内）：刚起步，跟着走风险小\n'
+        + '· 离得远（超过 1.5 倍）：这一波已经走了大半，这时候进去等于接最后一棒\n'
+        + '\n★ 实测（2026-11-14，双样本同向）：50 币池从亏 124R 变成赚 27R —— 这道闸是'
+        + ' VS15-1.5 唯一真正把结果翻正的东西。0 = 关掉这道闸（回到 1.4 的行为）。',
+    params: [
+      { k: 'zlsma_ext_max', label: '最多离多远', hint: '离 ZLSMA50 超过这个倍数「平均波动幅度」就不开仓。1.5 = 1.5 倍；0 = 不管这道闸（关掉）', type: 'num', step: 0.1, min: 0, max: 30 },
+    ],
+  },
 ]
 
-// 止损价格怎么定 —— 不占六道闸的位置，但直接决定第⑤道闸那个百分比
+// 止损价格怎么定 —— 不占七道闸的位置，但直接决定第⑤道闸那个百分比
 const STOP_ALGO = [
   { k: 'stop_key', label: '关键K线端点',
     hint: '止损就放在信号那根 K 线的最低点（做多）／最高点（做空）。跌破它，说明这根 K 线的力量已经被否掉了',
@@ -212,7 +225,7 @@ export default function GateTunerPanel({ row, onParamsSave }) {
   const UI_KEYS = React.useMemo(() => {
     const s = new Set()
     // ★ GATES 是两层结构（每道闸有个 params 数组），另外三个常量是扁平数组 ——
-    //   这里写错过一次：用 g.fields 取不到东西，导致六道闸上的 4 个参数
+    //   这里写错过一次：用 g.fields 取不到东西，导致七道闸上的 4 个参数
     //   被「恢复默认」无视（按钮显示 1 项，实际该是 5 项）。
     GATES.forEach((g) => (g.params || []).forEach((f) => s.add(f.k)))
     STOP_ALGO.forEach((f) => s.add(f.k))
@@ -291,7 +304,7 @@ export default function GateTunerPanel({ row, onParamsSave }) {
 
   if (!row) {
     return (
-      <Card size="small" title="S15 六道闸手动调参">
+      <Card size="small" title="S15 七道闸手动调参">
         <Text type="secondary">没找到 S15 策略，无法调参。</Text>
       </Card>
     )
@@ -371,7 +384,7 @@ export default function GateTunerPanel({ row, onParamsSave }) {
       style={{ marginTop: 12 }}
       title={
         <Space size={8} wrap>
-          <span>S15 六道闸手动调参</span>
+          <span>S15 七道闸手动调参</span>
           <Tag color="blue" style={{ fontSize: 11 }}>{row.id}</Tag>
           <Text type="secondary" style={{ fontSize: 11, fontWeight: 400 }}>
             鼠标停在任何参数名上，会弹出这个参数怎么读
@@ -412,7 +425,7 @@ export default function GateTunerPanel({ row, onParamsSave }) {
       <div className="gate-tuner-algo-head" style={{ marginTop: 14, marginBottom: 6 }}>
         <Text strong style={{ fontSize: 12.5 }}>止损价是怎么算出来的</Text>
         <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
-          不占六道闸的位置，但它决定第⑤道闸那个百分比，所以放这里一起调
+          不占七道闸的位置，但它决定第⑤道闸那个百分比，所以放这里一起调
         </Text>
       </div>
 
