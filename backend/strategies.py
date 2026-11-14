@@ -721,7 +721,7 @@ class S15CeZlsma(Base):
                 # ★ VS15-1.5：第⑦道闸（ZLSMA 偏离）也要 ATR20 → 开这道闸时同样必须算
                 atr_n = (_atr_n(ks, 20)
                          if (key_bar or stop_key
-                             or float(self._p("zlsma_ext_max", 0.0)) > 0) else None)
+                             or float(self._p("zlsma_ext_max", 1.5)) > 0) else None)
 
                 i = len(ks) - 2          # 最后一根已收完的 K 线
                 if i < 1 or i < swing_lb:
@@ -937,7 +937,7 @@ class S15CeZlsma(Base):
                 #    ★ 口径：c 是 HA 收盘、z 是 HA 序列算的 ZLSMA50、ATR 是 _atr_n(ks,20)
                 #      —— 三者同一序列，与回测脚本一字不差。
                 #    zlsma_ext_max = 0 → 关闭（恢复 VS15-1.4 行为）。
-                _zl_max = float(self._p("zlsma_ext_max", 0.0))
+                _zl_max = float(self._p("zlsma_ext_max", 1.5))
                 if _zl_max > 0:
                     _a20 = 0.0
                     if atr_n is not None and i < len(atr_n) and atr_n[i]:

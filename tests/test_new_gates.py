@@ -143,6 +143,10 @@ def make_strategy(**over):
         "min_stop_dist_pct": 0.0,
         # 趋势效率门槛同理：合成数据 EFF 很低，默认 0.3 会把它们全挡掉
         "eff_min_signal": 0.0,
+        # 第⑦道闸（均线偏离）同理：代码兜底已从 0.0 改为 1.5（防止 yaml 丢键时
+        # 保护静默失效），而合成 K 线的偏离动辄 >1.5 ATR。这里必须显式关掉，
+        # 否则 A/C/D/G 各组会被这道闸挡掉，测的就不是它们本来要测的规则了。
+        "zlsma_ext_max": 0.0,
         "reverse_enabled": False,                  # 反手默认关（回测已证伪）
     }
     st.p.update(over)

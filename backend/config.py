@@ -74,18 +74,6 @@ def _audit_old(sid, key):
         return None
 
 
-def _audit_old_global(key, sub=None):
-    """取全局配置当前值（key 可以是 'risk_per_trade_pct' 或 ('daily_target','target_usd')）。"""
-    try:
-        cfg = load_strategies()
-        g = cfg.get("global", {}) or {}
-        if sub is None:
-            return g.get(key)
-        return (g.get(key) or {}).get(sub)
-    except Exception:  # noqa: BLE001
-        return None
-
-
 def audit_rejected(action, target, detail, err):
     """记一条**被拒绝**的写入。
 
